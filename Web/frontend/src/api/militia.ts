@@ -38,11 +38,15 @@ export async function searchMilitia(params: {
   unitCode?: string
   page?: number
   limit?: number
-}): Promise<MilitiaSearchResult[]> {
+}): Promise<MilitiaPaginatedResponse<MilitiaSearchResult>> {
   const response = await client.get('/militia', { params: { limit: 20, page: 1, ...params } })
-  // Backend returns paginated envelope; extract data array
   const body = response.data
-  return Array.isArray(body) ? body : (body?.data ?? [])
+  // Backend returns paginated envelope { data, total, page, limit }
+  // Guard: if backend returns a raw array (legacy), wrap it
+  if (Array.isArray(body)) {
+    return { data: body, total: body.length, page: params.page ?? 1, limit: params.limit ?? 20 }
+  }
+  return body
 }
 
 export async function getMilitiaById(id: string): Promise<MilitiaListItem> {
