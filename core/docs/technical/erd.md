@@ -1,6 +1,6 @@
 # ERD
 Task ID: TASK-2026-001
-Database: PostgreSQL 18 (`MMS_Core`)
+Database: PostgreSQL 18 (`MMS`)
 
 ## Tables and constraints
 

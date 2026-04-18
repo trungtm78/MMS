@@ -1,9 +1,42 @@
 import { useState } from 'react';
 import { Search, Filter, Calendar, MapPin, User as UserIcon } from 'lucide-react';
+import { SmartSelect, SmartSelectOption } from './ui/smart-select';
 
 interface MilitiaSearchProps {
   onViewProfile: (id: string) => void;
 }
+
+const searchByOptions: SmartSelectOption[] = [
+  { value: 'name', label: 'Tìm theo tên' },
+  { value: 'id', label: 'Tìm theo mã DQTV' },
+  { value: 'cccd', label: 'Tìm theo số CCCD' },
+];
+
+const unitOptions: SmartSelectOption[] = [
+  { value: '', label: 'Tất cả khu vực' },
+  { value: 'Khu phố 1', label: 'Khu phố 1' },
+  { value: 'Khu phố 2', label: 'Khu phố 2' },
+  { value: 'Khu phố 3', label: 'Khu phố 3' },
+  { value: 'Khu phố 4', label: 'Khu phố 4' },
+  { value: 'Khu phố 5', label: 'Khu phố 5' },
+  { value: 'Khu phố 6', label: 'Khu phố 6' },
+];
+
+const positionOptions: SmartSelectOption[] = [
+  { value: '', label: 'Tất cả chức vụ' },
+  { value: 'Chỉ huy trưởng', label: 'Chỉ huy trưởng' },
+  { value: 'Phó chỉ huy', label: 'Phó chỉ huy' },
+  { value: 'Tổ trưởng', label: 'Tổ trưởng' },
+  { value: 'Tổ phó', label: 'Tổ phó' },
+  { value: 'Chiến sĩ', label: 'Chiến sĩ' },
+];
+
+const statusOptions: SmartSelectOption[] = [
+  { value: '', label: 'Tất cả trạng thái' },
+  { value: 'active', label: 'Đang hoạt động' },
+  { value: 'reserve', label: 'Dự bị' },
+  { value: 'inactive', label: 'Đã xuất ngũ' },
+];
 
 const mockSearchResults = [
   { 
@@ -99,15 +132,12 @@ export function MilitiaSearch({ onViewProfile }: MilitiaSearchProps) {
             <label className="block text-sm font-medium text-gray-700 mb-3">Tìm kiếm nhanh</label>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <select
+                <SmartSelect
+                  options={searchByOptions}
                   value={searchBy}
-                  onChange={(e) => setSearchBy(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-                >
-                  <option value="name">Tìm theo tên</option>
-                  <option value="id">Tìm theo mã DQTV</option>
-                  <option value="cccd">Tìm theo số CCCD</option>
-                </select>
+                  onChange={setSearchBy}
+                  allowClear={false}
+                />
               </div>
               <div className="col-span-2">
                 <div className="relative">
@@ -145,47 +175,36 @@ export function MilitiaSearch({ onViewProfile }: MilitiaSearchProps) {
             <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-200">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Khu vực</label>
-                <select
+                <SmartSelect
+                  options={unitOptions}
                   value={unitFilter}
-                  onChange={(e) => setUnitFilter(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-                >
-                  <option value="">Tất cả khu vực</option>
-                  <option value="Khu phố 1">Khu phố 1</option>
-                  <option value="Khu phố 2">Khu phố 2</option>
-                  <option value="Khu phố 3">Khu phố 3</option>
-                  <option value="Khu phố 4">Khu phố 4</option>
-                  <option value="Khu phố 5">Khu phố 5</option>
-                  <option value="Khu phố 6">Khu phố 6</option>
-                </select>
+                  onChange={setUnitFilter}
+                  placeholder="Tất cả khu vực"
+                  searchPlaceholder="Tìm khu vực..."
+                  allowClear={false}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Chức vụ</label>
-                <select
+                <SmartSelect
+                  options={positionOptions}
                   value={positionFilter}
-                  onChange={(e) => setPositionFilter(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-                >
-                  <option value="">Tất cả chức vụ</option>
-                  <option value="Chỉ huy trưởng">Chỉ huy trưởng</option>
-                  <option value="Phó chỉ huy">Phó chỉ huy</option>
-                  <option value="Tổ trưởng">Tổ trưởng</option>
-                  <option value="Tổ phó">Tổ phó</option>
-                  <option value="Chiến sĩ">Chiến sĩ</option>
-                </select>
+                  onChange={setPositionFilter}
+                  placeholder="Tất cả chức vụ"
+                  searchPlaceholder="Tìm chức vụ..."
+                  allowClear={false}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Trạng thái</label>
-                <select
+                <SmartSelect
+                  options={statusOptions}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-                >
-                  <option value="">Tất cả trạng thái</option>
-                  <option value="active">Đang hoạt động</option>
-                  <option value="reserve">Dự bị</option>
-                  <option value="inactive">Đã xuất ngũ</option>
-                </select>
+                  onChange={setStatusFilter}
+                  placeholder="Tất cả trạng thái"
+                  searchPlaceholder="Tìm trạng thái..."
+                  allowClear={false}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Năm sinh từ</label>

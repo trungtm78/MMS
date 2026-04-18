@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Search, Plus, Edit, Lock, Unlock } from 'lucide-react';
+import { SmartSelect, SmartSelectOption } from './ui/smart-select';
 
 const userData = [
   { id: 1, username: 'nguyen.van.an', name: 'Đại úy Nguyễn Văn An', role: 'Quản trị viên', status: 'active', lastLogin: '22/01/2026 14:30' },
@@ -19,9 +20,16 @@ const permissions = [
   { module: 'Cài đặt hệ thống', view: false, create: false, edit: false, delete: false },
 ];
 
+const roleOptions: SmartSelectOption[] = [
+  { value: 'admin', label: 'Quản trị viên' },
+  { value: 'editor', label: 'Biên tập viên' },
+  { value: 'user', label: 'Người dùng' },
+];
+
 export function UserManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showPermissions, setShowPermissions] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('admin');
 
   const filteredUsers = userData.filter(user =>
     user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -123,11 +131,15 @@ export function UserManagement() {
           <div className="p-6">
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">Chọn vai trò để xem/chỉnh sửa quyền</label>
-              <select className="w-full max-w-md px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                <option>Quản trị viên</option>
-                <option>Biên tập viên</option>
-                <option>Người dùng</option>
-              </select>
+              <div className="max-w-md">
+                <SmartSelect
+                  options={roleOptions}
+                  value={selectedRole}
+                  onChange={setSelectedRole}
+                  placeholder="Chọn vai trò"
+                  searchPlaceholder="Tìm vai trò..."
+                />
+              </div>
             </div>
 
             <div className="overflow-x-auto">

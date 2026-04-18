@@ -1,5 +1,6 @@
 import { ClipboardList, MapPin, User, Calendar, AlertCircle, Save, X, Plus, Search, Filter, Upload, FileText, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { SmartSelect, SmartSelectMulti, SmartSelectOption } from './ui/smart-select';
 
 interface Personnel {
   id: string;
@@ -132,6 +133,35 @@ export function NewTask() {
       currentTasks: '6 nhiệm vụ'
     },
   ];
+
+  const taskTypeOptions: SmartSelectOption[] = useMemo(() => 
+    taskTypes.map(type => ({
+      value: type.id,
+      label: type.name,
+      icon: <span>{type.icon}</span>
+    })), [taskTypes]);
+
+  const priorityOptions: SmartSelectOption[] = useMemo(() =>
+    priorities.map(p => ({
+      value: p.id,
+      label: p.name
+    })), [priorities]);
+
+  const districtOptions: SmartSelectOption[] = useMemo(() => [
+    { value: '1', label: 'Khu phố 1' },
+    { value: '2', label: 'Khu phố 2' },
+    { value: '3', label: 'Khu phố 3' },
+    { value: '4', label: 'Khu phố 4' },
+    { value: '5', label: 'Khu phố 5' },
+    { value: '6', label: 'Khu phố 6' },
+  ], []);
+
+  const personnelOptions: SmartSelectOption[] = useMemo(() =>
+    availablePersonnel.map(p => ({
+      value: p.id,
+      label: p.name,
+      description: `${p.district} • ${p.currentTasks} • ${p.status === 'available' ? 'Sẵn sàng' : 'Bận'}`
+    })), [availablePersonnel]);
 
   const filteredPersonnel = availablePersonnel.filter(person => {
     const matchesSearch = person.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -333,16 +363,13 @@ export function NewTask() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Loại nhiệm vụ <span className="text-[#C62828]">*</span>
                 </label>
-                <select 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] bg-white"
+                <SmartSelect
+                  options={taskTypeOptions}
                   value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                >
-                  <option value="">Chọn loại</option>
-                  {taskTypes.map(type => (
-                    <option key={type.id} value={type.id}>{type.icon} {type.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setFormData({ ...formData, type: val })}
+                  placeholder="Chọn loại"
+                  searchPlaceholder="Tìm loại nhiệm vụ..."
+                />
               </div>
 
               {/* Priority */}
@@ -350,16 +377,13 @@ export function NewTask() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Mức độ ưu tiên <span className="text-[#C62828]">*</span>
                 </label>
-                <select 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] bg-white"
+                <SmartSelect
+                  options={priorityOptions}
                   value={formData.priority}
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                >
-                  <option value="">Chọn mức độ</option>
-                  {priorities.map(priority => (
-                    <option key={priority.id} value={priority.id}>{priority.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setFormData({ ...formData, priority: val })}
+                  placeholder="Chọn mức độ"
+                  searchPlaceholder="Tìm mức độ..."
+                />
               </div>
 
               {/* Deadline */}
@@ -457,19 +481,13 @@ export function NewTask() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Khu phố
               </label>
-              <select 
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] bg-white"
+              <SmartSelect
+                options={districtOptions}
                 value={formData.district}
-                onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              >
-                <option value="">Chọn khu phố</option>
-                <option value="1">Khu phố 1</option>
-                <option value="2">Khu phố 2</option>
-                <option value="3">Khu phố 3</option>
-                <option value="4">Khu phố 4</option>
-                <option value="5">Khu phố 5</option>
-                <option value="6">Khu phố 6</option>
-              </select>
+                onChange={(val) => setFormData({ ...formData, district: val })}
+                placeholder="Chọn khu phố"
+                searchPlaceholder="Tìm khu phố..."
+              />
             </div>
           </div>
         </div>
@@ -524,27 +542,31 @@ export function NewTask() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <select
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] bg-white"
+            <SmartSelect
+              options={[
+                { value: '', label: 'Tất cả khu phố' },
+                { value: 'KP 1', label: 'Khu phố 1' },
+                { value: 'KP 2', label: 'Khu phố 2' },
+                { value: 'KP 3', label: 'Khu phố 3' },
+                { value: 'KP 4', label: 'Khu phố 4' },
+                { value: 'KP 5', label: 'Khu phố 5' },
+              ]}
               value={filterDistrict}
-              onChange={(e) => setFilterDistrict(e.target.value)}
-            >
-              <option value="">Tất cả khu phố</option>
-              <option value="KP 1">Khu phố 1</option>
-              <option value="KP 2">Khu phố 2</option>
-              <option value="KP 3">Khu phố 3</option>
-              <option value="KP 4">Khu phố 4</option>
-              <option value="KP 5">Khu phố 5</option>
-            </select>
-            <select
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] bg-white"
+              onChange={setFilterDistrict}
+              placeholder="Tất cả khu phố"
+              searchPlaceholder="Tìm khu phố..."
+            />
+            <SmartSelect
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                { value: 'available', label: 'Sẵn sàng' },
+                { value: 'busy', label: 'Bận' },
+              ]}
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="available">Sẵn sàng</option>
-              <option value="busy">Bận</option>
-            </select>
+              onChange={setFilterStatus}
+              placeholder="Tất cả trạng thái"
+              searchPlaceholder="Tìm trạng thái..."
+            />
           </div>
 
           {/* Personnel List */}

@@ -1,0 +1,67 @@
+Clone found (sql):
+ - [1m[32msrc\db\migrations\004_attendance_gps.sql[39m[22m [46:2 - 54:13] (8 lines, 113 tokens)
+   [1m[32msrc\db\migrations\004_attendance_gps.sql[39m[22m [32:2 - 40:12]
+
+Clone found (sql):
+ - [1m[32msrc\db\migrations\002_personnel.sql[39m[22m [31:2 - 40:4] (9 lines, 132 tokens)
+   [1m[32msrc\db\migrations\002_personnel.sql[39m[22m [8:2 - 17:2]
+
+Clone found (typescript):
+ - [1m[32msrc\services\user.service.ts[39m[22m [196:10 - 220:23] (24 lines, 198 tokens)
+   [1m[32msrc\services\user.service.ts[39m[22m [144:7 - 168:28]
+
+Clone found (typescript):
+ - [1m[32msrc\services\user.service.ts[39m[22m [221:10 - 249:26] (28 lines, 202 tokens)
+   [1m[32msrc\services\user.service.ts[39m[22m [169:7 - 196:22]
+
+Clone found (typescript):
+ - [1m[32msrc\services\report.service.ts[39m[22m [94:10 - 107:29] (13 lines, 100 tokens)
+   [1m[32msrc\services\report.service.ts[39m[22m [47:9 - 62:18]
+
+Clone found (typescript):
+ - [1m[32msrc\services\notification.service.ts[39m[22m [161:12 - 180:31] (19 lines, 112 tokens)
+   [1m[32msrc\services\notification.service.ts[39m[22m [121:2 - 140:36]
+
+Clone found (typescript):
+ - [1m[32msrc\services\leave.service.ts[39m[22m [68:18 - 75:46] (7 lines, 86 tokens)
+   [1m[32msrc\services\task.service.ts[39m[22m [57:17 - 64:46]
+
+Clone found (typescript):
+ - [1m[32msrc\services\incident.service.ts[39m[22m [31:21 - 38:46] (7 lines, 86 tokens)
+   [1m[32msrc\services\task.service.ts[39m[22m [57:17 - 64:46]
+
+Clone found (typescript):
+ - [1m[32msrc\services\auth.service.ts[39m[22m [394:13 - 401:7] (7 lines, 93 tokens)
+   [1m[32msrc\services\auth.service.ts[39m[22m [359:9 - 366:12]
+
+Clone found (typescript):
+ - [1m[32msrc\routes\leave.routes.ts[39m[22m [83:30 - 94:8] (11 lines, 86 tokens)
+   [1m[32msrc\routes\tasks.routes.ts[39m[22m [33:20 - 44:5]
+
+Clone found (typescript):
+ - [1m[32msrc\routes\auth.routes.ts[39m[22m [182:21 - 190:71] (8 lines, 100 tokens)
+   [1m[32msrc\routes\auth.routes.ts[39m[22m [123:14 - 131:6]
+
+Clone found (typescript):
+ - [1m[32msrc\routes\alerts.routes.ts[39m[22m [30:9 - 40:12] (10 lines, 77 tokens)
+   [1m[32msrc\routes\reports.routes.ts[39m[22m [69:11 - 78:5]
+
+Clone found (typescript):
+ - [1m[32msrc\middleware\auth.ts[39m[22m [154:12 - 164:36] (10 lines, 92 tokens)
+   [1m[32msrc\middleware\auth.ts[39m[22m [130:6 - 140:6]
+
+Clone found (typescript):
+ - [1m[32msrc\db\migrate.ts[39m[22m [76:9 - 86:19] (10 lines, 89 tokens)
+   [1m[32msrc\db\migrate.ts[39m[22m [9:14 - 19:28]
+
+[90m┌────────────[39m[90m┬────────────────[39m[90m┬─────────────[39m[90m┬──────────────[39m[90m┬──────────────[39m[90m┬──────────────────[39m[90m┬───────────────────┐[39m
+[90m│[39m[31m Format     [39m[90m│[39m[31m Files analyzed [39m[90m│[39m[31m Total lines [39m[90m│[39m[31m Total tokens [39m[90m│[39m[31m Clones found [39m[90m│[39m[31m Duplicated lines [39m[90m│[39m[31m Duplicated tokens [39m[90m│[39m
+[90m├────────────[39m[90m┼────────────────[39m[90m┼─────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────────[39m[90m┼───────────────────┤[39m
+[90m│[39m sql        [90m│[39m 12             [90m│[39m 923         [90m│[39m 11420        [90m│[39m 2            [90m│[39m 17 (1.84%)       [90m│[39m 245 (2.15%)       [90m│[39m
+[90m├────────────[39m[90m┼────────────────[39m[90m┼─────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────────[39m[90m┼───────────────────┤[39m
+[90m│[39m typescript [90m│[39m 35             [90m│[39m 6005        [90m│[39m 50441        [90m│[39m 12           [90m│[39m 154 (2.56%)      [90m│[39m 1321 (2.62%)      [90m│[39m
+[90m├────────────[39m[90m┼────────────────[39m[90m┼─────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────────[39m[90m┼───────────────────┤[39m
+[90m│[39m [1mTotal:[22m     [90m│[39m 47             [90m│[39m 6928        [90m│[39m 61861        [90m│[39m 14           [90m│[39m 171 (2.47%)      [90m│[39m 1566 (2.53%)      [90m│[39m
+[90m└────────────[39m[90m┴────────────────[39m[90m┴─────────────[39m[90m┴──────────────[39m[90m┴──────────────[39m[90m┴──────────────────[39m[90m┴───────────────────┘[39m
+[90mFound 14 clones.[39m
+[3m[90mDetection time:[39m[23m: 1.830s

@@ -1,0 +1,6 @@
+src/services/attendance.service.ts:48:  const today = new Date().toISOString().split('T')[0];
+src/services/attendance.service.ts:61:  const now = new Date();
+src/services/attendance.service.ts:97:  const today = new Date().toISOString().split('T')[0];
+src/services/attendance.service.ts:109:  const now = new Date();
+src/services/attendance.service.ts:140:  const today = new Date().toISOString().split('T')[0];
+src/services/attendance.service.ts:210:  const now = new Date();
