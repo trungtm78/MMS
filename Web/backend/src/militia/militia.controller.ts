@@ -1,0 +1,103 @@
+// US-SS-01: MilitiaController — search + quick-create
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Request,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  DefaultValuePipe,
+  ParseIntPipe,
+} from '@nestjs/common';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  Length,
+  Matches,
+} from 'class-validator';
+import { MilitiaService, CreateMilitiaDto } from './militia.service';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { SearchQueryDto } from '../common/dto/search-query.dto';
+import type { JwtPayload } from '../auth/auth.service';
+
+export class QuickCreateMilitiaDto implements CreateMilitiaDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(3, 30)
+  @Matches(/^[A-Z0-9-]+$/, {
+    message: 'militiaCode must be uppercase letters, digits, hyphens',
+  })
+  militiaCode: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(2, 100)
+  fullName: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  rank?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  unitCode: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: 'male' | 'female';
+
+  @IsOptional()
+  @IsString()
+  dob?: string;
+
+  @IsOptional()
+  @IsString()
+  position?: string;
+
+  @IsOptional()
+  @IsString()
+  joinDate?: string;
+}
+
+@Controller('militia')
+@UseGuards(JwtAuthGuard)
+export class MilitiaController {
+  constructor(private readonly militiaService: MilitiaService) {}
+
+  // GET /militia?q=&unitCode=&page=&limit= — paginated list with unitScope enforcement
+  @Get()
+  listMilitia(
+    @Request() req: { user: JwtPayload },
+    @Query('q') q?: string,
+    @Query('unitCode') unitCode?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ) {
+    return this.militiaService.searchMilitia(req.user, { q, unitCode, page, limit });
+  }
+
+  // US-SS-01 AC-1: GET /militia/search?q=&unitCode=&limit=
+  @Get('search')
+  async search(@Query() query: SearchQueryDto) {
+    return this.militiaService.search(
+      query.q ?? '',
+      query.unitCode,
+      query.limit ?? 20,
+    );
+  }
+
+  // US-SS-05 AC-1: POST /militia/quick-create — inline quick-create
+  @Post('quick-create')
+  @HttpCode(HttpStatus.CREATED)
+  async quickCreate(@Body() dto: QuickCreateMilitiaDto) {
+    return this.militiaService.quickCreate(dto);
+  }
+}
