@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { User, Lock, Eye, EyeOff, AlertCircle, Shield } from 'lucide-react';
 import logoImage from 'figma:asset/e84ffc931c5c4f64112e2ce4f8a20298edf80518.png';
 
-import type { Role, UserData } from '../types/app';
-
 interface LoginProps {
-  onLogin: (role: Role, userData: UserData) => void;
+  onLogin: (role: 'dqtv' | 'police', userData: any) => void;
 }
 
 export function Login({ onLogin }: LoginProps) {

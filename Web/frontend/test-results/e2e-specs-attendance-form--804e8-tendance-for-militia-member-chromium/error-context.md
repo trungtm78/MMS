@@ -1,0 +1,96 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e8]: M
+        - generic [ref=e9]:
+          - paragraph [ref=e10]: MMS
+          - paragraph [ref=e11]: Quản lý DQTV
+      - navigation [ref=e12]:
+        - button "Tổng quan" [ref=e13]:
+          - img [ref=e14]
+          - generic [ref=e19]: Tổng quan
+        - button "Nhân sự DQTV" [ref=e20]:
+          - img [ref=e21]
+          - generic [ref=e26]: Nhân sự DQTV
+        - button "Quản lý tài khoản" [ref=e27]:
+          - img [ref=e28]
+          - generic [ref=e31]: Quản lý tài khoản
+        - button "Giao việc" [ref=e32]:
+          - img [ref=e33]
+          - generic [ref=e36]: Giao việc
+        - button "Chấm công" [ref=e37]:
+          - img [ref=e38]
+          - generic [ref=e41]: Chấm công
+        - button "Đơn nghỉ phép" [ref=e42]:
+          - img [ref=e43]
+          - generic [ref=e47]: Đơn nghỉ phép
+        - button "SOS / Cảnh báo" [ref=e48]:
+          - img [ref=e49]
+          - generic [ref=e51]: SOS / Cảnh báo
+        - button "GPS Tracking" [ref=e52]:
+          - img [ref=e53]
+          - generic [ref=e56]: GPS Tracking
+        - button "KPI & Lương" [ref=e57]:
+          - img [ref=e58]
+          - generic [ref=e60]: KPI & Lương
+        - button "Nhật ký hệ thống" [ref=e61]:
+          - img [ref=e62]
+          - generic [ref=e65]: Nhật ký hệ thống
+        - button "Thông báo" [ref=e66]:
+          - img [ref=e67]
+          - generic [ref=e70]: Thông báo
+        - button "Thiết bị & Phiên" [ref=e71]:
+          - img [ref=e72]
+          - generic [ref=e74]: Thiết bị & Phiên
+        - button "Báo cáo" [ref=e75]:
+          - img [ref=e76]
+          - generic [ref=e79]: Báo cáo
+      - generic [ref=e80]:
+        - button "Cài đặt" [ref=e81]:
+          - img [ref=e82]
+          - text: Cài đặt
+        - button "Đăng xuất" [ref=e85]:
+          - img [ref=e86]
+          - text: Đăng xuất
+    - generic [ref=e89]:
+      - banner [ref=e90]:
+        - generic "Đang kết nối lại..." [ref=e91]
+        - button [ref=e92]:
+          - img [ref=e93]
+        - generic [ref=e96]:
+          - generic [ref=e98]: E
+          - generic [ref=e99]:
+            - paragraph [ref=e100]: E2E Admin
+            - paragraph [ref=e101]: Quản trị viên
+      - main [ref=e102]:
+        - generic [ref=e104]:
+          - heading "Ghi nhận chấm công" [level=2] [ref=e105]
+          - generic [ref=e106]:
+            - generic [ref=e107]: Cán bộ dân quân **
+            - generic [ref=e108]:
+              - generic [ref=e109]: HCM-PHD-T12-0003 — Lê Văn Cường
+              - button "Xoá lựa chọn" [ref=e110]:
+                - img [ref=e111]
+          - generic [ref=e114]:
+            - generic [ref=e115]: Ngày chấm công *
+            - textbox "Ngày chấm công *" [ref=e116]: 2026-03-08
+          - generic [ref=e117]:
+            - generic [ref=e118]: Trạng thái *
+            - combobox "Trạng thái *" [ref=e119]:
+              - option "Có mặt" [selected]
+              - option "Vắng mặt"
+              - option "Đi trễ"
+              - option "Nửa ngày"
+          - generic [ref=e120]:
+            - generic [ref=e121]: Ghi chú
+            - textbox "Ghi chú" [ref=e122]:
+              - /placeholder: Ghi chú thêm...
+          - generic [ref=e123]:
+            - button "Đặt lại" [ref=e124]
+            - button "Ghi nhận" [ref=e125]
+  - region "Notifications alt+T"
+```

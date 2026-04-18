@@ -1,0 +1,82 @@
+name: militian_app
+description: Ứng dụng quản lý Dân Quân Tự Vệ (DQTV) — MilitianApp
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.4.0
+  riverpod_annotation: ^2.3.0
+
+  # HTTP & Networking
+  dio: ^5.4.0
+  socket_io_client: ^2.0.3
+
+  # Storage
+  flutter_secure_storage: ^9.0.0
+  drift: ^2.14.0
+  sqlite3_flutter_libs: ^0.5.0
+  path_provider: ^2.1.2
+  path: ^1.9.0
+
+  # Navigation
+  go_router: ^13.0.0
+
+  # Location / GPS
+  geolocator: ^10.1.0
+
+  # QR Code
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^4.0.0
+
+  # Biometric
+  local_auth: ^2.1.0
+
+  # Image & Media
+  image_picker: ^1.0.7
+
+  # Utilities
+  intl: ^0.19.0
+  url_launcher: ^6.2.2
+  permission_handler: ^11.2.0
+  share_plus: ^7.2.1
+  crypto: ^3.0.3
+  otp: ^3.1.4
+  web_socket_channel: ^2.4.0
+
+  # UI
+  cupertino_icons: ^1.0.8
+  cached_network_image: ^3.3.1
+  flutter_rating_bar: ^4.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  integration_test:
+    sdk: flutter
+  drift_dev: ^2.14.0
+  riverpod_generator: ^2.3.0
+  build_runner: ^2.4.8
+  mocktail: ^1.0.2
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  min_sdk_android: 21
+  web:
+    generate: false
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/

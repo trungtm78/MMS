@@ -1,9 +1,53 @@
 import { useState } from 'react';
 import { Search, Plus, FileDown, Eye, Edit, Filter, X, Save, Upload, AlertCircle } from 'lucide-react';
+import { SmartSelect, SmartSelectOption } from './ui/smart-select';
 
 interface MilitiaListProps {
   onViewProfile: (id: string) => void;
 }
+
+const statusOptions: SmartSelectOption[] = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'active', label: 'Đang hoạt động' },
+  { value: 'reserve', label: 'Dự bị' },
+  { value: 'inactive', label: 'Đã xuất ngũ' },
+];
+
+const unitOptions: SmartSelectOption[] = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'Khu phố 1', label: 'Khu phố 1' },
+  { value: 'Khu phố 2', label: 'Khu phố 2' },
+  { value: 'Khu phố 3', label: 'Khu phố 3' },
+  { value: 'Khu phố 4', label: 'Khu phố 4' },
+  { value: 'Khu phố 5', label: 'Khu phố 5' },
+  { value: 'Khu phố 6', label: 'Khu phố 6' },
+];
+
+const genderOptions: SmartSelectOption[] = [
+  { value: 'male', label: 'Nam' },
+  { value: 'female', label: 'Nữ' },
+];
+
+const positionOptions: SmartSelectOption[] = [
+  { value: 'commander', label: 'Chỉ huy trưởng' },
+  { value: 'deputy', label: 'Phó chỉ huy' },
+  { value: 'team-leader', label: 'Tổ trưởng' },
+  { value: 'team-deputy', label: 'Tổ phó' },
+  { value: 'soldier', label: 'Chiến sĩ' },
+];
+
+const serviceStatusOptions: SmartSelectOption[] = [
+  { value: 'active', label: 'Đang hoạt động' },
+  { value: 'reserve', label: 'Dự bị' },
+  { value: 'inactive', label: 'Đã xuất ngũ' },
+];
+
+const healthOptions: SmartSelectOption[] = [
+  { value: 'excellent', label: 'Tốt' },
+  { value: 'good', label: 'Khá' },
+  { value: 'average', label: 'Trung bình' },
+  { value: 'weak', label: 'Yếu' },
+];
 
 const militiaData = [
   { id: 'DQTV001', name: 'Nguyễn Văn Minh', dob: '15/03/1995', unit: 'Khu phố 1', position: 'Phó chỉ huy', status: 'active' },
@@ -119,32 +163,25 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Trạng thái</label>
-            <select
+            <SmartSelect
+              options={statusOptions}
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-            >
-              <option value="all">Tất cả</option>
-              <option value="active">Đang hoạt động</option>
-              <option value="reserve">Dự bị</option>
-              <option value="inactive">Đã xuất ngũ</option>
-            </select>
+              onChange={setStatusFilter}
+              placeholder="Tất cả"
+              searchPlaceholder="Tìm trạng thái..."
+              allowClear={false}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Khu vực</label>
-            <select
+            <SmartSelect
+              options={unitOptions}
               value={unitFilter}
-              onChange={(e) => setUnitFilter(e.target.value)}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm"
-            >
-              <option value="all">Tất cả</option>
-              <option value="Khu phố 1">Khu phố 1</option>
-              <option value="Khu phố 2">Khu phố 2</option>
-              <option value="Khu phố 3">Khu phố 3</option>
-              <option value="Khu phố 4">Khu phố 4</option>
-              <option value="Khu phố 5">Khu phố 5</option>
-              <option value="Khu phố 6">Khu phố 6</option>
-            </select>
+              onChange={setUnitFilter}
+              placeholder="Tất cả"
+              searchPlaceholder="Tìm khu vực..."
+              allowClear={false}
+            />
           </div>
         </div>
       </div>
@@ -342,11 +379,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Giới tính <span className="text-red-600">*</span>
                       </label>
-                      <select className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                        <option value="">Chọn giới tính</option>
-                        <option value="male">Nam</option>
-                        <option value="female">Nữ</option>
-                      </select>
+                      <SmartSelect
+                        options={genderOptions}
+                        placeholder="Chọn giới tính"
+                        searchPlaceholder="Tìm giới tính..."
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -417,15 +454,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Tổ / Khu phố <span className="text-red-600">*</span>
                       </label>
-                      <select className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                        <option value="">Chọn khu phố</option>
-                        <option value="1">Khu phố 1</option>
-                        <option value="2">Khu phố 2</option>
-                        <option value="3">Khu phố 3</option>
-                        <option value="4">Khu phố 4</option>
-                        <option value="5">Khu phố 5</option>
-                        <option value="6">Khu phố 6</option>
-                      </select>
+                      <SmartSelect
+                        options={unitOptions.filter(o => o.value !== 'all')}
+                        placeholder="Chọn khu phố"
+                        searchPlaceholder="Tìm khu phố..."
+                      />
                     </div>
                   </div>
 
@@ -434,14 +467,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Chức vụ <span className="text-red-600">*</span>
                       </label>
-                      <select className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                        <option value="">Chọn chức vụ</option>
-                        <option value="commander">Chỉ huy trưởng</option>
-                        <option value="deputy">Phó chỉ huy</option>
-                        <option value="team-leader">Tổ trưởng</option>
-                        <option value="team-deputy">Tổ phó</option>
-                        <option value="soldier">Chiến sĩ</option>
-                      </select>
+                      <SmartSelect
+                        options={positionOptions}
+                        placeholder="Chọn chức vụ"
+                        searchPlaceholder="Tìm chức vụ..."
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -456,12 +486,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Tình trạng phục vụ <span className="text-red-600">*</span>
                       </label>
-                      <select className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                        <option value="">Chọn tình trạng</option>
-                        <option value="active">Đang hoạt động</option>
-                        <option value="reserve">Dự bị</option>
-                        <option value="inactive">Đã xuất ngũ</option>
-                      </select>
+                      <SmartSelect
+                        options={serviceStatusOptions}
+                        placeholder="Chọn tình trạng"
+                        searchPlaceholder="Tìm tình trạng..."
+                      />
                     </div>
                   </div>
 
@@ -564,13 +593,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Tình trạng sức khỏe
                     </label>
-                    <select className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-transparent text-sm">
-                      <option value="">Chọn tình trạng sức khỏe</option>
-                      <option value="excellent">Tốt</option>
-                      <option value="good">Khá</option>
-                      <option value="average">Trung bình</option>
-                      <option value="weak">Yếu</option>
-                    </select>
+                    <SmartSelect
+                      options={healthOptions}
+                      placeholder="Chọn tình trạng sức khỏe"
+                      searchPlaceholder="Tìm tình trạng..."
+                    />
                   </div>
                 </div>
               )}

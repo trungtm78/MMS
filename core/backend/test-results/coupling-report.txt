@@ -1,0 +1,35 @@
+src/db/pool.ts:1:import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+src/db/pool.ts:2:import { config } from '../config';
+src/middleware/validate.ts:1:import { Request, Response, NextFunction } from 'express';
+src/middleware/validate.ts:2:import { AnyZodObject, ZodError, z } from 'zod';
+src/routes/attendance.routes.ts:1:import { Router, Response } from 'express';
+src/routes/attendance.routes.ts:2:import { AuthRequest, authMiddleware, requireRoles } from '../middleware/auth';
+src/routes/attendance.routes.ts:3:import { validate } from '../middleware/validate';
+src/routes/attendance.routes.ts:4:import { attendanceSchemas } from '../middleware/validate';
+src/routes/attendance.routes.ts:5:import { success, paginated, badRequest } from '../utils/response';
+src/routes/attendance.routes.ts:6:import { 
+src/routes/leave.routes.ts:1:import { Router, Response } from 'express';
+src/routes/leave.routes.ts:2:import { AuthRequest, authMiddleware, requirePermissions } from '../middleware/auth';
+src/routes/leave.routes.ts:3:import { validate } from '../middleware/validate';
+src/routes/leave.routes.ts:4:import { leaveSchemas } from '../middleware/validate';
+src/routes/leave.routes.ts:5:import { success, paginated, notFound, badRequest } from '../utils/response';
+src/routes/leave.routes.ts:6:import { 
+src/routes/notifications.routes.ts:1:import { Router, Response } from 'express';
+src/routes/notifications.routes.ts:2:import { AuthRequest, authMiddleware } from '../middleware/auth';
+src/routes/notifications.routes.ts:3:import { success, paginated, badRequest } from '../utils/response';
+src/routes/notifications.routes.ts:4:import { queryOne } from '../db/pool';
+src/routes/notifications.routes.ts:5:import { 
+src/routes/tasks.routes.ts:1:import { Router, Response } from 'express';
+src/routes/tasks.routes.ts:2:import { AuthRequest, authMiddleware, requirePermissions } from '../middleware/auth';
+src/routes/tasks.routes.ts:3:import { validate } from '../middleware/validate';
+src/routes/tasks.routes.ts:4:import { taskSchemas } from '../middleware/validate';
+src/routes/tasks.routes.ts:5:import { success, paginated, notFound } from '../utils/response';
+src/routes/tasks.routes.ts:6:import { getTasks, getTaskById, acceptTask, updateTaskProgress, createTask, TaskStatus, TaskType, TaskPriority } from '../services/task.service';
+src/routes/users.routes.ts:1:import { Router, Response } from 'express';
+src/routes/users.routes.ts:2:import { AuthRequest, authMiddleware, requirePermissions } from '../middleware/auth';
+src/routes/users.routes.ts:3:import { validate } from '../middleware/validate';
+src/routes/users.routes.ts:4:import { userSchemas } from '../middleware/validate';
+src/routes/users.routes.ts:5:import { success, badRequest, notFound } from '../utils/response';
+src/routes/users.routes.ts:6:import { queryOne, queryMany } from '../db/pool';
+src/routes/users.routes.ts:7:import { getUserById, updateUserProfile, changePassword, getMilitiaProfile } from '../services/user.service';
+src/services/report.service.ts:1:import { queryOne, queryMany } from '../db/pool';

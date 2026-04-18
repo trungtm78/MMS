@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  /* MMS Design System Color Tokens */
+  --color-header-gradient-start: #FBBF24;
+  --color-header-gradient-end: #FEF08A;
+  --color-header-border: #DC2626;
+  --color-primary-navy: #1F3A5F;
+  --color-success: #15803D;
+  --color-alert: #DC2626;
+  --color-nav-active: #366092;
+  --color-background: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+  --color-divider: #E2E8F0;
+  --color-warning: #F59E0B;
+  --color-blue: #3B82F6;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #F8FAFC;
+  color: #1e293b;
+  min-height: 100vh;
+}
