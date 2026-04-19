@@ -1,13 +1,33 @@
-// US-SS-08: UsersController — search users + units
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+// US-SS-08: UsersController — search users + units + self-service profile
+import { Controller, Get, Patch, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { IsOptional, IsString, IsEmail, MaxLength } from 'class-validator';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { SearchQueryDto } from '../common/dto/search-query.dto';
+import type { JwtPayload } from '../auth/auth.service';
+
+export class UpdateProfileDto {
+  @IsOptional() @IsString() @MaxLength(100) fullName?: string;
+  @IsOptional() @IsEmail() @MaxLength(255) email?: string;
+  @IsOptional() @IsString() @MaxLength(20) phone?: string;
+}
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  // GET /users/me — fetch current user profile
+  @Get('me')
+  async getMe(@Request() req: { user: JwtPayload }) {
+    return this.usersService.getProfile(req.user.sub);
+  }
+
+  // PATCH /users/me — update own profile (fullName, email, phone)
+  @Patch('me')
+  async updateMe(@Request() req: { user: JwtPayload }, @Body() dto: UpdateProfileDto) {
+    return this.usersService.updateProfile(req.user.sub, dto);
+  }
 
   // GET /users/search?q=&limit=
   @Get('search')

@@ -11,6 +11,7 @@ import '../../features/home/screens/home_screen.dart';
 import '../../features/attendance/screens/checkin_screen.dart';
 import '../../features/tasks/screens/tasks_list_screen.dart';
 import '../../features/tasks/screens/task_detail_screen.dart';
+import '../../features/tasks/screens/task_report_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/profile/screens/settings_screen.dart';
@@ -94,6 +95,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                   final id = state.pathParameters['id']!;
                   return TaskDetailScreen(taskId: id);
                 },
+                routes: [
+                  GoRoute(
+                    path: 'report',
+                    builder: (context, state) {
+                      final id = state.pathParameters['id']!;
+                      return TaskReportScreen(taskId: id);
+                    },
+                  ),
+                ],
               ),
             ],
           ),

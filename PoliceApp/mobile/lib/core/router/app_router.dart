@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
+import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/mfa_setup_screen.dart';
 import '../../features/home/screens/home_ca_screen.dart';
@@ -18,6 +19,7 @@ import '../../features/attendance/screens/checkin_screen.dart';
 import '../../features/reports/screens/report_work_screen.dart';
 import '../../features/reports/screens/team_reports_screen.dart';
 import '../../features/approvals/screens/approvals_screen.dart';
+import '../../features/approvals/screens/chi_tieu_evaluation_screen.dart';
 import '../../features/alerts/screens/alerts_screen.dart';
 import '../../features/profile/screens/profile_ca_screen.dart';
 import '../../features/profile/screens/profile_dqtv_screen.dart';
@@ -73,6 +75,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.recoveryCodes,
         builder: (context, state) => const _PlaceholderScreen(title: 'Recovery Codes'),
       ),
+      GoRoute(
+        path: Routes.forgotPassword,
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
 
       // ─── CA Shell ────────────────────────────────────────────────────────
       ShellRoute(
@@ -111,6 +117,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.caApprovals,
         builder: (context, state) => const ApprovalsScreen(),
+      ),
+      GoRoute(
+        path: Routes.caEvaluate,
+        builder: (context, state) => ChiTieuEvaluationScreen(
+          userId: state.pathParameters['userId']!,
+        ),
       ),
       GoRoute(
         path: Routes.caReports,

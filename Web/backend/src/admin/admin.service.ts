@@ -48,11 +48,22 @@ export class AdminService {
     private readonly dataSource: DataSource,
   ) {}
 
+  private readonly OFFICE_STAFF_ASSIGNABLE_ROLES = new Set([
+    'ca_officer', 'office_staff', 'dqtv_member', 'dqtv',
+  ]);
+
   private assertUnitScope(requester: JwtPayload, targetUnitCode?: string | null): void {
     if (requester.role === 'system_admin') return;
     if (!requester.unitScope) throw new ForbiddenException('no_unit_scope');
     if (targetUnitCode && targetUnitCode !== requester.unitScope) {
       throw new ForbiddenException('unit_scope_violation');
+    }
+  }
+
+  private assertAssignableRole(requester: JwtPayload, role: string): void {
+    if (requester.role === 'system_admin') return;
+    if (!this.OFFICE_STAFF_ASSIGNABLE_ROLES.has(role)) {
+      throw new ForbiddenException('role_not_assignable');
     }
   }
 
@@ -68,13 +79,14 @@ export class AdminService {
     let whereClause = '';
     const params: unknown[] = [];
     if (scopeUnit) {
-      whereClause = `WHERE uus.unit_code = $1`;
+      whereClause = `WHERE un.code = $1`;
       params.push(scopeUnit);
     }
 
     const countResult = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(DISTINCT u.id) as count FROM users u
        LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
+       LEFT JOIN units un ON un.id = uus.unit_id
        ${whereClause}`,
       params,
     );
@@ -84,9 +96,10 @@ export class AdminService {
     const offsetParam = params.length + 2;
     const rows = await this.dataSource.query<Record<string, string>[]>(
       `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.created_at,
-              r.code as role_code, uus.unit_code
+              r.code as role_code, un.code as unit_code
        FROM users u
        LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
+       LEFT JOIN units un ON un.id = uus.unit_id
        LEFT JOIN user_roles ur ON ur.user_id = u.id
        LEFT JOIN roles r ON r.id = ur.role_id
        ${whereClause}
@@ -116,9 +129,10 @@ export class AdminService {
   async getUserById(requester: JwtPayload, id: string): Promise<UserListItem> {
     const rows = await this.dataSource.query<Record<string, string>[]>(
       `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.created_at,
-              r.code as role_code, uus.unit_code
+              r.code as role_code, un.code as unit_code
        FROM users u
        LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
+       LEFT JOIN units un ON un.id = uus.unit_id
        LEFT JOIN user_roles ur ON ur.user_id = u.id
        LEFT JOIN roles r ON r.id = ur.role_id
        WHERE u.id = $1`,
@@ -142,8 +156,12 @@ export class AdminService {
     };
   }
 
-  async createUser(requester: JwtPayload, dto: CreateUserDto): Promise<UserListItem> {
+  async createUser(
+    requester: JwtPayload,
+    dto: CreateUserDto,
+  ): Promise<UserListItem & { temporaryPassword: string }> {
     this.assertUnitScope(requester, dto.unitCode);
+    if (dto.role) this.assertAssignableRole(requester, dto.role);
 
     const password = this.generateSecurePassword();
     const passwordHash = await bcrypt.hash(password, 12);
@@ -166,17 +184,18 @@ export class AdminService {
       );
     }
 
-    // Assign unit scope
+    // Assign unit scope via unit_id FK (not unit_code column)
     if (dto.unitCode) {
       await this.dataSource.query(
-        `INSERT INTO user_unit_scopes (user_id, unit_code)
-         VALUES ($1, $2)
+        `INSERT INTO user_unit_scopes (user_id, unit_id)
+         SELECT $1, id FROM units WHERE code = $2
          ON CONFLICT DO NOTHING`,
         [userId, dto.unitCode],
       );
     }
 
-    return this.getUserById(requester, userId);
+    const user = await this.getUserById(requester, userId);
+    return { ...user, temporaryPassword: password };
   }
 
   async updateStatus(
@@ -194,6 +213,7 @@ export class AdminService {
   }
 
   async updateRole(requester: JwtPayload, id: string, role: string): Promise<void> {
+    this.assertAssignableRole(requester, role);
     const user = await this.getUserById(requester, id);
     this.assertUnitScope(requester, user.unitScope);
 

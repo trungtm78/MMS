@@ -22,6 +22,7 @@ class Routes {
   static const String kpi = '/kpi';
   static const String sos = '/sos';
   static const String incidentReport = '/incident-report';
+  static const String taskReport = '/tasks/:id/report';
   static const String chat = '/chat';
   static const String chatDetail = '/chat/:conversationId';
 }

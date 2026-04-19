@@ -18,6 +18,9 @@ import {
   AlertTriangle,
   ShieldCheck,
   Smartphone,
+  CheckSquare,
+  Target,
+  HelpCircle,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -35,6 +38,11 @@ export type AppRoute =
   | 'notifications'
   | 'device-sessions'
   | 'reports'
+  | 'approvals'
+  | 'timesheet'
+  | 'kpi-dashboard'
+  | 'settings'
+  | 'help'
 
 interface NavItem {
   route: AppRoute
@@ -69,9 +77,12 @@ export function Sidebar({ current, onNavigate, sosBadge = 0 }: SidebarProps) {
     ...(can.viewGps ? [{ route: 'gps-tracking' as AppRoute, label: 'GPS Tracking', icon: <MapPin size={18} /> }] : []),
     ...(can.viewPayroll ? [{ route: 'payroll' as AppRoute, label: 'KPI & Lương', icon: <DollarSign size={18} /> }] : []),
     ...(can.viewAuditLog ? [{ route: 'audit-log' as AppRoute, label: 'Nhật ký hệ thống', icon: <FileText size={18} /> }] : []),
+    { route: 'approvals' as AppRoute, label: 'Phê duyệt', icon: <CheckSquare size={18} /> },
     { route: 'notifications', label: 'Thông báo', icon: <Bell size={18} /> },
     ...(can.manageDevices ? [{ route: 'device-sessions' as AppRoute, label: 'Thiết bị & Phiên', icon: <Smartphone size={18} /> }] : []),
     { route: 'reports', label: 'Báo cáo', icon: <FileText size={18} /> },
+    ...(can.manageMilitia ? [{ route: 'kpi-dashboard' as AppRoute, label: 'Chỉ tiêu KPI', icon: <Target size={18} /> }] : []),
+    { route: 'help' as AppRoute, label: 'Hướng dẫn', icon: <HelpCircle size={18} /> },
   ]
 
   return (
@@ -121,7 +132,7 @@ export function Sidebar({ current, onNavigate, sosBadge = 0 }: SidebarProps) {
       <div className="border-t border-slate-100 px-3 py-3">
         <button
           data-testid="settings-btn"
-          onClick={() => onNavigate('reports')}
+          onClick={() => onNavigate('settings')}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 mb-1"
         >
           <Settings size={18} />

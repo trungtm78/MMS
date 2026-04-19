@@ -32,6 +32,10 @@ export interface TokenPair {
   expiresIn: number;
 }
 
+// Pre-computed bcrypt hash used for constant-time comparison when username is not found,
+// preventing timing-based username enumeration attacks.
+const DUMMY_HASH = '$2b$12$LqX0i9LzBqKjGLh7f8TiO.xJmqXhH7wNq1OXhqjK2HhCL4OY2abc';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -86,6 +90,8 @@ export class AuthService {
       [username],
     );
     if (!rawResults.length) {
+      // Constant-time comparison prevents timing-based username enumeration
+      await bcrypt.compare(password, DUMMY_HASH);
       throw new UnauthorizedException('invalid_credentials');
     }
     const raw = rawResults[0];
@@ -194,9 +200,10 @@ export class AuthService {
     if (payload.type !== 'refresh')
       throw new UnauthorizedException('invalid_refresh_token');
 
-    // Find valid session
+    // Find valid session — ORDER BY created_at DESC so newest (most likely match) is checked first
     const sessions = await this.sessionRepo.find({
       where: { userId: payload.sub, revokedAt: undefined as unknown as Date },
+      order: { createdAt: 'DESC' },
     });
     const validSession = await this.findValidSession(sessions, refreshToken);
     if (!validSession) throw new UnauthorizedException('refresh_token_revoked');

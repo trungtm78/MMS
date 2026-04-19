@@ -33,7 +33,7 @@ export async function listUsers(params: { page?: number; limit?: number; unitCod
   return res.data
 }
 
-export async function createUser(dto: CreateUserDto): Promise<AdminUser> {
+export async function createUser(dto: CreateUserDto): Promise<AdminUser & { temporaryPassword: string }> {
   const res = await client.post('/admin/users', dto)
   return res.data
 }

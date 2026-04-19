@@ -5,6 +5,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -47,75 +48,116 @@ export class TasksService {
   // US-SS-06 AC-1: Create task with militia assignee
   // Guard: militia must have user_id (linked user account)
   async createTask(dto: CreateTaskDto): Promise<TaskWithAssignee> {
-    // US-SS-06: Resolve militia → user_id
+    // Resolve and validate militia before opening a transaction
     const militiaRows = await this.dataSource.query<
-      {
-        id: string;
-        userId: string | null;
-        fullName: string;
-        militiaCode: string;
-      }[]
+      { id: string; userId: string | null; fullName: string; militiaCode: string }[]
     >(
       `SELECT id, user_id AS "userId", full_name AS "fullName", militia_code AS "militiaCode"
        FROM militia_profiles WHERE id = $1 LIMIT 1`,
       [dto.assigneeMilitiaId],
     );
-
-    if (!militiaRows.length) {
-      throw new NotFoundException('militia_not_found');
-    }
+    if (!militiaRows.length) throw new NotFoundException('militia_not_found');
     const militia = militiaRows[0];
+    if (!militia.userId) throw new BadRequestException('militia_no_user_account');
 
-    // US-SS-06 AC-2: Guard — militia must have linked user account
-    if (!militia.userId) {
-      throw new BadRequestException('militia_no_user_account');
-    }
-
-    // Generate task code: TASK-YYYYMMDD-XXXXXX
+    // Generate task code before transaction
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const randSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
     const taskCode = `TASK-${dateStr}-${randSuffix}`;
 
-    // Insert task
-    const taskRows = await this.dataSource.query<{ id: string }[]>(
-      `INSERT INTO tasks (code, title, description, type, priority, status, deadline, unit_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6::timestamptz, $7::uuid, $8::uuid)
+    // Atomic: insert task + assignment together so a partial insert never happens
+    return await this.dataSource.transaction(async (manager) => {
+      const taskRows = await manager.query<{ id: string }[]>(
+        `INSERT INTO tasks (code, title, description, type, priority, status, deadline, unit_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'pending', $6::timestamptz, $7::uuid, $8::uuid)
+         RETURNING id`,
+        [
+          taskCode,
+          dto.title,
+          dto.description ?? null,
+          dto.type ?? 'other',
+          dto.priority ?? 'medium',
+          dto.deadline ?? null,
+          dto.unitId ?? null,
+          dto.createdByUserId,
+        ],
+      );
+      const taskId = taskRows[0].id;
+
+      // assignee_id = militia's user_id (NOT militia profile id)
+      await manager.query(
+        `INSERT INTO task_assignments (task_id, assignee_id, assigned_by, status)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, 'assigned')`,
+        [taskId, militia.userId, dto.createdByUserId],
+      );
+
+      return {
+        id: taskId,
+        code: taskCode,
+        title: dto.title,
+        description: dto.description ?? null,
+        type: dto.type ?? 'other',
+        priority: dto.priority ?? 'medium',
+        status: 'pending',
+        deadline: dto.deadline ? new Date(dto.deadline) : null,
+        createdAt: new Date(),
+        assigneeId: militia.userId!,
+        assigneeName: militia.fullName,
+        militiaId: militia.id,
+        militiaCode: militia.militiaCode,
+      };
+    });
+  }
+
+  // Submit task completion report (DQTV only, must be assignee)
+  async submitReport(
+    taskId: string,
+    dto: {
+      description: string;
+      completedAt?: string;
+      location?: string;
+      audioNoteUrl?: string;
+      photoIds?: string[];
+    },
+    submitterId: string,
+  ): Promise<{ id: string; taskId: string; submittedAt: Date }> {
+    // Verify task exists
+    const taskRows = await this.dataSource.query<{ id: string; status: string }[]>(
+      `SELECT id, status FROM tasks WHERE id = $1::uuid LIMIT 1`,
+      [taskId],
+    );
+    if (!taskRows.length) throw new NotFoundException('task_not_found');
+
+    // Verify submitter is assigned to this task
+    const assignmentRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM task_assignments WHERE task_id = $1::uuid AND assignee_id = $2::uuid LIMIT 1`,
+      [taskId, submitterId],
+    );
+    if (!assignmentRows.length) throw new ForbiddenException('not_task_assignee');
+
+    const inserted = await this.dataSource.query<{ id: string }[]>(
+      `INSERT INTO task_reports
+         (task_id, submitted_by, description, completed_at, location, audio_note_url, photo_ids)
+       VALUES ($1::uuid, $2::uuid, $3, $4::timestamptz, $5, $6, $7)
        RETURNING id`,
       [
-        taskCode,
-        dto.title,
-        dto.description ?? null,
-        dto.type ?? 'other',
-        dto.priority ?? 'medium',
-        dto.deadline ?? null,
-        dto.unitId ?? null,
-        dto.createdByUserId,
+        taskId,
+        submitterId,
+        dto.description,
+        dto.completedAt ?? null,
+        dto.location ?? null,
+        dto.audioNoteUrl ?? null,
+        JSON.stringify(dto.photoIds ?? []),
       ],
     );
-    const taskId = taskRows[0].id;
 
-    // Insert assignment — assignee_id = militia's user_id (NOT militia profile id)
+    // Update task status to completed
     await this.dataSource.query(
-      `INSERT INTO task_assignments (task_id, assignee_id, assigned_by, status)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, 'assigned')`,
-      [taskId, militia.userId, dto.createdByUserId],
+      `UPDATE tasks SET status = 'completed' WHERE id = $1::uuid`,
+      [taskId],
     );
 
-    return {
-      id: taskId,
-      code: taskCode,
-      title: dto.title,
-      description: dto.description ?? null,
-      type: dto.type ?? 'other',
-      priority: dto.priority ?? 'medium',
-      status: 'pending',
-      deadline: dto.deadline ? new Date(dto.deadline) : null,
-      createdAt: new Date(),
-      assigneeId: militia.userId,
-      assigneeName: militia.fullName,
-      militiaId: militia.id,
-      militiaCode: militia.militiaCode,
-    };
+    return { id: inserted[0].id, taskId, submittedAt: new Date() };
   }
 
   // List tasks (for dashboard)

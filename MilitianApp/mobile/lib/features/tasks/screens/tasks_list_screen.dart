@@ -143,8 +143,8 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
                                   onAccept: task['status'] == 'pending'
                                       ? () => _handleAccept(task['id'].toString())
                                       : null,
-                                  onUpdate: task['status'] == 'in-progress'
-                                      ? () {}
+                                  onReport: task['status'] == 'in-progress'
+                                      ? () => context.push('/tasks/${task['id']}/report')
                                       : null,
                                   onExplain: task['status'] == 'overdue'
                                       ? () {}
@@ -224,14 +224,14 @@ class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
   final VoidCallback onTap;
   final VoidCallback? onAccept;
-  final VoidCallback? onUpdate;
+  final VoidCallback? onReport;
   final VoidCallback? onExplain;
 
   const _TaskCard({
     required this.task,
     required this.onTap,
     this.onAccept,
-    this.onUpdate,
+    this.onReport,
     this.onExplain,
   });
 
@@ -330,8 +330,8 @@ class _TaskCard extends StatelessWidget {
                 const Spacer(),
                 if (onAccept != null)
                   _ActionBtn('Tiếp nhận', AppColors.navy, false, onAccept!),
-                if (onUpdate != null)
-                  _ActionBtn('Cập nhật', AppColors.textSecondary, false, onUpdate!),
+                if (onReport != null)
+                  _ActionBtn('Báo cáo', AppColors.primary, true, onReport!),
                 if (onExplain != null)
                   _ActionBtn('Giải trình', AppColors.warning, true, onExplain!),
               ],

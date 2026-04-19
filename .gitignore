@@ -93,3 +93,11 @@ temp/
 
 # Promt_Lib - internal prompts, not for repo
 Promt_Lib/
+.gstack/
+
+# Upload artifacts & Windows NUL accidents
+Web/backend/uploads/
+nul
+MilitianApp/nul
+Web/frontend/qa-screenshots/
+Web/releases/

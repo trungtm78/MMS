@@ -29,7 +29,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const {
     register,
     handleSubmit,
-    formState: { isSubmitting },
+    formState: { isSubmitting, errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { username: '', password: '', rememberMe: false },
@@ -91,6 +91,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Nhập tên đăng nhập"
             />
+            {errors.username && (
+              <p className="mt-1 text-xs text-red-600" role="alert">{errors.username.message}</p>
+            )}
           </div>
 
           <div>
@@ -106,6 +109,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Nhập mật khẩu"
             />
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-600" role="alert">{errors.password.message}</p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

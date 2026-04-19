@@ -100,5 +100,47 @@ describe('AttendanceService', () => {
       expect(result.page).toBe(1);
       expect(result.limit).toBe(20);
     });
+
+    it('passes from+to range params when provided', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ count: '28' }])
+        .mockResolvedValueOnce([]);
+      const result = await service.listAttendancePaginated(systemAdmin, {
+        from: '2026-04-01',
+        to: '2026-04-30',
+        limit: 31,
+      });
+      expect(result.total).toBe(28);
+      const [, params] = mockDataSource.query.mock.calls[0];
+      expect(params).toContain('2026-04-01');
+      expect(params).toContain('2026-04-30');
+      // singleDate should be null when range is provided
+      expect(params[0]).toBeNull();
+    });
+
+    it('falls back to today when no date/range provided', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ count: '0' }])
+        .mockResolvedValueOnce([]);
+      await service.listAttendancePaginated(systemAdmin, {});
+      const [, params] = mockDataSource.query.mock.calls[0];
+      // effectiveSingleDate should be today's date (non-null)
+      expect(params[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(params[1]).toBeNull(); // fromDate null
+      expect(params[2]).toBeNull(); // toDate null
+    });
+
+    it('single date takes precedence over range', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ count: '1' }])
+        .mockResolvedValueOnce([]);
+      await service.listAttendancePaginated(systemAdmin, {
+        date: '2026-04-15',
+        from: '2026-04-01',
+        to: '2026-04-30',
+      });
+      const [, params] = mockDataSource.query.mock.calls[0];
+      expect(params[0]).toBe('2026-04-15');
+    });
   });
 });

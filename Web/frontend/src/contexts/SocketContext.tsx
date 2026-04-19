@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { getAccessToken } from '@/api/client'
+import { useAuth } from '@/contexts/AuthContext'
 import type { SosAlert, GpsLog } from '@/types'
 
 interface SocketContextType {
@@ -16,6 +17,7 @@ const SocketContext = createContext<SocketContextType | undefined>(undefined)
 const SOCKET_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000'
 
 export function SocketProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth()
   const socketRef = useRef<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [activeSosAlerts, setActiveSosAlerts] = useState<SosAlert[]>([])
@@ -23,7 +25,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = getAccessToken()
-    if (!token) return
+    if (!token || !isAuthenticated) return
 
     const socket = io(SOCKET_URL, {
       auth: { token },
@@ -58,7 +60,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect()
     }
-  }, [])
+  }, [isAuthenticated])
 
   // F1: socketRef is now used — emit sos:resolve to backend when operator dismisses alert,
   //     and also update local state. Previously socketRef was assigned but never read back.

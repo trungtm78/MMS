@@ -7,6 +7,7 @@ class Routes {
   static const otp            = '/otp';
   static const mfaSetup       = '/mfa-setup';
   static const recoveryCodes  = '/recovery-codes';
+  static const forgotPassword = '/forgot-password';
 
   // ─── CA Shell ────────────────────────────────────────────────────────────────
   static const caHome         = '/ca/home';
@@ -19,6 +20,7 @@ class Routes {
   static const caAlerts       = '/ca/alerts';
   static const caProfile      = '/ca/profile';
   static const caNotifications = '/ca/notifications';
+  static const caEvaluate     = '/ca/evaluate/:userId';
 
   // ─── DQTV Shell ──────────────────────────────────────────────────────────────
   static const dqtvHome       = '/dqtv/home';

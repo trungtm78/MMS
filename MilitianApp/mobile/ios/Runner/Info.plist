@@ -51,9 +51,15 @@
 	<!-- Biometric -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>Ứng dụng dùng Face ID để đăng nhập nhanh.</string>
-	<!-- Camera (QR scanner, incident photo) -->
+	<!-- Camera (QR scanner, incident photo, task report) -->
 	<key>NSCameraUsageDescription</key>
 	<string>Ứng dụng dùng camera để quét mã QR và chụp ảnh sự cố.</string>
+	<!-- Microphone (task report voice note) -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dùng micro để ghi âm báo cáo nhiệm vụ.</string>
+	<!-- Photo Library (task report attachment) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Chọn ảnh từ thư viện để đính kèm báo cáo nhiệm vụ.</string>
 	<!-- Push Notifications -->
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>

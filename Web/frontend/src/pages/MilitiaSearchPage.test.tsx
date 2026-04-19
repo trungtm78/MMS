@@ -5,10 +5,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MilitiaSearchPage } from './MilitiaSearchPage'
 
 vi.mock('@/api/militia', () => ({
-  searchMilitia: vi.fn().mockResolvedValue([
-    { id: 'm1', militiaCode: 'DQTV001', fullName: 'Nguyễn Văn A', status: 'active', unitCode: 'P01', unitName: 'Phường 1', rank: 'Tiểu đội trưởng', phone: '0901000001' },
-    { id: 'm2', militiaCode: 'DQTV002', fullName: 'Trần Thị B', status: 'inactive', unitCode: 'P01', unitName: 'Phường 1', rank: null, phone: null },
-  ]),
+  searchMilitia: vi.fn().mockResolvedValue({
+    data: [
+      { id: 'm1', militiaCode: 'DQTV001', fullName: 'Nguyễn Văn A', status: 'active', unitCode: 'P01', unitName: 'Phường 1', rank: 'Tiểu đội trưởng', phone: '0901000001' },
+      { id: 'm2', militiaCode: 'DQTV002', fullName: 'Trần Thị B', status: 'inactive', unitCode: 'P01', unitName: 'Phường 1', rank: null, phone: null },
+    ],
+    total: 2,
+    page: 1,
+    limit: 50,
+  }),
 }))
 
 function renderWithQuery(ui: React.ReactNode) {
@@ -39,7 +44,7 @@ describe('MilitiaSearchPage', () => {
 
   it('shows empty state when no results', async () => {
     const { searchMilitia } = await import('@/api/militia')
-    vi.mocked(searchMilitia).mockResolvedValueOnce([])
+    vi.mocked(searchMilitia).mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50 })
     renderWithQuery(<MilitiaSearchPage />)
     await userEvent.click(screen.getByTestId('search-btn'))
     await waitFor(() => screen.getByTestId('empty-state'))

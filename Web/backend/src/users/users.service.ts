@@ -1,5 +1,5 @@
-// US-SS-08: UsersService — search users + units for SmartSelect
-import { Injectable } from '@nestjs/common';
+// US-SS-08: UsersService — search users + units for SmartSelect + self-service profile
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -25,6 +25,56 @@ export class UsersService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
+
+  // GET /users/me — fetch current user's own profile
+  async getProfile(userId: string): Promise<Record<string, unknown>> {
+    const rows = await this.dataSource.query<Record<string, string>[]>(
+      `SELECT u.id, u.username, u.full_name AS "fullName", u.email, u.phone, u.status,
+              u.created_at AS "createdAt", u.updated_at AS "updatedAt",
+              r.code AS role, un.code AS "unitScope"
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+       LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
+       LEFT JOIN units un ON un.id = uus.unit_id
+       WHERE u.id = $1`,
+      [userId],
+    );
+    if (!rows.length) throw new NotFoundException('user_not_found');
+    return rows[0];
+  }
+
+  // PATCH /users/me — update own fullName, email, phone
+  async updateProfile(
+    userId: string,
+    dto: { fullName?: string; email?: string; phone?: string },
+  ): Promise<Record<string, unknown>> {
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (dto.fullName !== undefined) {
+      params.push(dto.fullName);
+      setClauses.push(`full_name = $${params.length}`);
+    }
+    if (dto.email !== undefined) {
+      params.push(dto.email || null);
+      setClauses.push(`email = $${params.length}`);
+    }
+    if (dto.phone !== undefined) {
+      params.push(dto.phone || null);
+      setClauses.push(`phone = $${params.length}`);
+    }
+
+    if (setClauses.length > 0) {
+      params.push(userId);
+      await this.dataSource.query(
+        `UPDATE users SET ${setClauses.join(', ')}, updated_at = NOW() WHERE id = $${params.length}`,
+        params,
+      );
+    }
+
+    return this.getProfile(userId);
+  }
 
   // US-SS-08 AC-1: Search users by name or username (unaccent)
   async searchUsers(q: string, limit = 20): Promise<UserSearchItem[]> {

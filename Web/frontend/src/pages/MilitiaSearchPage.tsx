@@ -27,7 +27,7 @@ export function MilitiaSearchPage() {
     setHasSearched(false)
   }
 
-  const results = data ?? []
+  const results = data?.data ?? []
 
   const getStatusInfo = (status: string) => {
     switch (status) {

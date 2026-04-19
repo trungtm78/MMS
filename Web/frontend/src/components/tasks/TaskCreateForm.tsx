@@ -5,11 +5,13 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { Paperclip } from 'lucide-react'
 import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { militiaApi } from '@/api/militia'
 import { tasksApi } from '@/api/tasks'
+import client from '@/api/client'
 import type { SmartSelectOption, MilitiaSearchItem } from '@/types'
 
 // ─── Quick-create militia inline form ────────────────────────────────────────
@@ -96,6 +98,8 @@ const schema = z.object({
   type: z.string().default('other'),
   priority: z.string().default('medium'),
   deadline: z.string().optional(),
+  location: z.string().optional(),
+  attachmentIds: z.array(z.string()).default([]),
   assigneeMilitiaId: z.string().uuid('Vui lòng chọn người thực hiện'),
 })
 
@@ -128,6 +132,8 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
   const [qcErrors, setQcErrors] = useState<{ code?: string; name?: string; unit?: string; server?: string }>({})
   // Extra options from quick-create — ensures selected chip shows immediately
   const [extraOptions, setExtraOptions] = useState<SmartSelectOption[]>([])
+  // File attachment state
+  const [uploadedFiles, setUploadedFiles] = useState<{ id: string; name: string }[]>([])
 
   // F6: militiaQueryRef tracks the latest search query without extra setState.
   //     qcName (for modal pre-fill) is initialised from the ref — one state update
@@ -170,6 +176,7 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
       reset()
       setAssigneeId('')
       setMilitiaQuery('')
+      setUploadedFiles([])
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       onSuccess?.()
     },
@@ -195,6 +202,33 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
     setAssigneeId('')
     setValue('assigneeMilitiaId', '', { shouldValidate: true })
   }, [setValue])
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    for (const file of files) {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await client.post<{ fileId: string; url: string }>('/files/upload', fd)
+        const newFile = { id: res.data.fileId, name: file.name }
+        setUploadedFiles((prev) => {
+          const updated = [...prev, newFile]
+          setValue('attachmentIds', updated.map((f) => f.id))
+          return updated
+        })
+      } catch {
+        toast.error(`Không thể tải lên tệp: ${file.name}`)
+      }
+    }
+  }
+
+  const removeFile = (id: string) => {
+    setUploadedFiles((prev) => {
+      const updated = prev.filter((f) => f.id !== id)
+      setValue('attachmentIds', updated.map((f) => f.id))
+      return updated
+    })
+  }
 
   const onSubmit = handleSubmit((data) => {
     createMutation.mutate(data)
@@ -287,6 +321,43 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           {...register('deadline')}
         />
+      </div>
+
+      {/* Location */}
+      <div className="flex flex-col gap-1">
+        <label htmlFor="task-location" className="text-sm font-medium text-slate-700">Địa điểm</label>
+        <input
+          id="task-location"
+          type="text"
+          data-testid="task-location-input"
+          placeholder="Nhập địa điểm thực hiện..."
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          {...register('location')}
+        />
+      </div>
+
+      {/* File attachments */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-slate-700">Tệp đính kèm</label>
+        <input
+          type="file"
+          multiple
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+          data-testid="task-file-input"
+          className="text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-slate-300 file:text-sm file:bg-white file:text-slate-700 hover:file:bg-slate-50"
+          onChange={handleFileUpload}
+        />
+        {uploadedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-1">
+            {uploadedFiles.map((f) => (
+              <span key={f.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-md">
+                <Paperclip size={12} />
+                {f.name}
+                <button type="button" onClick={() => removeFile(f.id)} className="ml-1 hover:text-red-500">×</button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Assignee SmartSelect */}
