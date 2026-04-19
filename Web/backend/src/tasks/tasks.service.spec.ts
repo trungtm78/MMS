@@ -1,9 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 
-const mockDataSource = { query: jest.fn() };
+const mockDataSource = {
+  query: jest.fn(),
+  transaction: jest.fn((cb: (mgr: typeof mockDataSource) => Promise<unknown>) => cb(mockDataSource)),
+};
 
 describe('TasksService', () => {
   let service: TasksService;
@@ -69,6 +72,37 @@ describe('TasksService', () => {
       expect(result).toHaveLength(1);
       const [, params] = mockDataSource.query.mock.calls[0];
       expect(params[0]).toBe('pending');
+    });
+  });
+
+  describe('submitReport', () => {
+    const reportDto = {
+      description: 'Đã hoàn thành tuần tra khu vực đúng lịch.',
+      completedAt: '2026-04-19T08:00:00Z',
+      location: 'Khu vực 1',
+    };
+
+    it('creates report and marks task completed', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'in_progress' }]) // task exists
+        .mockResolvedValueOnce([{ id: 'assign-1' }]) // assignee verified
+        .mockResolvedValueOnce([{ id: 'report-1' }]) // insert report
+        .mockResolvedValueOnce(undefined); // update task status
+      const result = await service.submitReport('task-1', reportDto, 'user-1');
+      expect(result.id).toBe('report-1');
+      expect(result.taskId).toBe('task-1');
+    });
+
+    it('throws NotFoundException when task not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.submitReport('bad-id', reportDto, 'user-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when user is not the assignee', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'in_progress' }])
+        .mockResolvedValueOnce([]); // not assigned
+      await expect(service.submitReport('task-1', reportDto, 'other-user')).rejects.toThrow(ForbiddenException);
     });
   });
 

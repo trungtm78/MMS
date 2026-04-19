@@ -40,6 +40,8 @@ dependencies:
 
   # Image & Media
   image_picker: ^1.0.7
+  record: ^5.0.0
+  just_audio: ^0.9.37
 
   # Utilities
   intl: ^0.19.0

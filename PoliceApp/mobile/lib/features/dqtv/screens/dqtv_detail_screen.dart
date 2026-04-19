@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -144,6 +145,24 @@ class _DqtvDetailScreenState extends ConsumerState<DqtvDetailScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
+
+                    // Evaluate button
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => context.push('/ca/evaluate/${widget.userId}'),
+                        icon: const Icon(Icons.rate_review_outlined),
+                        label: const Text('Đánh giá chỉ tiêu',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.navy,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
 
                     // KPI
                     if (_kpi != null) ...[

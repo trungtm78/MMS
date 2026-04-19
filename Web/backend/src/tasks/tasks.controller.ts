@@ -5,12 +5,15 @@ import {
   Post,
   Body,
   Query,
+  Param,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   IsString,
@@ -20,6 +23,8 @@ import {
   IsUUID,
   IsIn,
   IsDateString,
+  IsArray,
+  ArrayMaxSize,
 } from 'class-validator';
 import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -68,6 +73,32 @@ export class CreateTaskDto {
   assigneeMilitiaId: string;
 }
 
+export class SubmitReportDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 1000)
+  description: string;
+
+  @IsOptional()
+  @IsDateString()
+  completedAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 200)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  audioNoteUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID(undefined, { each: true })
+  photoIds?: string[];
+}
+
 @Controller('tasks')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TasksController {
@@ -96,5 +127,17 @@ export class TasksController {
       ...dto,
       createdByUserId: req.user.sub,
     });
+  }
+
+  // POST /tasks/:id/report — DQTV submits completion report for assigned task
+  @Post(':id/report')
+  @Roles('dqtv_member', 'dqtv')
+  @HttpCode(HttpStatus.CREATED)
+  async submitReport(
+    @Param('id') id: string,
+    @Body() dto: SubmitReportDto,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.tasksService.submitReport(id, dto, req.user.sub);
   }
 }

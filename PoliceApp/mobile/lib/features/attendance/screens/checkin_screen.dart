@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../widgets/attendance_calendar.dart';
 
 // Unit coordinates fallback (Phú Định)
 const _unitLat = 10.8231;
@@ -277,6 +278,11 @@ class _CheckInScreenState extends ConsumerState<CheckInScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('Cập nhật vị trí'),
                 ),
+                const SizedBox(height: 24),
+                const Text('Lịch điểm danh',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 8),
+                const AttendanceCalendar(),
               ],
             ),
     );

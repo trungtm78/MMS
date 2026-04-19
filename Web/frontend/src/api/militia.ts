@@ -36,6 +36,7 @@ export interface MilitiaPaginatedResponse<T> {
 export async function searchMilitia(params: {
   q?: string
   unitCode?: string
+  status?: string
   page?: number
   limit?: number
 }): Promise<MilitiaPaginatedResponse<MilitiaSearchResult>> {

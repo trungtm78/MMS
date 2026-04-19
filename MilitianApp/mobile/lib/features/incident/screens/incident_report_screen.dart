@@ -1,9 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:record/record.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
@@ -21,10 +22,12 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
   String _selectedTask = '';
   final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
+  final _recorder = AudioRecorder();
+  final _player = AudioPlayer();
+  String? _audioPath;
   bool _isRecording = false;
-  bool _hasVoiceNote = false;
-  int _recordingSeconds = 0;
-  Timer? _recordingTimer;
+  bool _isPlaying = false;
+  int _recordingSecs = 0;
   bool _loading = false;
   bool _showSuccess = false;
   bool _gettingLocation = false;
@@ -39,39 +42,59 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _player.playerStateStream.listen((state) {
+      if (!mounted) return;
+      setState(() => _isPlaying = state.playing);
+    });
+  }
+
+  @override
   void dispose() {
-    _recordingTimer?.cancel();
     _descCtrl.dispose();
     _locationCtrl.dispose();
+    _recorder.dispose();
+    _player.dispose();
     super.dispose();
   }
 
   String _formatTime(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 
-  void _startRecording() {
-    setState(() { _isRecording = true; _recordingSeconds = 0; });
-    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _recordingSeconds++);
-    });
+  Future<void> _startRecording() async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) return;
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/incident_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+    setState(() { _isRecording = true; _recordingSecs = 0; _audioPath = null; });
+    _countRecordingSecs();
   }
 
-  void _stopRecording() {
-    _recordingTimer?.cancel();
-    setState(() { _isRecording = false; _hasVoiceNote = true; });
-    // Simulate speech-to-text
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        _descCtrl.text =
-            'Báo cáo công việc ngày hôm nay. Tôi đã hoàn thành nhiệm vụ tuần tra khu vực. '
-            'Tình hình an ninh ổn định, không phát hiện điểm bất thường. '
-            'Đã kiểm tra các điểm trọng yếu và ghi nhận các hoạt động thường ngày của người dân.';
-        setState(() {});
-      }
-    });
+  void _countRecordingSecs() async {
+    while (_isRecording && mounted) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted && _isRecording) setState(() => _recordingSecs++);
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    final path = await _recorder.stop();
+    setState(() { _isRecording = false; _audioPath = path; });
+  }
+
+  Future<void> _playAudio() async {
+    if (_audioPath == null) return;
+    if (_isPlaying) {
+      await _player.pause();
+    } else {
+      await _player.setFilePath(_audioPath!);
+      await _player.play();
+    }
   }
 
   void _deleteVoice() {
-    setState(() { _hasVoiceNote = false; _recordingSeconds = 0; });
+    setState(() { _audioPath = null; _isRecording = false; _recordingSecs = 0; });
   }
 
   Future<void> _getGPS() async {
@@ -261,7 +284,7 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
                   // Voice recording
                   _SectionCard(
                     title: 'Ghi âm giọng nói để báo cáo',
-                    child: _hasVoiceNote
+                    child: _audioPath != null
                         ? _buildVoiceNote()
                         : _buildVoiceRecorder(),
                   ),
@@ -476,7 +499,7 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(_formatTime(_recordingSeconds),
+                Text(_formatTime(_recordingSecs),
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.error,
                       fontFamily: 'monospace')),
               ],
@@ -528,54 +551,37 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
       border: Border.all(color: AppColors.success, width: 2),
       borderRadius: BorderRadius.circular(8),
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    child: Row(
       children: [
-        Row(
-          children: [
-            Container(
-              width: 40, height: 40,
-              decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
-              child: const Icon(Icons.mic, color: Colors.white, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Ghi âm (${_formatTime(_recordingSeconds)})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
-                  const Text('✓ Đã chuyển thành văn bản',
-                    style: TextStyle(fontSize: 11, color: AppColors.success)),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: _deleteVoice,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Icon(Icons.close, size: 16, color: AppColors.error),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.divider),
+        GestureDetector(
+          onTap: _playAudio,
+          child: Container(
+            width: 40, height: 40,
+            decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
+            child: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 22),
           ),
-          child: Text(
-            _descCtrl.text.length > 100
-                ? '"${_descCtrl.text.substring(0, 100)}..."'
-                : '"${_descCtrl.text}"',
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontStyle: FontStyle.italic),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Ghi âm (${_formatTime(_recordingSecs)})',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary)),
+              const Text('Nhấn để nghe lại',
+                style: TextStyle(fontSize: 11, color: AppColors.success)),
+            ],
+          ),
+        ),
+        GestureDetector(
+          onTap: _deleteVoice,
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppColors.error.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(Icons.close, size: 16, color: AppColors.error),
           ),
         ),
       ],

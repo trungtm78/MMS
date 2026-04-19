@@ -132,7 +132,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               textInputAction: TextInputAction.done,
                               onFieldSubmitted: (_) => _login(),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () => context.push(Routes.forgotPassword),
+                                child: const Text('Quên mật khẩu?', style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600)),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,
                               height: 48,

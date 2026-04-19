@@ -57,15 +57,19 @@ export class CreateAttendanceDto {
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
-  // GET /attendance?date=&page=&limit= — paginated report (date param matches frontend)
+  // GET /attendance?date=&from=&to=&page=&limit= — paginated report
+  // date: single date filter; from+to: range filter (used by calendar widget)
+  // Fallback when no filter: returns today
   @Get()
   async list(
     @Request() req: { user: JwtPayload },
     @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
-    return this.attendanceService.listAttendancePaginated(req.user, { date, page, limit });
+    return this.attendanceService.listAttendancePaginated(req.user, { date, from, to, page, limit });
   }
 
   // POST /attendance — record attendance

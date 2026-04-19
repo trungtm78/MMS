@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Audio recording (task report voice note) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Photo library read (task report attachment, Android 13+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <!-- Firebase Messaging -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 

@@ -130,9 +130,11 @@ export class AttendanceService {
   }
 
   // Paginated list — pagination contract: {data, total, page, limit}
+  // Supports single date filter (date=) or range filter (from= + to=).
+  // Fallback when no date/range provided: returns today's records (backward compat).
   async listAttendancePaginated(
     user: { role: string; unitScope: string | null },
-    params: { date?: string; page?: number; limit?: number } = {},
+    params: { date?: string; from?: string; to?: string; page?: number; limit?: number } = {},
   ): Promise<{ data: AttendanceRecordView[]; total: number; page: number; limit: number }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
@@ -140,13 +142,23 @@ export class AttendanceService {
 
     const unitFilter = user.role === 'system_admin' ? null : user.unitScope;
 
+    // Resolve date filter: explicit date > range > today fallback
+    const singleDate = params.date ?? null;
+    const fromDate = params.from ?? null;
+    const toDate = params.to ?? null;
+    // If no filter at all, fall back to today
+    const effectiveSingleDate =
+      singleDate ?? (!fromDate && !toDate ? new Date().toISOString().slice(0, 10) : null);
+
     const countResult = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(*) as count FROM attendance_records ar
        JOIN militia_profiles mp ON mp.id = ar.militia_id
        JOIN units u ON u.id = mp.unit_id
        WHERE ($1::date IS NULL OR ar.work_date = $1::date)
-         AND ($2::text IS NULL OR u.code = $2)`,
-      [params.date ?? null, unitFilter],
+         AND ($2::date IS NULL OR ar.work_date >= $2::date)
+         AND ($3::date IS NULL OR ar.work_date <= $3::date)
+         AND ($4::text IS NULL OR u.code = $4)`,
+      [effectiveSingleDate, fromDate, toDate, unitFilter],
     );
     const total = parseInt(countResult[0]?.count ?? '0', 10);
 
@@ -159,10 +171,12 @@ export class AttendanceService {
        JOIN militia_profiles mp ON mp.id = ar.militia_id
        JOIN units u ON u.id = mp.unit_id
        WHERE ($1::date IS NULL OR ar.work_date = $1::date)
-         AND ($2::text IS NULL OR u.code = $2)
-       ORDER BY ar.work_date DESC, mp.full_name
-       LIMIT $3 OFFSET $4`,
-      [params.date ?? null, unitFilter, limit, offset],
+         AND ($2::date IS NULL OR ar.work_date >= $2::date)
+         AND ($3::date IS NULL OR ar.work_date <= $3::date)
+         AND ($4::text IS NULL OR u.code = $4)
+       ORDER BY ar.work_date ASC, mp.full_name
+       LIMIT $5 OFFSET $6`,
+      [effectiveSingleDate, fromDate, toDate, unitFilter, limit, offset],
     );
 
     return { data, total, page, limit };

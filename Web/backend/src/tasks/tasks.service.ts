@@ -5,6 +5,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -106,6 +107,57 @@ export class TasksService {
         militiaCode: militia.militiaCode,
       };
     });
+  }
+
+  // Submit task completion report (DQTV only, must be assignee)
+  async submitReport(
+    taskId: string,
+    dto: {
+      description: string;
+      completedAt?: string;
+      location?: string;
+      audioNoteUrl?: string;
+      photoIds?: string[];
+    },
+    submitterId: string,
+  ): Promise<{ id: string; taskId: string; submittedAt: Date }> {
+    // Verify task exists
+    const taskRows = await this.dataSource.query<{ id: string; status: string }[]>(
+      `SELECT id, status FROM tasks WHERE id = $1::uuid LIMIT 1`,
+      [taskId],
+    );
+    if (!taskRows.length) throw new NotFoundException('task_not_found');
+
+    // Verify submitter is assigned to this task
+    const assignmentRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM task_assignments WHERE task_id = $1::uuid AND assignee_id = $2::uuid LIMIT 1`,
+      [taskId, submitterId],
+    );
+    if (!assignmentRows.length) throw new ForbiddenException('not_task_assignee');
+
+    const inserted = await this.dataSource.query<{ id: string }[]>(
+      `INSERT INTO task_reports
+         (task_id, submitted_by, description, completed_at, location, audio_note_url, photo_ids)
+       VALUES ($1::uuid, $2::uuid, $3, $4::timestamptz, $5, $6, $7)
+       RETURNING id`,
+      [
+        taskId,
+        submitterId,
+        dto.description,
+        dto.completedAt ?? null,
+        dto.location ?? null,
+        dto.audioNoteUrl ?? null,
+        JSON.stringify(dto.photoIds ?? []),
+      ],
+    );
+
+    // Update task status to completed
+    await this.dataSource.query(
+      `UPDATE tasks SET status = 'completed' WHERE id = $1::uuid`,
+      [taskId],
+    );
+
+    return { id: inserted[0].id, taskId, submittedAt: new Date() };
   }
 
   // List tasks (for dashboard)
