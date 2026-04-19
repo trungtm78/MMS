@@ -6,26 +6,26 @@ import { listTasks } from '@/api/tasks'
 const STATUS_TABS = [
   { id: 'all', label: 'Tất cả' },
   { id: 'pending', label: 'Chờ tiếp nhận' },
-  { id: 'in-progress', label: 'Đang thực hiện' },
+  { id: 'in_progress', label: 'Đang thực hiện' },
   { id: 'completed', label: 'Đã hoàn thành' },
   { id: 'overdue', label: 'Quá hạn' },
-  { id: 'rejected', label: 'Bị từ chối' },
+  { id: 'cancelled', label: 'Đã hủy' },
 ]
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  pending:       { bg: '#F5F5F5', text: '#757575' },
-  'in-progress': { bg: '#E3F2FD', text: '#1976D2' },
-  completed:     { bg: '#E8F5E9', text: '#2E7D32' },
-  overdue:       { bg: '#FFEBEE', text: '#C62828' },
-  rejected:      { bg: '#FFF3E0', text: '#F57C00' },
+  pending:     { bg: '#F5F5F5', text: '#757575' },
+  in_progress: { bg: '#E3F2FD', text: '#1976D2' },
+  completed:   { bg: '#E8F5E9', text: '#2E7D32' },
+  overdue:     { bg: '#FFEBEE', text: '#C62828' },
+  cancelled:   { bg: '#FFF3E0', text: '#F57C00' },
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending:       'Chờ tiếp nhận',
-  'in-progress': 'Đang thực hiện',
-  completed:     'Đã hoàn thành',
-  overdue:       'Quá hạn',
-  rejected:      'Bị từ chối',
+  pending:     'Chờ tiếp nhận',
+  in_progress: 'Đang thực hiện',
+  completed:   'Đã hoàn thành',
+  overdue:     'Quá hạn',
+  cancelled:   'Đã hủy',
 }
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {

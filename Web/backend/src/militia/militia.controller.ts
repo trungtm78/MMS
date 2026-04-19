@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Body,
+  Param,
   Query,
   Request,
   UseGuards,
@@ -21,6 +22,8 @@ import {
 } from 'class-validator';
 import { MilitiaService, CreateMilitiaDto } from './militia.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { SearchQueryDto } from '../common/dto/search-query.dto';
 import type { JwtPayload } from '../auth/auth.service';
 
@@ -68,7 +71,8 @@ export class QuickCreateMilitiaDto implements CreateMilitiaDto {
 }
 
 @Controller('militia')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('system_admin', 'office_staff', 'ca_officer', 'dqtv_member', 'dqtv')
 export class MilitiaController {
   constructor(private readonly militiaService: MilitiaService) {}
 
@@ -94,8 +98,18 @@ export class MilitiaController {
     );
   }
 
+  // GET /militia/:id — fetch single militia member
+  @Get(':id')
+  async getMilitiaById(
+    @Request() req: { user: JwtPayload },
+    @Param('id') id: string,
+  ) {
+    return this.militiaService.getMilitiaById(req.user, id);
+  }
+
   // US-SS-05 AC-1: POST /militia/quick-create — inline quick-create
   @Post('quick-create')
+  @Roles('system_admin', 'office_staff', 'ca_officer')
   @HttpCode(HttpStatus.CREATED)
   async quickCreate(@Body() dto: QuickCreateMilitiaDto) {
     return this.militiaService.quickCreate(dto);

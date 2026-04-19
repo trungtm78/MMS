@@ -64,7 +64,7 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
       reset({ status: 'present', workDate: new Date().toISOString().slice(0, 10) })
       setMilitiaId('')
       setMilitiaQuery('')
-      queryClient.invalidateQueries({ queryKey: ['attendance'] })
+      queryClient.invalidateQueries({ queryKey: ['attendance-report'] })
       onSuccess?.()
     },
     onError: (err: unknown) => {

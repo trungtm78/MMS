@@ -34,14 +34,20 @@ export function clearTokens(): void {
 }
 
 let isRefreshing = false
-let refreshSubscribers: Array<(token: string) => void> = []
+type Subscriber = { resolve: (token: string) => void; reject: (err: unknown) => void }
+let refreshSubscribers: Subscriber[] = []
 
-function subscribeTokenRefresh(cb: (token: string) => void) {
-  refreshSubscribers.push(cb)
+function subscribeTokenRefresh(resolve: (token: string) => void, reject: (err: unknown) => void) {
+  refreshSubscribers.push({ resolve, reject })
 }
 
 function onRefreshed(token: string) {
-  refreshSubscribers.forEach((cb) => cb(token))
+  refreshSubscribers.forEach(({ resolve }) => resolve(token))
+  refreshSubscribers = []
+}
+
+function onRefreshFailed(err: unknown) {
+  refreshSubscribers.forEach(({ reject }) => reject(err))
   refreshSubscribers = []
 }
 
@@ -73,12 +79,15 @@ client.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
-        // Queue request until refresh completes
-        return new Promise((resolve) => {
-          subscribeTokenRefresh((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`
-            resolve(client(originalRequest))
-          })
+        // Queue request until refresh completes; reject on failure so callers don't hang
+        return new Promise((resolve, reject) => {
+          subscribeTokenRefresh(
+            (token) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`
+              resolve(client(originalRequest))
+            },
+            reject,
+          )
         })
       }
 
@@ -96,13 +105,13 @@ client.interceptors.response.use(
         )
 
         const { accessToken, refreshToken: newRefresh } = response.data
-        storeTokens(accessToken, newRefresh, !!newRefresh)
+        // Only persist new refresh token if user previously chose rememberMe (had one stored)
+        storeTokens(accessToken, newRefresh, !!localStorage.getItem(TOKEN_KEYS.refresh))
         onRefreshed(accessToken)
         originalRequest.headers.Authorization = `Bearer ${accessToken}`
         return client(originalRequest)
-      } catch {
-        // F9: clear queued subscribers so they don't hang after a failed refresh
-        refreshSubscribers = []
+      } catch (refreshError) {
+        onRefreshFailed(refreshError)
         clearTokens()
         // Dispatch event so AuthContext can redirect to login
         window.dispatchEvent(new CustomEvent('auth:session-expired'))

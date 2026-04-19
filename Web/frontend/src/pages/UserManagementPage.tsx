@@ -47,8 +47,9 @@ export function UserManagementPage() {
 
   const createMutation = useMutation({
     mutationFn: () => createUser({ username: newUser.username, fullName: newUser.fullName, role: newUser.role, unitCode: newUser.unitCode || undefined }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      setResetPasswordResult({ userId: result.id, password: result.temporaryPassword })
       toast.success('Tạo tài khoản thành công')
       setShowAddUser(false)
       setNewUser({ username: '', fullName: '', role: 'dqtv', unitCode: '' })

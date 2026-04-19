@@ -23,6 +23,8 @@ import {
 } from 'class-validator';
 import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 
 export class CreateTaskDto {
   @IsString()
@@ -67,12 +69,13 @@ export class CreateTaskDto {
 }
 
 @Controller('tasks')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
-  // GET /tasks?status=&page=&limit= — paginated list with total count
+  // GET /tasks — all authenticated roles can list tasks
   @Get()
+  @Roles('system_admin', 'office_staff', 'ca_officer', 'dqtv_member', 'dqtv')
   listTasks(
     @Query('status') status?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
@@ -81,8 +84,9 @@ export class TasksController {
     return this.tasksService.listTasksPaginated({ status, page, limit });
   }
 
-  // POST /tasks — create task with militia assignee
+  // POST /tasks — only officers and above can create tasks
   @Post()
+  @Roles('system_admin', 'office_staff', 'ca_officer')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() dto: CreateTaskDto,

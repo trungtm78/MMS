@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
@@ -101,7 +102,12 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     NotificationsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, RolesGuard],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
   exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
 })
 export class AppModule {}
