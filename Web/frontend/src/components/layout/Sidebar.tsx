@@ -21,6 +21,7 @@ import {
   CheckSquare,
   Target,
   HelpCircle,
+  GitBranch,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -41,6 +42,7 @@ export type AppRoute =
   | 'approvals'
   | 'timesheet'
   | 'kpi-dashboard'
+  | 'assignments'
   | 'settings'
   | 'help'
 
@@ -82,6 +84,7 @@ export function Sidebar({ current, onNavigate, sosBadge = 0 }: SidebarProps) {
     ...(can.manageDevices ? [{ route: 'device-sessions' as AppRoute, label: 'Thiết bị & Phiên', icon: <Smartphone size={18} /> }] : []),
     { route: 'reports', label: 'Báo cáo', icon: <FileText size={18} /> },
     ...(can.manageMilitia ? [{ route: 'kpi-dashboard' as AppRoute, label: 'Chỉ tiêu KPI', icon: <Target size={18} /> }] : []),
+    ...(can.manageUsers ? [{ route: 'assignments' as AppRoute, label: 'Phân công', icon: <GitBranch size={18} /> }] : []),
     { route: 'help' as AppRoute, label: 'Hướng dẫn', icon: <HelpCircle size={18} /> },
   ]
 

@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 export interface EvaluateDto {
   targetUserId: string;
@@ -13,6 +15,11 @@ export interface EvaluateDto {
   scores: number[];
   recommendation: string;
   notes?: string;
+}
+
+export interface EvaluatorInfo {
+  sub: string;
+  role: string;
 }
 
 export interface EvaluationResult {
@@ -32,12 +39,14 @@ export class KpiService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly assignmentsService: AssignmentsService,
   ) {}
 
   async submitEvaluation(
     dto: EvaluateDto,
-    evaluatorId: string,
+    evaluator: EvaluatorInfo,
   ): Promise<EvaluationResult> {
+    const evaluatorId = evaluator.sub;
     // Validate criteria + scores length
     if (dto.criteria.length !== 5 || dto.scores.length !== 5) {
       throw new BadRequestException('criteria_and_scores_must_have_5_items');
@@ -57,6 +66,14 @@ export class KpiService {
       [dto.targetUserId],
     );
     if (!userRows.length) throw new NotFoundException('target_user_not_found');
+
+    // CA scope check: ca_officer can only evaluate assigned DQTV
+    if (evaluator.role === 'ca_officer') {
+      const assignedIds = await this.assignmentsService.getAssignedDqtvIds(evaluatorId);
+      if (assignedIds.length > 0 && !assignedIds.includes(dto.targetUserId)) {
+        throw new ForbiddenException('dqtv_not_assigned_to_ca');
+      }
+    }
 
     // Duplicate guard: same evaluator + target within current calendar month
     const dupRows = await this.dataSource.query<{ id: string }[]>(

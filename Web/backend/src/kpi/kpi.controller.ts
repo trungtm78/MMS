@@ -64,8 +64,8 @@ export class KpiController {
   @HttpCode(HttpStatus.CREATED)
   async evaluate(
     @Body() dto: EvaluateDto,
-    @Request() req: { user: { sub: string } },
+    @Request() req: { user: { sub: string; role: string } },
   ) {
-    return this.kpiService.submitEvaluation(dto, req.user.sub);
+    return this.kpiService.submitEvaluation(dto, { sub: req.user.sub, role: req.user.role });
   }
 }

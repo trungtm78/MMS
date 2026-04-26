@@ -6,9 +6,10 @@ import { TaskAssignment } from './task-assignment.entity';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AssignmentsModule } from '../assignments/assignments.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Task, TaskAssignment])],
+  imports: [TypeOrmModule.forFeature([Task, TaskAssignment]), AssignmentsModule],
   controllers: [TasksController],
   providers: [TasksService, JwtAuthGuard],
   exports: [TasksService],

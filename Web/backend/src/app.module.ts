@@ -25,6 +25,7 @@ import { HealthModule } from './health/health.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FilesModule } from './files/files.module';
 import { KpiModule } from './kpi/kpi.module';
+import { AssignmentsModule } from './assignments/assignments.module';
 import { MilitiaProfile } from './militia/militia.entity';
 import { Task } from './tasks/task.entity';
 import { TaskAssignment } from './tasks/task-assignment.entity';
@@ -104,6 +105,7 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     NotificationsModule,
     FilesModule,
     KpiModule,
+    AssignmentsModule,
   ],
   controllers: [AuthController],
   providers: [

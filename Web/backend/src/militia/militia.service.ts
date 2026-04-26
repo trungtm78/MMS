@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 export interface MilitiaSearchItem {
   id: string;
@@ -38,6 +39,7 @@ export class MilitiaService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly assignmentsService: AssignmentsService,
   ) {}
 
   // US-SS-01 AC-1: Search militia by name (unaccent), code, phone
@@ -138,17 +140,61 @@ export class MilitiaService {
     return results.find((r) => r.id === newId) ?? results[0];
   }
 
-  // Paginated search with unitScope enforcement — pagination contract: {data, total, page, limit}
+  // Paginated search with unitScope enforcement + CA explicit assignment filter
   async searchMilitia(
-    user: { role: string; unitScope: string | null },
+    user: { role: string; unitScope: string | null; sub?: string | null },
     params: { q?: string; unitCode?: string; page?: number; limit?: number },
   ): Promise<{ data: MilitiaSearchItem[]; total: number; page: number; limit: number }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
     const offset = (page - 1) * limit;
-    const effectiveUnit = user.role === 'system_admin' ? params.unitCode : user.unitScope ?? undefined;
     const q = params.q ?? '';
 
+    // CA officers with explicit assignments: filter to assigned DQTV only.
+    // If CA has zero assignments, fall back to unitScope (backward compat for new CAs).
+    let assignedUserIds: string[] | null = null;
+    if (user.role === 'ca_officer' && user.sub) {
+      const ids = await this.assignmentsService.getAssignedDqtvIds(user.sub);
+      if (ids.length > 0) {
+        assignedUserIds = ids;
+      }
+    }
+
+    const effectiveUnit = user.role === 'system_admin' ? params.unitCode : user.unitScope ?? undefined;
+
+    if (assignedUserIds !== null) {
+      // Filter to explicitly assigned DQTV
+      const countResult = await this.dataSource.query<{ count: string }[]>(
+        `SELECT COUNT(*) as count FROM militia_profiles mp
+         JOIN units u ON u.id = mp.unit_id
+         WHERE mp.status IN ('active')
+           AND mp.user_id = ANY($1::uuid[])
+           AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
+             OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
+             OR mp.phone ILIKE '%'||$2||'%')`,
+        [assignedUserIds, q],
+      );
+      const total = parseInt(countResult[0]?.count ?? '0', 10);
+
+      const rows = await this.dataSource.query<MilitiaSearchItem[]>(
+        `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+                mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
+         FROM militia_profiles mp
+         JOIN units u ON u.id = mp.unit_id
+         WHERE mp.status IN ('active')
+           AND mp.user_id = ANY($1::uuid[])
+           AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
+             OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
+             OR mp.phone ILIKE '%'||$2||'%')
+         ORDER BY mp.full_name
+         LIMIT $3 OFFSET $4`,
+        [assignedUserIds, q, limit, offset],
+      );
+
+      return { data: rows, total, page, limit };
+    }
+
+    // Default: unitScope or admin
     const countResult = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(*) as count FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id

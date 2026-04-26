@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 export interface CreateTaskDto {
   title: string;
@@ -20,6 +21,7 @@ export interface CreateTaskDto {
   // US-SS-06 AC: assigneeMilitiaId → resolved to user_id internally
   assigneeMilitiaId: string;
   createdByUserId: string;
+  createdByRole?: string;
 }
 
 export interface TaskWithAssignee {
@@ -43,6 +45,7 @@ export class TasksService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly assignmentsService: AssignmentsService,
   ) {}
 
   // US-SS-06 AC-1: Create task with militia assignee
@@ -59,6 +62,14 @@ export class TasksService {
     if (!militiaRows.length) throw new NotFoundException('militia_not_found');
     const militia = militiaRows[0];
     if (!militia.userId) throw new BadRequestException('militia_no_user_account');
+
+    // CA scope check: if CA has explicit assignments, enforce them
+    if (dto.createdByRole === 'ca_officer') {
+      const assignedIds = await this.assignmentsService.getAssignedDqtvIds(dto.createdByUserId);
+      if (assignedIds.length > 0 && !assignedIds.includes(militia.userId)) {
+        throw new ForbiddenException('dqtv_not_assigned_to_ca');
+      }
+    }
 
     // Generate task code before transaction
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
