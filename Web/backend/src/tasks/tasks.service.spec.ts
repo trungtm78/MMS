@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TasksService } from './tasks.service';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 const mockDataSource = {
   query: jest.fn(),
   transaction: jest.fn((cb: (mgr: typeof mockDataSource) => Promise<unknown>) => cb(mockDataSource)),
 };
+const mockAssignmentsService = { getAssignedDqtvIds: jest.fn() };
 
 describe('TasksService', () => {
   let service: TasksService;
@@ -16,6 +18,7 @@ describe('TasksService', () => {
       providers: [
         TasksService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: AssignmentsService, useValue: mockAssignmentsService },
       ],
     }).compile();
     service = module.get<TasksService>(TasksService);
@@ -59,6 +62,48 @@ describe('TasksService', () => {
 
       const result = await service.createTask({ ...validDto, priority: undefined });
       expect(result.priority).toBe('medium');
+    });
+  });
+
+  // ── CA assignment scope regression tests ──────────────────────────────
+
+  describe('createTask — CA scope enforcement', () => {
+    const caDtoBase = {
+      title: 'Patrol',
+      assigneeMilitiaId: 'militia-1',
+      createdByUserId: 'ca-user-1',
+      createdByRole: 'ca_officer',
+    };
+
+    it('CA creates task for assigned DQTV militia → success', async () => {
+      mockAssignmentsService.getAssignedDqtvIds.mockResolvedValueOnce(['dqtv-user-1']);
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1', userId: 'dqtv-user-1', fullName: 'A', militiaCode: 'D001' }])
+        .mockResolvedValueOnce([{ id: 'task-1' }])
+        .mockResolvedValueOnce(undefined);
+
+      const result = await service.createTask(caDtoBase);
+      expect(result.id).toBe('task-1');
+    });
+
+    it('CA creates task for NON-assigned DQTV militia → ForbiddenException', async () => {
+      mockAssignmentsService.getAssignedDqtvIds.mockResolvedValueOnce(['other-user']);
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'militia-1', userId: 'dqtv-user-1', fullName: 'A', militiaCode: 'D001' },
+      ]);
+
+      await expect(service.createTask(caDtoBase)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('CA with zero assignments creates task (fallback) → success', async () => {
+      mockAssignmentsService.getAssignedDqtvIds.mockResolvedValueOnce([]); // no assignments → fallback
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1', userId: 'dqtv-user-1', fullName: 'A', militiaCode: 'D001' }])
+        .mockResolvedValueOnce([{ id: 'task-1' }])
+        .mockResolvedValueOnce(undefined);
+
+      const result = await service.createTask(caDtoBase);
+      expect(result.id).toBe('task-1');
     });
   });
 

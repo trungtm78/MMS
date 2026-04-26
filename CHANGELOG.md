@@ -2,6 +2,32 @@
 
 ---
 
+## [0.1.1.0] — 2026-04-26
+
+### Added
+
+**CA→DQTV Explicit Assignment (Tree Permission)**
+- New `ca_dqtv_assignments` table — explicitly links CA officers to the DQTV members they supervise, replacing the previous implicit unit-scope relationship
+- New `/assignments` API: POST to assign a DQTV to a CA, DELETE to remove, GET to list (system_admin manages; CA officers can view their own list)
+- AssignmentManagePage — admin split-panel UI to select a CA officer, view their assigned DQTV, add new ones via a search-and-select modal, and remove them with inline confirmation
+- "Phân công" sidebar menu item visible to `system_admin` only
+
+### Changed
+
+**Scope Enforcement Across Services**
+- Militia list view: CA officers now see only their explicitly assigned DQTV (falls back to unit scope when they have zero assignments, for backward compatibility with new accounts)
+- Task assignment: CA officers can only create tasks for DQTV they are explicitly assigned to
+- KPI evaluation: CA officers can only submit evaluations for their assigned DQTV
+
+### Fixed
+
+- `createAssignment` now uses a single CTE to INSERT + JOIN in one round-trip, eliminating a partial-failure window where the row could exist in the DB but the API returned a 500
+- `removeAssignment` now uses `DELETE ... RETURNING` instead of a SELECT-then-DELETE, closing a TOCTOU race condition
+- `formatDate` returns `—` instead of `NaN/NaN/NaN` on null or malformed date values
+- Multi-DQTV assignment now uses `Promise.allSettled` so partial failures are reported per-item rather than silently orphaning earlier successful assignments
+
+---
+
 ## [0.1.0.0] — 2026-04-18
 
 ### Added
