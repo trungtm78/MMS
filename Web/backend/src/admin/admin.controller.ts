@@ -14,7 +14,8 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { AdminService, CreateUserDto } from './admin.service';
+import { AdminService } from './admin.service';
+import type { CreateUserDto } from './admin.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 @Controller('admin')
@@ -29,8 +30,9 @@ export class AdminController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('unitCode') unitCode?: string,
+    @Query('role') role?: string,
   ) {
-    return this.adminService.listUsers(req.user, page, Math.min(limit, 100), unitCode);
+    return this.adminService.listUsers(req.user, page, Math.min(limit, 100), unitCode, role);
   }
 
   @Get('users/:id')

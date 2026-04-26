@@ -33,7 +33,9 @@ function formatDate(iso: string | null | undefined) {
 }
 
 function roleBadge(role: string) {
-  return role === 'ca_officer' ? 'CA Phường' : 'CA Khu Vực'
+  if (role === 'ca_officer' || role === 'police_ward') return 'CA Phường'
+  if (role === 'police_area' || role === 'ca_area') return 'CA Khu Vực'
+  return 'CA'
 }
 
 function useDebounce<T>(value: T, delay: number): T {

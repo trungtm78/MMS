@@ -79,10 +79,11 @@ export class AssignmentsService {
     caUserId: string | undefined,
     requester: RequesterInfo,
   ): Promise<AssignmentRow[]> {
-    // ca_officer can only see own assignments
+    // ca_officer / police_ward / police_area can only see own assignments
+    const CA_ROLES = new Set(['ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area']);
     let targetCaId: string;
     const normalizedCaUserId = caUserId?.trim() || undefined;
-    if (requester.role === 'ca_officer') {
+    if (CA_ROLES.has(requester.role)) {
       if (normalizedCaUserId && normalizedCaUserId !== requester.sub) {
         throw new ForbiddenException('forbidden');
       }

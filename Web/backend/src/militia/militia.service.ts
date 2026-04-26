@@ -12,6 +12,7 @@ import { AssignmentsService } from '../assignments/assignments.service';
 
 export interface MilitiaSearchItem {
   id: string;
+  userId: string | null;
   militiaCode: string;
   fullName: string;
   phone: string | null;
@@ -55,6 +56,7 @@ export class MilitiaService {
     const rows = await this.dataSource.query<MilitiaSearchItem[]>(
       `SELECT
          mp.id,
+         mp.user_id        AS "userId",
          mp.militia_code   AS "militiaCode",
          mp.full_name      AS "fullName",
          mp.phone,
@@ -143,7 +145,7 @@ export class MilitiaService {
   // Paginated search with unitScope enforcement + CA explicit assignment filter
   async searchMilitia(
     user: { role: string; unitScope: string | null; sub?: string | null },
-    params: { q?: string; unitCode?: string; page?: number; limit?: number },
+    params: { q?: string; unitCode?: string; page?: number; limit?: number; excludeAssignedTo?: string },
   ): Promise<{ data: MilitiaSearchItem[]; total: number; page: number; limit: number }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
@@ -152,12 +154,19 @@ export class MilitiaService {
 
     // CA officers with explicit assignments: filter to assigned DQTV only.
     // If CA has zero assignments, fall back to unitScope (backward compat for new CAs).
+    const CA_ROLES = new Set(['ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area']);
     let assignedUserIds: string[] | null = null;
-    if (user.role === 'ca_officer' && user.sub) {
+    if (CA_ROLES.has(user.role) && user.sub) {
       const ids = await this.assignmentsService.getAssignedDqtvIds(user.sub);
       if (ids.length > 0) {
         assignedUserIds = ids;
       }
+    }
+
+    // Resolve IDs already assigned to the given CA (for excludeAssignedTo filter)
+    let excludedUserIds: string[] | null = null;
+    if (params.excludeAssignedTo) {
+      excludedUserIds = await this.assignmentsService.getAssignedDqtvIds(params.excludeAssignedTo);
     }
 
     const effectiveUnit = user.role === 'system_admin' ? params.unitCode : user.unitScope ?? undefined;
@@ -171,13 +180,16 @@ export class MilitiaService {
            AND mp.user_id = ANY($1::uuid[])
            AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
              OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
-             OR mp.phone ILIKE '%'||$2||'%')`,
-        [assignedUserIds, q],
+             OR mp.phone ILIKE '%'||$2||'%')
+           ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}`,
+        excludedUserIds && excludedUserIds.length > 0
+          ? [assignedUserIds, q, excludedUserIds]
+          : [assignedUserIds, q],
       );
       const total = parseInt(countResult[0]?.count ?? '0', 10);
 
       const rows = await this.dataSource.query<MilitiaSearchItem[]>(
-        `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+        `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
                 mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
          FROM militia_profiles mp
          JOIN units u ON u.id = mp.unit_id
@@ -186,9 +198,12 @@ export class MilitiaService {
            AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
              OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
              OR mp.phone ILIKE '%'||$2||'%')
+           ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}
          ORDER BY mp.full_name
-         LIMIT $3 OFFSET $4`,
-        [assignedUserIds, q, limit, offset],
+         LIMIT $${excludedUserIds && excludedUserIds.length > 0 ? 4 : 3} OFFSET $${excludedUserIds && excludedUserIds.length > 0 ? 5 : 4}`,
+        excludedUserIds && excludedUserIds.length > 0
+          ? [assignedUserIds, q, excludedUserIds, limit, offset]
+          : [assignedUserIds, q, limit, offset],
       );
 
       return { data: rows, total, page, limit };
@@ -202,13 +217,16 @@ export class MilitiaService {
          AND ($1 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$1||'%'))
            OR LOWER(mp.militia_code) ILIKE LOWER('%'||$1||'%')
            OR mp.phone ILIKE '%'||$1||'%')
-         AND ($2::text IS NULL OR u.code = $2)`,
-      [q, effectiveUnit ?? null],
+         AND ($2::text IS NULL OR u.code = $2)
+         ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}`,
+      excludedUserIds && excludedUserIds.length > 0
+        ? [q, effectiveUnit ?? null, excludedUserIds]
+        : [q, effectiveUnit ?? null],
     );
     const total = parseInt(countResult[0]?.count ?? '0', 10);
 
     const rows = await this.dataSource.query<MilitiaSearchItem[]>(
-      `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+      `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
               mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
@@ -217,9 +235,12 @@ export class MilitiaService {
            OR LOWER(mp.militia_code) ILIKE LOWER('%'||$1||'%')
            OR mp.phone ILIKE '%'||$1||'%')
          AND ($2::text IS NULL OR u.code = $2)
+         ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}
        ORDER BY mp.full_name
-       LIMIT $3 OFFSET $4`,
-      [q, effectiveUnit ?? null, limit, offset],
+       LIMIT $${excludedUserIds && excludedUserIds.length > 0 ? 4 : 3} OFFSET $${excludedUserIds && excludedUserIds.length > 0 ? 5 : 4}`,
+      excludedUserIds && excludedUserIds.length > 0
+        ? [q, effectiveUnit ?? null, excludedUserIds, limit, offset]
+        : [q, effectiveUnit ?? null, limit, offset],
     );
 
     return { data: rows, total, page, limit };
@@ -231,7 +252,7 @@ export class MilitiaService {
     id: string,
   ): Promise<MilitiaSearchItem> {
     const rows = await this.dataSource.query<(MilitiaSearchItem & { unitCode: string })[]>(
-      `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+      `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
               mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id

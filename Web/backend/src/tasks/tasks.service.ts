@@ -64,7 +64,8 @@ export class TasksService {
     if (!militia.userId) throw new BadRequestException('militia_no_user_account');
 
     // CA scope check: if CA has explicit assignments, enforce them
-    if (dto.createdByRole === 'ca_officer') {
+    const CA_ROLES = new Set(['ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area']);
+    if (CA_ROLES.has(dto.createdByRole ?? '')) {
       const assignedIds = await this.assignmentsService.getAssignedDqtvIds(dto.createdByUserId);
       if (assignedIds.length > 0 && !assignedIds.includes(militia.userId)) {
         throw new ForbiddenException('dqtv_not_assigned_to_ca');

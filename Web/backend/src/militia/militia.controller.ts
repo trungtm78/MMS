@@ -76,7 +76,7 @@ export class QuickCreateMilitiaDto implements CreateMilitiaDto {
 export class MilitiaController {
   constructor(private readonly militiaService: MilitiaService) {}
 
-  // GET /militia?q=&unitCode=&page=&limit= — paginated list with unitScope + CA assignment enforcement
+  // GET /militia?q=&unitCode=&page=&limit=&excludeAssignedTo= — paginated list with unitScope + CA assignment enforcement
   @Get()
   listMilitia(
     @Request() req: { user: JwtPayload },
@@ -84,10 +84,11 @@ export class MilitiaController {
     @Query('unitCode') unitCode?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+    @Query('excludeAssignedTo') excludeAssignedTo?: string,
   ) {
     return this.militiaService.searchMilitia(
       { role: req.user.role, unitScope: req.user.unitScope, sub: req.user.sub },
-      { q, unitCode, page, limit },
+      { q, unitCode, page, limit, excludeAssignedTo },
     );
   }
 

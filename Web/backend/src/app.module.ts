@@ -6,7 +6,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TerminusModule } from '@nestjs/terminus';
-import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { redisStore } from 'cache-manager-ioredis-yet';
 import configuration from './config/configuration';
 import { User } from './database/entities/user.entity';
@@ -42,14 +41,23 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     CacheModule.registerAsync({
       isGlobal: true,
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        store: await redisStore({
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD') || undefined,
-        }),
-        ttl: 300_000, // 5 minutes default TTL in ms
-      }),
+      useFactory: async (configService: ConfigService) => {
+        // Fall back to in-memory store when Redis is unavailable (dev without Docker)
+        const redisHost = configService.get('REDIS_HOST', 'localhost');
+        const redisPort = configService.get<number>('REDIS_PORT', 6379);
+        try {
+          const store = await redisStore({
+            host: redisHost,
+            port: redisPort,
+            password: configService.get('REDIS_PASSWORD') || undefined,
+            connectTimeout: 2000,
+            maxRetriesPerRequest: 1,
+          });
+          return { store, ttl: 300_000 };
+        } catch {
+          return { ttl: 300_000 }; // in-memory fallback
+        }
+      },
       inject: [ConfigService],
     }),
 
@@ -82,18 +90,7 @@ import { AttendanceRecord } from './attendance/attendance.entity';
       inject: [ConfigService],
     }),
 
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        throttlers: [{ ttl: 60_000, limit: 100 }],
-        storage: new ThrottlerStorageRedisService({
-          host: config.get('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          password: config.get('REDIS_PASSWORD') || undefined,
-        }),
-      }),
-      inject: [ConfigService],
-    }),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
 
     TerminusModule,
     HealthModule,
