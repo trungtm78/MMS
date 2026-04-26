@@ -44,12 +44,12 @@ export async function getCaOfficers(): Promise<UserRow[]> {
   const { data } = await apiClient.get<{ data: UserRow[] }>('/users', {
     params: { role: 'ca_officer', limit: 100 },
   })
-  return data.data ?? (data as unknown as UserRow[])
+  return data.data
 }
 
 export async function getAvailableDqtv(caUserId: string, q?: string): Promise<MilitiaUserRow[]> {
   const { data } = await apiClient.get<{ data: MilitiaUserRow[] }>('/militia', {
     params: { q: q ?? '', limit: 50, excludeAssignedTo: caUserId },
   })
-  return data.data ?? (data as unknown as MilitiaUserRow[])
+  return data.data
 }

@@ -29,18 +29,17 @@ describe('AssignmentsService', () => {
     const dto = { caUserId: 'ca-1', dqtvUserId: 'dqtv-1' };
     const assignedBy = 'admin-1';
 
-    it('inserts and returns the new assignment', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'assign-1', assigned_at: new Date() }]) // INSERT
-        .mockResolvedValueOnce([{                                               // SELECT detail
-          id: 'assign-1',
-          caUserId: 'ca-1',
-          dqtvUserId: 'dqtv-1',
-          dqtvFullName: 'Nguyen Van A',
-          dqtvUnitCode: 'WARD_01',
-          assignedBy: 'admin-1',
-          assignedAt: new Date(),
-        }]);
+    it('inserts and returns the new assignment (single CTE query)', async () => {
+      // CTE INSERT + JOIN in one round-trip → single query call
+      mockDataSource.query.mockResolvedValueOnce([{
+        id: 'assign-1',
+        caUserId: 'ca-1',
+        dqtvUserId: 'dqtv-1',
+        dqtvFullName: 'Nguyen Van A',
+        dqtvUnitCode: 'WARD_01',
+        assignedBy: 'admin-1',
+        assignedAt: new Date(),
+      }]);
 
       const result = await service.createAssignment(dto, assignedBy);
       expect(result.id).toBe('assign-1');
@@ -67,15 +66,15 @@ describe('AssignmentsService', () => {
     const requester = { sub: 'admin-1', role: 'system_admin' };
 
     it('deletes the assignment when found', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'assign-1' }]) // SELECT check
-        .mockResolvedValueOnce(undefined);             // DELETE
+      // Single DELETE RETURNING — one query call
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assign-1' }]);
 
       await expect(service.removeAssignment('assign-1', requester)).resolves.toBeUndefined();
     });
 
     it('throws NotFoundException when assignment does not exist', async () => {
-      mockDataSource.query.mockResolvedValueOnce([]); // SELECT returns empty
+      // DELETE RETURNING returns empty array → NotFoundException
+      mockDataSource.query.mockResolvedValueOnce([]);
       await expect(service.removeAssignment('missing-id', requester)).rejects.toThrow(NotFoundException);
     });
   });

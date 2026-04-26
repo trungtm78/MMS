@@ -25,8 +25,10 @@ function initials(name: string) {
     .toUpperCase()
 }
 
-function formatDate(iso: string) {
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return '—'
   const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
@@ -67,14 +69,21 @@ function AddDqtvModal({ caUserId, caName, onClose, onAdded }: AddModalProps) {
 
   const addMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const dqtvUserId of ids) {
-        await createAssignment(caUserId, dqtvUserId)
-      }
+      // allSettled so partial failures don't silently orphan earlier successes
+      const results = await Promise.allSettled(
+        ids.map((dqtvUserId) => createAssignment(caUserId, dqtvUserId)),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      const succeeded = results.length - failed
+      return { succeeded, failed }
     },
-    onSuccess: (_, ids) => {
-      toast.success(`Đã thêm ${ids.length} DQTV`)
-      queryClient.invalidateQueries({ queryKey: ['assignments', caUserId] })
-      queryClient.invalidateQueries({ queryKey: ['ca-officers'] })
+    onSuccess: ({ succeeded, failed }) => {
+      if (succeeded > 0) {
+        toast.success(`Đã thêm ${succeeded} DQTV`)
+        queryClient.invalidateQueries({ queryKey: ['assignments', caUserId] })
+        queryClient.invalidateQueries({ queryKey: ['ca-officers'] })
+      }
+      if (failed > 0) toast.error(`${failed} DQTV không thể thêm`)
       onAdded()
       onClose()
     },
