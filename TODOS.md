@@ -68,3 +68,9 @@
 - **MilitianApp: CreateTask screen** — task creation form (2026-04-19)
 - **MilitianApp: Documentation screen** — ExpansionTile help sections (2026-04-19)
 - **App.tsx routes + Sidebar** — all new pages registered (2026-04-19)
+
+## Completed (2026-04-26 — v0.1.1.0)
+
+- **CA→DQTV AssignmentsModule** — explicit 1-to-many assignment table + CRUD API (2026-04-26)
+- **AssignmentManagePage** — split-panel admin UI for managing CA→DQTV assignments (2026-04-26)
+- **Militia/Task/KPI scope enforcement** — CA officers restricted to assigned DQTV only (2026-04-26)
