@@ -39,7 +39,6 @@ dependencies:
   permission_handler: ^11.2.0
   web_socket_channel: ^2.4.0
   speech_to_text: ^6.3.0
-  record: ^5.0.0
   just_audio: ^0.9.37
 
   # UI

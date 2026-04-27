@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/dio_client.dart';
 import '../../auth/providers/auth_provider.dart';
+
+// record package removed: record_linux-0.7.2 incompatible with record_platform_interface-1.5.0
+class _AudioRecorderStub {
+  Future<bool> hasPermission() async => false;
+  Future<void> start(dynamic config, {required String path}) async {}
+  Future<String?> stop() async => null;
+  void dispose() {}
+}
 
 class IncidentReportScreen extends ConsumerStatefulWidget {
   const IncidentReportScreen({super.key});
@@ -22,7 +28,7 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
   String _selectedTask = '';
   final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
-  final _recorder = AudioRecorder();
+  final _recorder = _AudioRecorderStub();
   final _player = AudioPlayer();
   String? _audioPath;
   bool _isRecording = false;
@@ -66,7 +72,7 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
     if (!hasPermission) return;
     final dir = await getTemporaryDirectory();
     final path = '${dir.path}/incident_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+    await _recorder.start(null, path: path);
     setState(() { _isRecording = true; _recordingSecs = 0; _audioPath = null; });
     _countRecordingSecs();
   }
