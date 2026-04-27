@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar,
 } from 'recharts'
 import client from '@/api/client'
 
@@ -28,20 +27,23 @@ function MetricCard({ metric }: { metric: KpiMetric }) {
   const pct = Math.min(100, Math.round((metric.current / metric.target) * 100))
   const isOk = pct >= 100
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-      <p className="text-sm text-gray-500 mb-1">{metric.name}</p>
+    <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+      <p className="text-sm text-[#64748B] mb-1">{metric.name}</p>
       <div className="flex items-end gap-2 mb-3">
-        <span className="text-2xl font-bold text-gray-900">{metric.current}</span>
-        <span className="text-sm text-gray-400">/ {metric.target} {metric.unit}</span>
+        <span className="text-2xl font-bold text-[#0F172A]">{metric.current}</span>
+        <span className="text-sm text-[#64748B] pb-0.5">/ {metric.target} {metric.unit}</span>
       </div>
-      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-[#E2E8F0] rounded-full overflow-hidden">
         <div
-          className={`h-2 rounded-full transition-all ${isOk ? 'bg-green-500' : 'bg-[#1F3A5F]'}`}
-          style={{ width: `${pct}%` }}
+          className="h-2 rounded-full transition-all"
+          style={{
+            width: `${pct}%`,
+            backgroundColor: isOk ? '#2E7D32' : '#C62828',
+          }}
         />
       </div>
-      <p className={`text-xs mt-1.5 font-medium ${isOk ? 'text-green-600' : 'text-gray-500'}`}>
-        {pct}% chỉ tiêu {isOk ? '✓ Đạt' : ''}
+      <p className={`text-xs mt-1.5 font-medium ${isOk ? 'text-[#2E7D32]' : 'text-[#C62828]'}`}>
+        {pct}% chỉ tiêu {isOk ? '✓ Đạt' : '— Chưa đạt'}
       </p>
     </div>
   )
@@ -54,19 +56,26 @@ export function ChiTieuDashboardPage() {
     staleTime: 5 * 60_000,
   })
 
-  if (isLoading) return <div className="p-6 text-center text-gray-500">Đang tải...</div>
+  if (isLoading) {
+    return (
+      <div className="p-6 bg-[#F8FAFC] min-h-full">
+        <div className="text-center text-[#64748B] py-12 text-sm">Đang tải...</div>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-6 space-y-6" data-testid="chitieu-dashboard-page">
+    <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="chitieu-dashboard-page">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-[#1F3A5F]">Bảng Chỉ Tiêu KPI</h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <h1 className="text-2xl font-bold text-[#0F172A]">Bảng Chỉ Tiêu KPI</h1>
+        <p className="text-sm text-[#64748B] mt-1">
           Theo dõi hiệu suất so với chỉ tiêu{data ? ` — kỳ ${data.period}` : ''}
         </p>
       </div>
 
       {isError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
           Không thể tải dữ liệu KPI.
         </div>
       )}
@@ -80,21 +89,23 @@ export function ChiTieuDashboardPage() {
 
           {/* Trend chart */}
           {data.trend?.length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">Xu hướng điểm KPI</h2>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-6">
+              <h2 className="text-base font-semibold text-[#0F172A] mb-4">Xu hướng điểm KPI</h2>
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={data.trend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Legend />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748B' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: '#64748B' }} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line
                     type="monotone"
                     dataKey="score"
-                    stroke="#1F3A5F"
+                    stroke="#C62828"
                     strokeWidth={2}
-                    dot={{ fill: '#1F3A5F', r: 4 }}
+                    dot={{ fill: '#C62828', r: 4 }}
                     name="Điểm KPI"
                   />
                 </LineChart>
@@ -104,22 +115,34 @@ export function ChiTieuDashboardPage() {
 
           {/* Team ranking */}
           {data.teamRanking?.length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">Xếp hạng đơn vị</h2>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-6">
+              <h2 className="text-base font-semibold text-[#0F172A] mb-4">Xếp hạng đơn vị</h2>
               <div className="space-y-3">
-                {data.teamRanking.map((item, i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <span className="w-6 text-center text-sm font-bold text-gray-400">{i + 1}</span>
-                    <span className="flex-1 text-sm text-gray-900">{item.name}</span>
-                    <div className="w-40 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-2 bg-[#1F3A5F] rounded-full"
-                        style={{ width: `${item.score}%` }}
-                      />
+                {data.teamRanking.map((item, i) => {
+                  const isTop = i === 0
+                  return (
+                    <div key={i} className="flex items-center gap-4">
+                      <span className={`w-6 text-center text-sm font-bold ${isTop ? 'text-[#C62828]' : 'text-[#64748B]'}`}>
+                        {i + 1}
+                      </span>
+                      <span className="flex-1 text-sm text-[#0F172A]">{item.name}</span>
+                      <div className="w-40 h-2 bg-[#E2E8F0] rounded-full overflow-hidden">
+                        <div
+                          className="h-2 rounded-full transition-all"
+                          style={{
+                            width: `${item.score}%`,
+                            backgroundColor: item.score >= 80 ? '#2E7D32' : item.score >= 60 ? '#C62828' : '#64748B',
+                          }}
+                        />
+                      </div>
+                      <span className={`text-sm font-medium w-12 text-right ${
+                        item.score >= 80 ? 'text-[#2E7D32]' : 'text-[#C62828]'
+                      }`}>
+                        {item.score}%
+                      </span>
                     </div>
-                    <span className="text-sm font-medium text-gray-700 w-12 text-right">{item.score}%</span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}

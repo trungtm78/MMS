@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Paperclip } from 'lucide-react'
+import { Paperclip, ClipboardList } from 'lucide-react'
 import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -44,12 +44,12 @@ function QuickCreateMilitiaForm({
         </p>
       )}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-sm font-bold text-[#C62828]">
           Mã dân quân <span className="text-red-500">*</span>
         </label>
         <input
           data-testid="quick-create-militia-code"
-          className={`rounded-md border px-3 py-2 text-sm ${validationErrors?.code ? 'border-red-400' : 'border-slate-300'}`}
+          className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] ${validationErrors?.code ? 'border-red-400' : 'border-[#E2E8F0]'}`}
           value={code}
           onChange={(e) => onCodeChange(e.target.value)}
           placeholder="VD: HCM-PHD-T12-0004"
@@ -59,12 +59,12 @@ function QuickCreateMilitiaForm({
         )}
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-sm font-bold text-[#C62828]">
           Họ và tên <span className="text-red-500">*</span>
         </label>
         <input
           data-testid="quick-create-militia-name"
-          className={`rounded-md border px-3 py-2 text-sm ${validationErrors?.name ? 'border-red-400' : 'border-slate-300'}`}
+          className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] ${validationErrors?.name ? 'border-red-400' : 'border-[#E2E8F0]'}`}
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder="Nhập họ và tên"
@@ -74,12 +74,12 @@ function QuickCreateMilitiaForm({
         )}
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-sm font-bold text-[#C62828]">
           Đơn vị <span className="text-red-500">*</span>
         </label>
         <input
           data-testid="quick-create-militia-unit"
-          className={`rounded-md border px-3 py-2 text-sm ${validationErrors?.unit ? 'border-red-400' : 'border-slate-300'}`}
+          className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] ${validationErrors?.unit ? 'border-red-400' : 'border-[#E2E8F0]'}`}
           value={unit}
           onChange={(e) => onUnitChange(e.target.value)}
           placeholder="Mã đơn vị (VD: PHU_DINH)"
@@ -95,11 +95,11 @@ function QuickCreateMilitiaForm({
 const schema = z.object({
   title: z.string().min(1, 'Tiêu đề là bắt buộc').max(255),
   description: z.string().optional(),
-  type: z.string().default('other'),
-  priority: z.string().default('medium'),
+  type: z.string(),
+  priority: z.string(),
   deadline: z.string().optional(),
   location: z.string().optional(),
-  attachmentIds: z.array(z.string()).default([]),
+  attachmentIds: z.array(z.string()),
   assigneeMilitiaId: z.string().uuid('Vui lòng chọn người thực hiện'),
 })
 
@@ -167,7 +167,7 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
     setValue,
     reset,
     formState: { errors },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { type: 'other', priority: 'medium', attachmentIds: [] } })
 
   const createMutation = useMutation({
     mutationFn: tasksApi.create,
@@ -230,7 +230,7 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
     })
   }
 
-  const onSubmit = handleSubmit((data) => {
+  const onSubmit = handleSubmit((data: FormValues) => {
     createMutation.mutate(data)
   })
 
@@ -238,214 +238,231 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
     <form
       data-testid="task-create-form"
       onSubmit={onSubmit}
-      className="space-y-4 max-w-xl"
+      className="space-y-6 max-w-xl"
       noValidate
     >
-      <h2 className="text-lg font-semibold text-slate-800">Tạo nhiệm vụ mới</h2>
-
-      {/* Title */}
-      <div>
-        <Input
-          id="task-title"
-          data-testid="task-title-input"
-          label="Tiêu đề *"
-          placeholder="Nhập tiêu đề nhiệm vụ..."
-          error={!!errors.title}
-          errorMessage={errors.title?.message}
-          {...register('title')}
-        />
-        {errors.title && (
-          <p data-testid="task-title-error" className="text-xs text-red-500 mt-1">
-            {errors.title.message}
-          </p>
-        )}
-      </div>
-
-      {/* Description */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="task-description" className="text-sm font-medium text-slate-700">
-          Mô tả
-        </label>
-        <textarea
-          id="task-description"
-          data-testid="task-description-input"
-          rows={3}
-          placeholder="Mô tả chi tiết nhiệm vụ..."
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('description')}
-        />
-      </div>
-
-      {/* Priority + Type row */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="task-priority" className="text-sm font-medium text-slate-700">Độ ưu tiên</label>
-          <select
-            id="task-priority"
-            data-testid="task-priority-select"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            {...register('priority')}
-          >
-            <option value="low">Thấp</option>
-            <option value="medium">Trung bình</option>
-            <option value="high">Cao</option>
-            <option value="urgent">Khẩn cấp</option>
-          </select>
+      {/* Form header */}
+      <div className="flex items-center gap-3 pb-4 border-b border-[#E2E8F0]">
+        <div className="w-10 h-10 bg-[#FFEBEE] rounded-lg flex items-center justify-center">
+          <ClipboardList size={20} className="text-[#C62828]" />
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="task-type" className="text-sm font-medium text-slate-700">Loại nhiệm vụ</label>
-          <select
-            id="task-type"
-            data-testid="task-type-select"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            {...register('type')}
-          >
-            <option value="patrol">Tuần tra</option>
-            <option value="guard">Bảo vệ</option>
-            <option value="inspection">Kiểm tra</option>
-            <option value="support">Hỗ trợ</option>
-            <option value="training">Tập huấn</option>
-            <option value="admin">Hành chính</option>
-            <option value="other">Khác</option>
-          </select>
+        <div>
+          <h2 className="text-lg font-bold text-[#0F172A]">Tạo nhiệm vụ mới</h2>
+          <p className="text-xs text-[#64748B]">Điền đầy đủ thông tin bên dưới</p>
         </div>
       </div>
 
-      {/* Deadline */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="task-due-date" className="text-sm font-medium text-slate-700">Hạn hoàn thành</label>
-        <input
-          id="task-due-date"
-          type="date"
-          data-testid="task-due-date-input"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('deadline')}
-        />
+      {/* Task Info Card */}
+      <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 space-y-4">
+        <h3 className="text-sm font-bold text-[#C62828] uppercase tracking-wide">Thông tin nhiệm vụ</h3>
+
+        {/* Title */}
+        <div>
+          <Input
+            id="task-title"
+            data-testid="task-title-input"
+            label="Tiêu đề *"
+            placeholder="Nhập tiêu đề nhiệm vụ..."
+            error={!!errors.title}
+            errorMessage={errors.title?.message}
+            {...register('title')}
+          />
+          {errors.title && (
+            <p data-testid="task-title-error" className="text-xs text-red-500 mt-1">
+              {errors.title.message}
+            </p>
+          )}
+        </div>
+
+        {/* Description */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="task-description" className="text-sm font-bold text-[#C62828]">
+            Mô tả
+          </label>
+          <textarea
+            id="task-description"
+            data-testid="task-description-input"
+            rows={3}
+            placeholder="Mô tả chi tiết nhiệm vụ..."
+            className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('description')}
+          />
+        </div>
+
+        {/* Priority + Type row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="task-priority" className="text-sm font-bold text-[#C62828]">Độ ưu tiên</label>
+            <select
+              id="task-priority"
+              data-testid="task-priority-select"
+              className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+              {...register('priority')}
+            >
+              <option value="low">Thấp</option>
+              <option value="medium">Trung bình</option>
+              <option value="high">Cao</option>
+              <option value="urgent">Khẩn cấp</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="task-type" className="text-sm font-bold text-[#C62828]">Loại nhiệm vụ</label>
+            <select
+              id="task-type"
+              data-testid="task-type-select"
+              className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+              {...register('type')}
+            >
+              <option value="patrol">Tuần tra</option>
+              <option value="guard">Bảo vệ</option>
+              <option value="inspection">Kiểm tra</option>
+              <option value="support">Hỗ trợ</option>
+              <option value="training">Tập huấn</option>
+              <option value="admin">Hành chính</option>
+              <option value="other">Khác</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Deadline */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="task-due-date" className="text-sm font-bold text-[#C62828]">Hạn hoàn thành</label>
+          <input
+            id="task-due-date"
+            type="date"
+            data-testid="task-due-date-input"
+            className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('deadline')}
+          />
+        </div>
+
+        {/* Location */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="task-location" className="text-sm font-bold text-[#C62828]">Địa điểm</label>
+          <input
+            id="task-location"
+            type="text"
+            data-testid="task-location-input"
+            placeholder="Nhập địa điểm thực hiện..."
+            className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('location')}
+          />
+        </div>
       </div>
 
-      {/* Location */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="task-location" className="text-sm font-medium text-slate-700">Địa điểm</label>
-        <input
-          id="task-location"
-          type="text"
-          data-testid="task-location-input"
-          placeholder="Nhập địa điểm thực hiện..."
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('location')}
-        />
-      </div>
-
-      {/* File attachments */}
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Tệp đính kèm</label>
+      {/* Attachments Card */}
+      <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 space-y-3">
+        <h3 className="text-sm font-bold text-[#C62828] uppercase tracking-wide">Tệp đính kèm</h3>
         <input
           type="file"
           multiple
           accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
           data-testid="task-file-input"
-          className="text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-slate-300 file:text-sm file:bg-white file:text-slate-700 hover:file:bg-slate-50"
+          className="text-sm text-[#64748B] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-[#E2E8F0] file:text-sm file:bg-white file:text-[#64748B] hover:file:bg-[#F8FAFC] file:cursor-pointer"
           onChange={handleFileUpload}
         />
         {uploadedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-1">
             {uploadedFiles.map((f) => (
-              <span key={f.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-md">
+              <span key={f.id} className="inline-flex items-center gap-1 px-2 py-1 bg-[#FFEBEE] text-[#C62828] text-xs rounded-md border border-red-100">
                 <Paperclip size={12} />
                 {f.name}
-                <button type="button" onClick={() => removeFile(f.id)} className="ml-1 hover:text-red-500">×</button>
+                <button type="button" onClick={() => removeFile(f.id)} className="ml-1 hover:text-red-800 font-bold">×</button>
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Assignee SmartSelect */}
-      {/* US-SS-06 AC-1: militia SmartSelect for task assignee */}
-      <SmartSelect
-        name="assignee"
-        label="Người thực hiện *"
-        placeholder="Tìm dân quân theo tên, mã hoặc SĐT..."
-        value={assigneeId}
-        onChange={(id) => handleAssigneeChange(id)}
-        onClear={handleAssigneeClear}
-        options={militiaOptions}
-        isLoading={militiaLoading}
-        error={!!errors.assigneeMilitiaId}
-        errorMessage={errors.assigneeMilitiaId?.message}
-        required
-        onSearch={handleSearch}
-        createModal={{
-          title: 'Thêm dân quân mới',
-          content: (
-            <QuickCreateMilitiaForm
-              code={qcCode}
-              name={qcName}
-              unit={qcUnit}
-              onCodeChange={(v) => { setQcCode(v); setQcErrors((e) => ({ ...e, code: undefined, server: undefined })) }}
-              onNameChange={(v) => { setQcName(v); setQcErrors((e) => ({ ...e, name: undefined })) }}
-              onUnitChange={(v) => { setQcUnit(v); setQcErrors((e) => ({ ...e, unit: undefined })) }}
-              validationErrors={qcErrors}
-            />
-          ),
-          onSubmit: async () => {
-            const fullName = qcName.trim()
-            const militiaCode = qcCode.trim()
-            const unitCode = qcUnit.trim()
-            // US-SS-03 AC-6: inline validation — do not close modal on missing fields
-            const errs: typeof qcErrors = {}
-            if (!militiaCode) errs.code = 'Mã dân quân là bắt buộc'
-            if (!fullName) errs.name = 'Họ và tên là bắt buộc'
-            if (!unitCode) errs.unit = 'Đơn vị là bắt buộc'
-            if (Object.keys(errs).length > 0) {
-              setQcErrors(errs)
-              return null
-            }
-            try {
-              setQcErrors({})
-              const item = await militiaApi.quickCreate({ militiaCode, fullName, unitCode })
-              const opt: SmartSelectOption = {
-                id: item.id,
-                label: `${item.militiaCode} — ${item.fullName}`,
-                sublabel: [item.phone, item.unitName].filter(Boolean).join(' | '),
-                meta: item as unknown as Record<string, unknown>,
+      {/* Assignee Card */}
+      <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 space-y-3">
+        <h3 className="text-sm font-bold text-[#C62828] uppercase tracking-wide">Người thực hiện</h3>
+        {/* US-SS-06 AC-1: militia SmartSelect for task assignee */}
+        <SmartSelect
+          name="assignee"
+          label="Người thực hiện *"
+          placeholder="Tìm dân quân theo tên, mã hoặc SĐT..."
+          value={assigneeId}
+          onChange={(id) => handleAssigneeChange(id)}
+          onClear={handleAssigneeClear}
+          options={militiaOptions}
+          isLoading={militiaLoading}
+          error={!!errors.assigneeMilitiaId}
+          errorMessage={errors.assigneeMilitiaId?.message}
+          required
+          onSearch={handleSearch}
+          createModal={{
+            title: 'Thêm dân quân mới',
+            content: (
+              <QuickCreateMilitiaForm
+                code={qcCode}
+                name={qcName}
+                unit={qcUnit}
+                onCodeChange={(v) => { setQcCode(v); setQcErrors((e) => ({ ...e, code: undefined, server: undefined })) }}
+                onNameChange={(v) => { setQcName(v); setQcErrors((e) => ({ ...e, name: undefined })) }}
+                onUnitChange={(v) => { setQcUnit(v); setQcErrors((e) => ({ ...e, unit: undefined })) }}
+                validationErrors={qcErrors}
+              />
+            ),
+            onSubmit: async () => {
+              const fullName = qcName.trim()
+              const militiaCode = qcCode.trim()
+              const unitCode = qcUnit.trim()
+              // US-SS-03 AC-6: inline validation — do not close modal on missing fields
+              const errs: typeof qcErrors = {}
+              if (!militiaCode) errs.code = 'Mã dân quân là bắt buộc'
+              if (!fullName) errs.name = 'Họ và tên là bắt buộc'
+              if (!unitCode) errs.unit = 'Đơn vị là bắt buộc'
+              if (Object.keys(errs).length > 0) {
+                setQcErrors(errs)
+                return null
               }
-              // Add to extraOptions so the selected chip renders immediately
-              setExtraOptions((prev) => [...prev, opt])
-              // Reset quick-create fields
-              setQcName('')
-              setQcCode('QS-E2E-' + Date.now().toString().slice(-6))
-              setQcErrors({})
-              return opt
-            } catch (err: unknown) {
-              // US-SS-03 AC-7: show inline error for duplicate militia_code
-              const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-              if (msg === 'militia_code_duplicate') {
-                setQcErrors({ code: 'Mã dân quân đã tồn tại. Vui lòng dùng mã khác.' })
-              } else {
-                setQcErrors({ server: 'Không thể tạo dân quân. Vui lòng kiểm tra lại thông tin.' })
+              try {
+                setQcErrors({})
+                const item = await militiaApi.quickCreate({ militiaCode, fullName, unitCode })
+                const opt: SmartSelectOption = {
+                  id: item.id,
+                  label: `${item.militiaCode} — ${item.fullName}`,
+                  sublabel: [item.phone, item.unitName].filter(Boolean).join(' | '),
+                  meta: item as unknown as Record<string, unknown>,
+                }
+                // Add to extraOptions so the selected chip renders immediately
+                setExtraOptions((prev) => [...prev, opt])
+                // Reset quick-create fields
+                setQcName('')
+                setQcCode('QS-E2E-' + Date.now().toString().slice(-6))
+                setQcErrors({})
+                return opt
+              } catch (err: unknown) {
+                // US-SS-03 AC-7: show inline error for duplicate militia_code
+                const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+                if (msg === 'militia_code_duplicate') {
+                  setQcErrors({ code: 'Mã dân quân đã tồn tại. Vui lòng dùng mã khác.' })
+                } else {
+                  setQcErrors({ server: 'Không thể tạo dân quân. Vui lòng kiểm tra lại thông tin.' })
+                }
+                return null
               }
-              return null
-            }
-          },
-        }}
-      />
+            },
+          }}
+        />
+      </div>
 
       {/* Success indicator */}
       {createMutation.isSuccess && (
-        <div data-testid="task-create-success" className="text-sm text-green-600 font-medium">
+        <div data-testid="task-create-success" className="text-sm text-[#2E7D32] font-medium bg-[#E8F5E9] px-4 py-3 rounded-lg border border-green-200">
           Nhiệm vụ đã được tạo thành công!
         </div>
       )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <Button
+        <button
           type="button"
-          variant="secondary"
           onClick={() => { reset(); setAssigneeId('') }}
+          className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
           Đặt lại
-        </Button>
+        </button>
         <Button
           type="submit"
           data-testid="task-submit-btn"
