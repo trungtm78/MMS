@@ -101,3 +101,5 @@ nul
 MilitianApp/nul
 Web/frontend/qa-screenshots/
 Web/releases/
+.env.docker
+.env.*.local

@@ -32,8 +32,8 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> with SingleTickerPr
     try {
       final dio = ref.read(dioProvider);
       final results = await Future.wait([
-        dio.get(ApiConstants.alerts, queryParameters: {'status': 'active'}),
-        dio.get(ApiConstants.alerts, queryParameters: {'status': 'resolved'}),
+        dio.get(ApiConstants.sosList, queryParameters: {'status': 'active'}),
+        dio.get(ApiConstants.sosList, queryParameters: {'status': 'resolved'}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -71,8 +71,8 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> with SingleTickerPr
     if (confirmed == true) {
       try {
         final dio = ref.read(dioProvider);
-        final url = ApiConstants.alertResolve.replaceAll('{id}', id);
-        await dio.post(url, data: {'note': noteCtrl.text.trim()});
+        final url = ApiConstants.sosResolve.replaceAll('{id}', id);
+        await dio.patch(url, data: {'status': 'resolved', 'resolutionNote': noteCtrl.text.trim()});
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đã xử lý cảnh báo'), backgroundColor: AppColors.success),

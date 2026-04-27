@@ -6,7 +6,7 @@ import { AssignmentsService } from '../assignments/assignments.service';
 
 const mockDataSource = {
   query: jest.fn(),
-  transaction: jest.fn((cb: (mgr: typeof mockDataSource) => Promise<unknown>) => cb(mockDataSource)),
+  transaction: jest.fn((cb: (mgr: { query: jest.Mock }) => Promise<unknown>) => cb(mockDataSource)),
 };
 const mockAssignmentsService = { getAssignedDqtvIds: jest.fn() };
 
@@ -160,6 +160,92 @@ describe('TasksService', () => {
       expect(result.total).toBe(25);
       expect(result.page).toBe(2);
       expect(result.limit).toBe(10);
+    });
+  });
+
+  // ── getTaskById / acceptTask / updateProgress ──────────────────────────
+
+  const fakeTask = {
+    id: 'task-1', code: 'TASK-001', title: 'Tuần tra', description: null,
+    type: 'patrol', priority: 'medium', status: 'pending',
+    deadline: null, createdAt: new Date(),
+    assigneeId: 'user-1', assigneeName: 'Nguyen Van A',
+    militiaId: 'militia-1', militiaCode: 'DQTV001',
+  };
+
+  describe('getTaskById', () => {
+    it('returns task DTO when task exists', async () => {
+      mockDataSource.query.mockResolvedValueOnce([fakeTask]);
+      const result = await service.getTaskById('task-1');
+      expect(result.id).toBe('task-1');
+      expect(result.title).toBe('Tuần tra');
+    });
+
+    it('throws NotFoundException when task not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.getTaskById('bad-id')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('acceptTask', () => {
+    it('changes status to in_progress for the assignee', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'pending' }]) // task exists
+        .mockResolvedValueOnce([{ id: 'assign-1' }]) // is assignee
+        .mockResolvedValueOnce(undefined) // update
+        .mockResolvedValueOnce([{ ...fakeTask, status: 'in_progress' }]); // re-fetch (getTaskById)
+
+      const result = await service.acceptTask('task-1', 'user-1');
+      expect(result.status).toBe('in_progress');
+    });
+
+    it('throws NotFoundException when task not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.acceptTask('bad-id', 'user-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when actor is not the assignee', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'pending' }])
+        .mockResolvedValueOnce([]); // not assignee
+
+      await expect(service.acceptTask('task-1', 'other-user')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updateProgress', () => {
+    it('updates progress and returns updated task', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1' }]) // task exists
+        .mockResolvedValueOnce([{ id: 'assign-1' }]) // is assignee
+        .mockResolvedValueOnce(undefined) // INSERT task_updates
+        .mockResolvedValueOnce(undefined) // UPDATE tasks updated_at
+        .mockResolvedValueOnce([{ ...fakeTask, status: 'in_progress' }]); // re-fetch (getTaskById)
+
+      const result = await service.updateProgress('task-1', { progress: 50 }, 'user-1');
+      expect(result.id).toBe('task-1');
+    });
+
+    it('updates task status when status is provided', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1' }])
+        .mockResolvedValueOnce([{ id: 'assign-1' }])
+        .mockResolvedValueOnce(undefined) // INSERT task_updates
+        .mockResolvedValueOnce(undefined) // UPDATE tasks SET status
+        .mockResolvedValueOnce([{ ...fakeTask, status: 'completed' }]);
+
+      const result = await service.updateProgress('task-1', { progress: 100, status: 'completed' }, 'user-1');
+      expect(result.status).toBe('completed');
+    });
+
+    it('throws ForbiddenException when actor is not the assignee', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1' }])
+        .mockResolvedValueOnce([]); // not assignee
+
+      await expect(
+        service.updateProgress('task-1', { progress: 50 }, 'other-user'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

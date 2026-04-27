@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:convert';
 import 'dart:io';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
@@ -46,7 +45,7 @@ class _ReportWorkScreenState extends ConsumerState<ReportWorkScreen> with Single
   Future<void> _loadReports() async {
     try {
       final dio = ref.read(dioProvider);
-      final resp = await dio.get(ApiConstants.reportsMyList);
+      final resp = await dio.get(ApiConstants.workReports);
       if (!mounted) return;
       setState(() {
         _myReports = List<Map<String, dynamic>>.from(resp.data['data'] as List? ?? []);
@@ -88,18 +87,11 @@ class _ReportWorkScreenState extends ConsumerState<ReportWorkScreen> with Single
     }
     setState(() { _submitting = true; });
     try {
-      // Convert images to base64
-      final imageBase64 = await Future.wait(_images.map((f) async {
-        final bytes = await f.readAsBytes();
-        return 'data:image/jpeg;base64,${base64Encode(bytes)}';
-      }));
-
       final dio = ref.read(dioProvider);
-      await dio.post(ApiConstants.reportCreate, data: {
+      await dio.post(ApiConstants.workReports, data: {
         'reportType': _types[_tabCtrl.index],
+        'title': '${_typeLabels[_tabCtrl.index]} - ${DateTime.now().toIso8601String().substring(0, 10)}',
         'content': _contentCtrl.text.trim(),
-        'location': _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
-        'images': imageBase64,
       });
 
       if (!mounted) return;

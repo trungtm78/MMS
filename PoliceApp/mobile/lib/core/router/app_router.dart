@@ -24,6 +24,8 @@ import '../../features/alerts/screens/alerts_screen.dart';
 import '../../features/profile/screens/profile_ca_screen.dart';
 import '../../features/profile/screens/profile_dqtv_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
+import '../../features/chat/screens/conversations_screen.dart';
+import '../../features/chat/screens/chat_screen.dart';
 import '../../shared/widgets/main_shell_ca.dart';
 import '../../shared/widgets/main_shell_dqtv.dart';
 import 'routes.dart';
@@ -109,6 +111,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.caProfile,
             builder: (context, state) => const ProfileCAScreen(),
+          ),
+          GoRoute(
+            path: Routes.caChat,
+            builder: (context, state) => const ConversationsScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => ChatScreen(
+                  conversationId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -33,7 +33,7 @@ class _DqtvDetailScreenState extends ConsumerState<DqtvDetailScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final dio = ref.read(dioProvider);
-      final profileUrl = ApiConstants.userMilitiaProfile.replaceFirst('{id}', widget.userId);
+      final profileUrl = ApiConstants.militiaById.replaceFirst('{id}', widget.userId);
 
       Map<String, dynamic>? user, profile, kpi;
       try {

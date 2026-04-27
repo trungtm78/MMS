@@ -35,12 +35,12 @@ class AuthInterceptor extends Interceptor {
 
         final response = await dio.post(
           ApiConstants.refreshToken,
-          data: {'refresh_token': refreshToken},
+          data: {'refreshToken': refreshToken},
           options: Options(headers: {'Authorization': null}),
         );
 
-        final newAccessToken = response.data['access_token'] as String;
-        final newRefreshToken = response.data['refresh_token'] as String?;
+        final newAccessToken = response.data['accessToken'] as String;
+        final newRefreshToken = response.data['refreshToken'] as String?;
         await storage.saveAccessToken(newAccessToken);
         if (newRefreshToken != null) {
           await storage.saveRefreshToken(newRefreshToken);

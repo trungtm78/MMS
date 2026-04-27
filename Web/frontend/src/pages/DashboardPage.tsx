@@ -1,14 +1,35 @@
 // US-W001 AC-1: Post-login dashboard — role-specific landing
 // US-W008 AC-2: SOS alert banner visible immediately
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useRbac } from '@/hooks/useRbac'
 import { AlertTriangle, Users, ClipboardList, Clock } from 'lucide-react'
+import client from '@/api/client'
+
+interface DashboardStats {
+  totalMilitia: number
+  activeToday: number
+  pendingTasks: number
+  pendingApprovals: number
+  activeSosAlerts: number
+}
+
+async function fetchStats(): Promise<DashboardStats> {
+  const res = await client.get('/dashboard/stats')
+  return res.data
+}
 
 export function DashboardPage() {
   const { user } = useAuth()
   const { activeSosAlerts } = useSocket()
   const { can, role } = useRbac()
+
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: fetchStats,
+    refetchInterval: 30_000,
+  })
 
   return (
     <div data-testid="dashboard-overview" className="p-6 space-y-6">
@@ -62,8 +83,8 @@ export function DashboardPage() {
           <StatCard
             testId="stat-militia-online"
             icon={<Users size={20} className="text-blue-600" />}
-            label="DQTV đang online"
-            value="—"
+            label="Tổng DQTV đang hoạt động"
+            value={stats ? String(stats.totalMilitia) : '...'}
             bg="bg-blue-50"
           />
         )}
@@ -71,7 +92,7 @@ export function DashboardPage() {
           testId="stat-tasks-pending"
           icon={<ClipboardList size={20} className="text-amber-600" />}
           label="Nhiệm vụ đang chờ"
-          value="—"
+          value={stats ? String(stats.pendingTasks) : '...'}
           bg="bg-amber-50"
         />
         {can.manageAttendance && (
@@ -79,7 +100,7 @@ export function DashboardPage() {
             testId="stat-attendance-today"
             icon={<Clock size={20} className="text-green-600" />}
             label="Chấm công hôm nay"
-            value="—"
+            value={stats ? String(stats.activeToday) : '...'}
             bg="bg-green-50"
           />
         )}
@@ -87,7 +108,7 @@ export function DashboardPage() {
           testId="stat-sos-active"
           icon={<AlertTriangle size={20} className="text-red-600" />}
           label="SOS chưa xử lý"
-          value={String(activeSosAlerts.length)}
+          value={stats ? String(stats.activeSosAlerts) : String(activeSosAlerts.length)}
           bg="bg-red-50"
         />
       </div>

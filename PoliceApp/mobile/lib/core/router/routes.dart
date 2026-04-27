@@ -21,6 +21,8 @@ class Routes {
   static const caProfile      = '/ca/profile';
   static const caNotifications = '/ca/notifications';
   static const caEvaluate     = '/ca/evaluate/:userId';
+  static const caChat         = '/ca/chat';
+  static const caChatDetail   = '/ca/chat/:id';
 
   // ─── DQTV Shell ──────────────────────────────────────────────────────────────
   static const dqtvHome       = '/dqtv/home';

@@ -78,7 +78,7 @@ class WebSocketService {
   // ─── Rooms ────────────────────────────────────────────────────────────────
   void joinConversation(String conversationId) {
     _currentConversationId = conversationId;
-    _socket?.emit('join_conversation', {'conversationId': conversationId});
+    _socket?.emit('chat:join', {'conversationId': conversationId});
     debugPrint('[WS] Joined conversation: $conversationId');
   }
 
@@ -101,7 +101,7 @@ class WebSocketService {
       debugPrint('[WS] Not connected, cannot send message');
       return;
     }
-    _socket?.emit('send_message', {
+    _socket?.emit('chat:send', {
       'conversationId': conversationId,
       'content': content,
       'messageType': messageType,
@@ -149,8 +149,8 @@ class WebSocketService {
       _streamController.add(WsMessage(WsEvent.error, data));
     });
 
-    socket.on('new_message', (data) {
-      debugPrint('[WS] new_message: $data');
+    socket.on('chat:message', (data) {
+      debugPrint('[WS] chat:message: $data');
       _streamController.add(WsMessage(WsEvent.messageReceived, data));
     });
 

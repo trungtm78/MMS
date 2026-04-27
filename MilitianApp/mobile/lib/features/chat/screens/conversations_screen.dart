@@ -78,10 +78,90 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     }
   }
 
+  Future<void> _showNewConversationDialog() async {
+    final titleCtrl = TextEditingController();
+    final participantsCtrl = TextEditingController();
+    String? errorMsg;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Tạo cuộc trò chuyện'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: participantsCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ID người tham gia (phân cách bằng dấu phẩy) *',
+                  hintText: 'userId1, userId2',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Tiêu đề nhóm (tùy chọn)',
+                ),
+              ),
+              if (errorMsg != null) ...[
+                const SizedBox(height: 8),
+                Text(errorMsg!, style: const TextStyle(color: AppColors.error, fontSize: 12)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Hủy'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final rawIds = participantsCtrl.text.trim();
+                if (rawIds.isEmpty) {
+                  setDialogState(() => errorMsg = 'Vui lòng nhập ID người tham gia');
+                  return;
+                }
+                final participantIds = rawIds
+                    .split(',')
+                    .map((s) => s.trim())
+                    .where((s) => s.isNotEmpty)
+                    .toList();
+                try {
+                  final storage = ref.read(secureStorageProvider);
+                  final dio = DioClient.getInstance(storage);
+                  await dio.post(ApiConstants.conversations, data: {
+                    'participantIds': participantIds,
+                    if (titleCtrl.text.trim().isNotEmpty) 'title': titleCtrl.text.trim(),
+                    'conversationType': participantIds.length == 1 ? 'direct' : 'group',
+                  });
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                  _load();
+                } catch (_) {
+                  setDialogState(() => errorMsg = 'Tạo cuộc trò chuyện thất bại');
+                }
+              },
+              child: const Text('Tạo'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    titleCtrl.dispose();
+    participantsCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppHeader(title: AppStrings.chatTitle),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showNewConversationDialog,
+        backgroundColor: AppColors.navy,
+        child: const Icon(Icons.edit, color: Colors.white),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null

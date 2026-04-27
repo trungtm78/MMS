@@ -1,11 +1,15 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
+  Query,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   IsString,
@@ -67,5 +71,33 @@ export class KpiController {
     @Request() req: { user: { sub: string; role: string } },
   ) {
     return this.kpiService.submitEvaluation(dto, { sub: req.user.sub, role: req.user.role });
+  }
+
+  // GET /kpi/current?userId=&month=&year=
+  @Get('current')
+  @Roles('dqtv_member', 'dqtv', 'ca_officer', 'system_admin', 'police_ward', 'police_area')
+  async getCurrent(
+    @Request() req: { user: { sub: string } },
+    @Query('userId') userId?: string,
+    @Query('month', new DefaultValuePipe(0), ParseIntPipe) month = 0,
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
+  ) {
+    const targetUserId = userId ?? req.user.sub;
+    return this.kpiService.getCurrentScore(
+      targetUserId,
+      month > 0 ? month : undefined,
+      year > 0 ? year : undefined,
+    );
+  }
+
+  // GET /kpi/history?userId=
+  @Get('history')
+  @Roles('dqtv_member', 'dqtv', 'ca_officer', 'system_admin', 'police_ward', 'police_area')
+  async getHistory(
+    @Request() req: { user: { sub: string } },
+    @Query('userId') userId?: string,
+  ) {
+    const targetUserId = userId ?? req.user.sub;
+    return this.kpiService.getHistory(targetUserId);
   }
 }

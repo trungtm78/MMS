@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Query,
   Param,
@@ -12,8 +13,6 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
-  NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   IsString,
@@ -25,6 +24,9 @@ import {
   IsDateString,
   IsArray,
   ArrayMaxSize,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -71,6 +73,18 @@ export class CreateTaskDto {
   @IsUUID()
   @IsNotEmpty()
   assigneeMilitiaId: string;
+}
+
+export class UpdateProgressDto {
+  @IsInt() @Min(0) @Max(100)
+  progress: number;
+
+  @IsOptional() @IsString()
+  note?: string;
+
+  @IsOptional() @IsString()
+  @IsIn(['pending', 'in_progress', 'completed', 'cancelled'])
+  status?: string;
 }
 
 export class SubmitReportDto {
@@ -127,6 +141,35 @@ export class TasksController {
       ...dto,
       createdByUserId: req.user.sub,
     });
+  }
+
+  // GET /tasks/:id — get a single task by id
+  @Get(':id')
+  @Roles('system_admin', 'office_staff', 'ca_officer', 'dqtv_member', 'dqtv')
+  async getById(@Param('id') id: string) {
+    return this.tasksService.getTaskById(id);
+  }
+
+  // POST /tasks/:id/accept — DQTV accepts an assigned task
+  @Post(':id/accept')
+  @Roles('dqtv_member', 'dqtv')
+  @HttpCode(HttpStatus.OK)
+  async accept(
+    @Param('id') id: string,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.tasksService.acceptTask(id, req.user.sub);
+  }
+
+  // PATCH /tasks/:id/progress — DQTV updates task progress
+  @Patch(':id/progress')
+  @Roles('dqtv_member', 'dqtv')
+  async updateProgress(
+    @Param('id') id: string,
+    @Body() dto: UpdateProgressDto,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.tasksService.updateProgress(id, dto, req.user.sub);
   }
 
   // POST /tasks/:id/report — DQTV submits completion report for assigned task

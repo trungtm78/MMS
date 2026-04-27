@@ -43,7 +43,7 @@ export function ApprovalsPage() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<ApprovalStatus | 'all'>('pending')
 
-  const { data = [], isLoading, isError } = useQuery({
+  const { data = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['approvals', activeTab],
     queryFn: () => getApprovals(activeTab),
     staleTime: 30_000,
@@ -66,6 +66,19 @@ export function ApprovalsPage() {
         <p className="text-sm text-gray-600 mt-1">Xét duyệt đơn nghỉ phép và nhiệm vụ</p>
       </div>
 
+      {isError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between" data-testid="error-banner">
+          <p className="text-sm text-red-700">Không thể tải danh sách phê duyệt. Thử lại</p>
+          <button
+            onClick={() => refetch()}
+            className="text-sm text-red-700 underline ml-4 hover:no-underline"
+            data-testid="retry-btn"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 p-1 flex gap-1 w-fit">
         {TABS.map((tab) => (
@@ -81,12 +94,6 @@ export function ApprovalsPage() {
           </button>
         ))}
       </div>
-
-      {isError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-          Không thể tải danh sách phê duyệt.
-        </div>
-      )}
 
       {isLoading ? (
         <div className="text-center text-gray-400 py-12 text-sm">Đang tải...</div>

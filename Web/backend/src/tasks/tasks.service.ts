@@ -10,6 +10,7 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { CA_ROLES } from '../common/constants/roles';
 
 export interface CreateTaskDto {
   title: string;
@@ -64,7 +65,6 @@ export class TasksService {
     if (!militia.userId) throw new BadRequestException('militia_no_user_account');
 
     // CA scope check: if CA has explicit assignments, enforce them
-    const CA_ROLES = new Set(['ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area']);
     if (CA_ROLES.has(dto.createdByRole ?? '')) {
       const assignedIds = await this.assignmentsService.getAssignedDqtvIds(dto.createdByUserId);
       if (assignedIds.length > 0 && !assignedIds.includes(militia.userId)) {
@@ -119,6 +119,92 @@ export class TasksService {
         militiaCode: militia.militiaCode,
       };
     });
+  }
+
+  // GET /tasks/:id — get a single task
+  async getTaskById(id: string): Promise<TaskWithAssignee> {
+    const rows = await this.dataSource.query<TaskWithAssignee[]>(
+      `SELECT t.id, t.code, t.title, t.description, t.type, t.priority, t.status,
+              t.deadline, t.created_at AS "createdAt",
+              ta.assignee_id AS "assigneeId",
+              u.full_name AS "assigneeName",
+              mp.id AS "militiaId",
+              mp.militia_code AS "militiaCode"
+       FROM tasks t
+       LEFT JOIN task_assignments ta ON ta.task_id = t.id
+       LEFT JOIN users u ON u.id = ta.assignee_id
+       LEFT JOIN militia_profiles mp ON mp.user_id = ta.assignee_id
+       WHERE t.id = $1::uuid LIMIT 1`,
+      [id],
+    );
+    if (!rows.length) throw new NotFoundException('task_not_found');
+    return rows[0];
+  }
+
+  // POST /tasks/:id/accept — DQTV accepts an assigned task
+  async acceptTask(id: string, actorId: string): Promise<TaskWithAssignee> {
+    const taskRows = await this.dataSource.query<{ id: string; status: string }[]>(
+      `SELECT id, status FROM tasks WHERE id = $1::uuid LIMIT 1`,
+      [id],
+    );
+    if (!taskRows.length) throw new NotFoundException('task_not_found');
+
+    // Check actorId is the assignee
+    const assignRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM task_assignments WHERE task_id = $1::uuid AND assignee_id = $2::uuid LIMIT 1`,
+      [id, actorId],
+    );
+    if (!assignRows.length) throw new ForbiddenException('not_task_assignee');
+
+    await this.dataSource.query(
+      `UPDATE tasks SET status = 'in_progress', updated_at = NOW()
+       WHERE id = $1::uuid AND status = 'pending'`,
+      [id],
+    );
+
+    return this.getTaskById(id);
+  }
+
+  // PATCH /tasks/:id/progress — DQTV updates task progress
+  async updateProgress(
+    id: string,
+    dto: { progress: number; note?: string; status?: string },
+    actorId: string,
+  ): Promise<TaskWithAssignee> {
+    const taskRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM tasks WHERE id = $1::uuid LIMIT 1`,
+      [id],
+    );
+    if (!taskRows.length) throw new NotFoundException('task_not_found');
+
+    const assignRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM task_assignments WHERE task_id = $1::uuid AND assignee_id = $2::uuid LIMIT 1`,
+      [id, actorId],
+    );
+    if (!assignRows.length) throw new ForbiddenException('not_task_assignee');
+    const assignmentId = assignRows[0].id;
+
+    // Insert a progress update record
+    await this.dataSource.query(
+      `INSERT INTO task_updates (task_assignment_id, progress, status, note, updated_by)
+       VALUES ($1::uuid, $2, $3, $4, $5::uuid)`,
+      [assignmentId, dto.progress, dto.status ?? null, dto.note ?? null, actorId],
+    );
+
+    // Update task status if provided
+    if (dto.status) {
+      await this.dataSource.query(
+        `UPDATE tasks SET status = $1, updated_at = NOW() WHERE id = $2::uuid`,
+        [dto.status, id],
+      );
+    } else {
+      await this.dataSource.query(
+        `UPDATE tasks SET updated_at = NOW() WHERE id = $1::uuid`,
+        [id],
+      );
+    }
+
+    return this.getTaskById(id);
   }
 
   // Submit task completion report (DQTV only, must be assignee)

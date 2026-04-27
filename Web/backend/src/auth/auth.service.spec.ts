@@ -253,4 +253,64 @@ describe('AuthService', () => {
       expect(qb.execute).toHaveBeenCalled();
     });
   });
+
+  describe('issueMfaTempToken', () => {
+    test('test_mfa_issueMfaTempToken_stores_bcrypt_hash_in_db', async () => {
+      mockDataSource.query.mockResolvedValueOnce(undefined); // INSERT
+
+      const rawToken = await service.issueMfaTempToken('test-uuid-001');
+
+      // Token is a 64-char hex string
+      expect(rawToken).toMatch(/^[0-9a-f]{64}$/);
+
+      // INSERT was called with user_id, a bcrypt hash, and expiry date
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO mfa_temp_tokens'),
+        expect.arrayContaining(['test-uuid-001']),
+      );
+      // Verify the stored hash is a valid bcrypt hash of the returned token
+      const callArgs = mockDataSource.query.mock.calls[0] as unknown[][];
+      const storedHash = (callArgs[1] as string[])[1];
+      const valid = await bcrypt.compare(rawToken, storedHash);
+      expect(valid).toBe(true);
+    });
+  });
+
+  describe('verifyMfaAndIssueTokens', () => {
+    test('test_mfa_verifyMfa_throws_on_invalid_otp', async () => {
+      // Return no matching unexpired rows → invalid
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(
+        service.verifyMfaAndIssueTokens('bad-token', '000000'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    test('test_mfa_verifyMfa_throws_on_expired_temp_token', async () => {
+      // An expired token would not be returned by the SQL (expires_at > NOW()),
+      // so the service finds no matching row and throws
+      mockDataSource.query.mockResolvedValueOnce([]); // no unexpired rows
+      await expect(
+        service.verifyMfaAndIssueTokens('expired-token', '123456'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    test('test_mfa_verifyMfa_throws_when_otp_wrong_for_valid_temp_token', async () => {
+      // Issue a real temp token so we have a valid bcrypt hash
+      mockDataSource.query.mockResolvedValueOnce(undefined); // INSERT in issueMfaTempToken
+      const rawToken = await service.issueMfaTempToken('test-uuid-001');
+      const storedHash = (mockDataSource.query.mock.calls[0] as unknown[][])[1] as string[];
+
+      // verifyMfaAndIssueTokens: return one unexpired row with matching hash
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'tmp-id-1', user_id: 'test-uuid-001', token_hash: storedHash[1], used_at: null },
+      ]);
+      // totp_secret row — use a valid base32 secret (20-byte minimum for otplib v13)
+      mockDataSource.query.mockResolvedValueOnce([{ totp_secret: 'YL3AOTAN4S72X3JSHIPP5ADNUEUCT7AJ' }]);
+
+      // Wrong OTP (000000 is extremely unlikely to match)
+      await expect(
+        service.verifyMfaAndIssueTokens(rawToken, '000000'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
 });

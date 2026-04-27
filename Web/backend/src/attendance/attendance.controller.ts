@@ -19,7 +19,10 @@ import {
   IsUUID,
   IsIn,
   IsDateString,
+  IsNumber,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -51,6 +54,25 @@ export class CreateAttendanceDto {
   note?: string;
 }
 
+export class LocationDto {
+  @IsOptional() @IsNumber() lat?: number;
+  @IsOptional() @IsNumber() lng?: number;
+  @IsOptional() @IsNumber() accuracy?: number;
+}
+
+export class CheckInDto {
+  @IsOptional() @ValidateNested() @Type(() => LocationDto)
+  location?: LocationDto;
+
+  @IsOptional() @IsString()
+  source?: string;
+}
+
+export class CheckOutDto {
+  @IsOptional() @ValidateNested() @Type(() => LocationDto)
+  location?: LocationDto;
+}
+
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('system_admin', 'office_staff', 'ca_officer')
@@ -72,10 +94,46 @@ export class AttendanceController {
     return this.attendanceService.listAttendancePaginated(req.user, { date, from, to, page, limit });
   }
 
-  // POST /attendance — record attendance
+  // POST /attendance — record attendance (admin)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async record(@Body() dto: CreateAttendanceDto) {
     return this.attendanceService.record(dto);
+  }
+
+  // POST /attendance/check-in — mobile self-service check-in
+  @Post('check-in')
+  @Roles('dqtv_member', 'dqtv', 'system_admin')
+  @HttpCode(HttpStatus.CREATED)
+  async checkIn(
+    @Request() req: { user: JwtPayload },
+    @Body() dto: CheckInDto,
+  ) {
+    return this.attendanceService.checkIn(req.user.sub, dto);
+  }
+
+  // POST /attendance/check-out — mobile self-service check-out
+  @Post('check-out')
+  @Roles('dqtv_member', 'dqtv', 'system_admin')
+  @HttpCode(HttpStatus.OK)
+  async checkOut(
+    @Request() req: { user: JwtPayload },
+    @Body() dto: CheckOutDto,
+  ) {
+    return this.attendanceService.checkOut(req.user.sub, dto);
+  }
+
+  // GET /attendance/today — today's status for current user
+  @Get('today')
+  @Roles('dqtv_member', 'dqtv')
+  async getToday(@Request() req: { user: JwtPayload }) {
+    return this.attendanceService.getTodayStatus(req.user.sub);
+  }
+
+  // GET /attendance/stats — monthly summary for current user
+  @Get('stats')
+  @Roles('dqtv_member', 'dqtv', 'system_admin')
+  async getStats(@Request() req: { user: JwtPayload }) {
+    return this.attendanceService.getStats(req.user.sub);
   }
 }

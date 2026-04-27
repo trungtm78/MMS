@@ -7,6 +7,7 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
+import { CA_ROLES } from '../common/constants/roles';
 
 export interface AssignmentRow {
   id: string;
@@ -80,7 +81,6 @@ export class AssignmentsService {
     requester: RequesterInfo,
   ): Promise<AssignmentRow[]> {
     // ca_officer / police_ward / police_area can only see own assignments
-    const CA_ROLES = new Set(['ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area']);
     let targetCaId: string;
     const normalizedCaUserId = caUserId?.trim() || undefined;
     if (CA_ROLES.has(requester.role)) {
