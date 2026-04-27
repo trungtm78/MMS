@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DollarSign, Download, CheckCircle, Lock, Edit2, Shield, Heart } from 'lucide-react'
 import { toast } from 'sonner'
 import { payrollApi } from '@/api/payroll'
+import { PayrollKpiFilter } from '@/components/payroll/PayrollKpiFilter'
 import type { PayrollPeriod, KpiScore } from '@/types'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -247,6 +248,9 @@ export function PayrollPage() {
         {/* KPI Tab */}
         {activeTab === 'kpi' && (
           <>
+            <div className="p-4">
+              <PayrollKpiFilter />
+            </div>
             {isLoading ? (
               <div className="p-12 text-center">
                 <div className="inline-block w-8 h-8 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin"></div>

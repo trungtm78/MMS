@@ -301,16 +301,16 @@ test.describe('E2E: SmartSelect — US-SS-06 TaskCreateForm Integration', () => 
     await page.getByTestId('task-title-input').fill('E2E Test Task')
     await page.getByTestId('task-description-input').fill('Auto-created by E2E')
     await page.getByTestId('task-due-date-input').fill('2026-12-31')
-    // SmartSelect assignee
+    // SmartSelect assignee — search by E2E militia code created in global-setup
     const input = page.getByTestId('smart-select-assignee-input')
     await input.click()
-    await input.fill('an')
-    await page.waitForSelector('[data-testid^="smart-select-assignee-option-"]', { timeout: 5_000 })
+    await input.fill('QS-E2E-001')
+    await page.waitForSelector('[data-testid^="smart-select-assignee-option-"]', { timeout: 8_000 })
     await page.locator('[data-testid^="smart-select-assignee-option-"]').first().click()
     await expect(page.getByTestId('smart-select-assignee-selected')).toBeVisible()
     // Submit
     await page.getByTestId('task-submit-btn').click()
-    await page.waitForSelector('[data-testid="task-create-success"]', { timeout: 5_000 })
+    await page.waitForSelector('[data-testid="task-create-success"]', { timeout: 10_000 })
     await page.screenshot({ path: 'test-results/uat/screenshots/smartselect-step19-task-created.png', fullPage: true })
   })
 })

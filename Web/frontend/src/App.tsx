@@ -17,6 +17,7 @@ import { TaskCreateForm } from '@/components/tasks/TaskCreateForm'
 import { AttendanceForm } from '@/components/attendance/AttendanceForm'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { UserManagementPage } from '@/pages/UserManagementPage'
+import { UserForm } from '@/components/users/UserForm'
 import { TaskListPage } from '@/pages/TaskListPage'
 import { MilitiaSearchPage } from '@/pages/MilitiaSearchPage'
 import { MilitiaList } from '@/components/militia/MilitiaList'
@@ -158,6 +159,7 @@ function AppShell() {
             <Route path="/tasks/list" element={<TaskListPage />} />
             <Route path="/tasks/*" element={<div className="p-6"><TaskCreateForm /></div>} />
             <Route path="/attendance/*" element={<div className="p-6"><AttendanceForm /></div>} />
+            <Route path="/users/new" element={<div className="p-6"><UserForm /></div>} />
             <Route path="/users/*" element={<UserManagementPage />} />
             <Route path="/payroll/*" element={<PayrollPage />} />
             <Route path="/militia/search" element={<MilitiaSearchPage />} />
