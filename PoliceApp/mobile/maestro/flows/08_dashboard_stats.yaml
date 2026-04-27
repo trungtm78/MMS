@@ -1,0 +1,29 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - dashboard
+  - c8
+  - smoke
+
+---
+# PoliceApp Dashboard Stats (C8)
+# Tests C8 fix: home screen loads real stats from GET /dashboard/stats
+
+- runFlow: 01_login_ca.yaml
+
+# Wait for dashboard to fully load
+- waitForAnimationToEnd
+
+- takeScreenshot: 08_dashboard
+
+# All stat cards must show numbers, not placeholders
+- assertNotVisible: "null"
+- assertNotVisible: "undefined"
+- assertNotVisible: "NaN"
+- assertNotVisible: "--"
+- assertNotVisible: "0/0"
+
+# Key stat cards must be visible
+- assertVisible:
+    id: "total_militia_card"
+- assertVisible:
+    id: "active_today_card"

@@ -1,0 +1,38 @@
+appId: ${APP_ID}
+tags:
+  - work-reports
+  - b2
+
+---
+# MilitianApp Work Reports — Submit Report
+# Tests B2 fix: endpoint changed from /incidents → /work-reports
+
+- runFlow: 01_login_happy_path.yaml
+
+- tapOn: "Báo cáo"
+- waitForAnimationToEnd
+
+- takeScreenshot: 08_reports_screen
+
+- tapOn: "Tạo báo cáo"
+- waitForAnimationToEnd
+
+- tapOn:
+    id: "title_field"
+- inputText: "Báo cáo tuần tra tự động"
+
+- tapOn:
+    id: "content_field"
+- inputText: "Nội dung báo cáo được tạo bởi Maestro test"
+
+- hideKeyboard
+
+- tapOn: "Gửi"
+- waitForAnimationToEnd
+
+- takeScreenshot: 08_report_submitted
+
+# Must NOT return 404 (old /incidents endpoint)
+- assertNotVisible: "404"
+- assertNotVisible: "Not Found"
+- assertNotVisible: "Exception:"

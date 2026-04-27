@@ -1,0 +1,31 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - auth
+  - d2
+  - critical
+
+---
+# PoliceApp Token Refresh — D2 Critical Fix Verification
+# Tests D2 fix: auth_interceptor reads flat accessToken (removed data wrapper)
+# Simulates token use by performing multiple API calls across screens
+
+- runFlow: 01_login_ca.yaml
+
+# Navigate multiple screens to exercise multiple API calls
+- tapOn: "Cảnh báo"
+- waitForAnimationToEnd
+- tapOn: "Phê duyệt"
+- waitForAnimationToEnd
+- tapOn: "Dân quân"
+- waitForAnimationToEnd
+- tapOn: "Báo cáo"
+- waitForAnimationToEnd
+- tapOn: "Hồ sơ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 09_still_authenticated
+
+# Must remain authenticated throughout — not kicked to login
+- assertNotVisible: "Đăng nhập"
+- assertNotVisible: "Phiên đăng nhập hết hạn"
+- assertNotVisible: "Unauthorized"

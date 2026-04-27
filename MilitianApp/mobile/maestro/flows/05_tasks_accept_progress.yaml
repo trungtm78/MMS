@@ -1,0 +1,43 @@
+appId: ${APP_ID}
+tags:
+  - tasks
+  - critical
+
+---
+# MilitianApp Tasks — Accept + Progress Update
+# Tests A3 fix: POST /tasks/:id/accept + PATCH /tasks/:id/progress
+
+- runFlow: 01_login_happy_path.yaml
+
+- tapOn: "Nhiệm vụ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_tasks_list
+
+# Open first task
+- tapOn:
+    index: 0
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_task_detail
+
+# Accept task
+- tapOn: "Nhận nhiệm vụ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_task_accepted
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"
+
+# Update progress
+- tapOn: "Cập nhật tiến độ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_progress_form
+
+- tapOn: "Gửi"
+- waitForAnimationToEnd
+
+- assertNotVisible: "Exception:"

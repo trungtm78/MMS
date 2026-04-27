@@ -1,0 +1,35 @@
+appId: ${APP_ID}
+tags:
+  - smoke
+  - auth
+
+---
+# MilitianApp Login — Happy Path
+# Tests D2 fix: token interceptor uses camelCase (refreshToken/accessToken)
+
+- launchApp
+
+- assertVisible: "Đăng nhập"
+
+- tapOn:
+    id: "username_field"
+- inputText: "${TEST_USERNAME}"
+
+- tapOn:
+    id: "password_field"
+- inputText: "${TEST_PASSWORD}"
+
+- hideKeyboard
+
+- takeScreenshot: 01_login_form_filled
+
+- tapOn: "Đăng nhập"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 01_login_result
+
+- assertNotVisible: "Email hoặc mật khẩu không đúng"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "e.toString()"
+- assertNotVisible: "SocketException"

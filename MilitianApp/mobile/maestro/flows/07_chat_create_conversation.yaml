@@ -1,0 +1,29 @@
+appId: ${APP_ID}
+tags:
+  - chat
+  - b5
+
+---
+# MilitianApp Chat — Create Conversation
+# Tests B5 fix: POST /chat/conversations button wired up
+
+- runFlow: 01_login_happy_path.yaml
+
+- tapOn: "Chat"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_conversations_list
+
+# Create new conversation
+- tapOn: "+"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_create_conversation_dialog
+
+- tapOn: "Tạo"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_after_create
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "404"

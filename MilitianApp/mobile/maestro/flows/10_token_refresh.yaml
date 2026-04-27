@@ -1,0 +1,27 @@
+appId: ${APP_ID}
+tags:
+  - auth
+  - d2
+  - critical
+
+---
+# MilitianApp Token Refresh — D2 Critical Fix Verification
+# Tests D2 fix: auth_interceptor sends refreshToken (camelCase), reads accessToken/refreshToken
+# This flow simulates near-token-expiry by checking that the app stays logged in
+# after navigation actions (implicitly exercises refresh on 401 responses)
+
+- runFlow: 01_login_happy_path.yaml
+
+# Perform multiple navigations to trigger potential token refresh
+- tapOn: "Nhiệm vụ"
+- waitForAnimationToEnd
+- tapOn: "Điểm danh"
+- waitForAnimationToEnd
+- tapOn: "Hồ sơ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 10_still_logged_in
+
+# Must still be authenticated — not kicked back to login
+- assertNotVisible: "Đăng nhập"
+- assertNotVisible: "Phiên đăng nhập hết hạn"

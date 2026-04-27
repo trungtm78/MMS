@@ -1,0 +1,65 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - chat
+  - c10
+  - critical
+
+---
+# PoliceApp Chat Feature (C10)
+# Tests: conversations list, create, send message via WebSocket
+# Tests C10 fix: saveMessage called in gateway — messages persist
+
+- runFlow: 01_login_ca.yaml
+
+# Chat tab must exist in bottom nav
+- tapOn: "Chat"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_conversations_list
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"
+
+# Create a conversation
+- tapOn: "+"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_create_dialog
+
+- tapOn: "Tạo"
+- waitForAnimationToEnd
+
+# Open first conversation
+- tapOn:
+    index: 0
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_chat_screen
+
+# Send a message
+- tapOn:
+    id: "message_input"
+- inputText: "Tin nhắn test từ Maestro"
+
+- tapOn:
+    id: "send_button"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_message_sent
+
+# Message must appear in the chat
+- assertVisible: "Tin nhắn test từ Maestro"
+- assertNotVisible: "Exception:"
+
+# Navigate away and back — message must persist (C10 saveMessage fix)
+- tapOn: "Cảnh báo"
+- waitForAnimationToEnd
+- tapOn: "Chat"
+- waitForAnimationToEnd
+- tapOn:
+    index: 0
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_message_persisted
+
+- assertVisible: "Tin nhắn test từ Maestro"

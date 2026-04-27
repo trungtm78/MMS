@@ -1,12 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
 import 'core/constants/app_colors.dart';
-import 'core/constants/api_constants.dart';
-import 'core/network/dio_client.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'shared/services/push_notification_service.dart';
 import 'shared/services/websocket_service.dart';
@@ -52,8 +48,7 @@ class _AppState extends ConsumerState<App> {
         _servicesInitialized = true;
         // Connect WebSocket after login
         ref.read(webSocketServiceProvider).connect();
-        // Register FCM token with backend
-        _registerFcmToken();
+        // FCM token registration removed — using WebSocket push (no Firebase)
       } else if (wasAuthenticated && !isAuthenticated) {
         _servicesInitialized = false;
         // Disconnect WebSocket on logout
@@ -133,28 +128,4 @@ class _AppState extends ConsumerState<App> {
     );
   }
 
-  Future<void> _registerFcmToken() async {
-    try {
-      final token = await ref.read(pushNotificationServiceProvider).getToken();
-      if (token == null) return;
-      final storage = ref.read(secureStorageProvider);
-      final accessToken = await storage.getAccessToken();
-      if (accessToken == null) return;
-
-      // POST FCM token to backend — best-effort, silent fail
-      final dio = DioClient.getInstance(storage);
-      await dio.post(
-        ApiConstants.fcmToken,
-        data: {'token': token, 'platform': _platformName()},
-      );
-    } catch (_) {
-      // Silent fail — token will be re-registered on next launch
-    }
-  }
-
-  String _platformName() {
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isAndroid) return 'android';
-    return 'unknown';
-  }
 }

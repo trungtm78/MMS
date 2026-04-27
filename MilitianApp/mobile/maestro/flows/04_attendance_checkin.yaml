@@ -1,0 +1,28 @@
+appId: ${APP_ID}
+tags:
+  - attendance
+  - critical
+
+---
+# MilitianApp Attendance Check-In
+# Tests A1 fix: POST /attendance/check-in with nested location body
+
+- runFlow: 01_login_happy_path.yaml
+
+- tapOn: "Điểm danh"
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_attendance_screen
+
+- tapOn: "Check In"
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_after_checkin
+
+# Success — no raw error
+- assertNotVisible: "Exception:"
+- assertNotVisible: "404"
+- assertNotVisible: "null"
+
+# Should show checked-in status
+- assertVisible: "Đã check in"

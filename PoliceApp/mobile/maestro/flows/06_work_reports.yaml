@@ -1,0 +1,42 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - reports
+  - c6
+
+---
+# PoliceApp Work Reports
+# Tests C6 fix: /reports/create → /work-reports
+# Tests C6 fix: /reports/my-list → /work-reports
+
+- runFlow: 01_login_ca.yaml
+
+- tapOn: "Báo cáo"
+- waitForAnimationToEnd
+
+- takeScreenshot: 06_reports_list
+
+# Must load from /work-reports — not 404
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"
+
+# Create a report
+- tapOn: "Tạo báo cáo"
+- waitForAnimationToEnd
+
+- tapOn:
+    id: "title_field"
+- inputText: "Báo cáo tuần tra CA test"
+
+- tapOn:
+    id: "content_field"
+- inputText: "Nội dung test tự động Maestro"
+
+- hideKeyboard
+
+- tapOn: "Gửi"
+- waitForAnimationToEnd
+
+- takeScreenshot: 06_report_submitted
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"

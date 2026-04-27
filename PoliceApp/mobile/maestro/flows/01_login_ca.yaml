@@ -1,0 +1,37 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - smoke
+  - auth
+
+---
+# PoliceApp Login — CA Officer
+# Tests D2 fix: auth_interceptor reads flat accessToken (no data wrapper)
+# Tests C3 fix: profile loads from /users/me alias
+
+- launchApp
+
+- assertVisible: "Đăng nhập"
+
+- tapOn:
+    id: "username_field"
+- inputText: "${CA_USERNAME}"
+
+- tapOn:
+    id: "password_field"
+- inputText: "${CA_PASSWORD}"
+
+- hideKeyboard
+
+- takeScreenshot: 01_ca_login_form
+
+- tapOn: "Đăng nhập"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 01_ca_login_result
+
+# CA home should load
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"
+- assertNotVisible: "DioError"
+- assertNotVisible: "Đăng nhập"  # not kicked back to login

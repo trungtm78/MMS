@@ -1,0 +1,27 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - gps
+  - c4
+
+---
+# PoliceApp GPS Tracking
+# Tests C4 fix: GET /gps/team → /gps/live alias
+# Tests C4 fix: WS event location_update → gps:update
+
+- runFlow: 01_login_ca.yaml
+
+- tapOn: "Bản đồ"
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_gps_map_loading
+
+# Wait for map + markers to load
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_gps_map_loaded
+
+# Must show GPS data — not 404 from old /gps/team endpoint
+- assertNotVisible: "404"
+- assertNotVisible: "Không có dữ liệu"
+- assertNotVisible: "Exception:"
