@@ -1,7 +1,7 @@
 // Main application router
 // US-W001: Route-level auth guard + role-based redirects
 // US-SS-06..09: Routes for SmartSelect demo screens
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
@@ -11,10 +11,10 @@ import { LoginPage } from '@/components/auth/LoginPage'
 import { ProtectedRoute, ForbiddenPage } from '@/components/layout/ProtectedRoute'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
+import { GlobalFooter } from '@/components/layout/GlobalFooter'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { TaskCreateForm } from '@/components/tasks/TaskCreateForm'
 import { AttendanceForm } from '@/components/attendance/AttendanceForm'
-import { UserForm } from '@/components/users/UserForm'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { UserManagementPage } from '@/pages/UserManagementPage'
 import { TaskListPage } from '@/pages/TaskListPage'
@@ -37,6 +37,17 @@ import { DocumentationPage } from '@/pages/DocumentationPage'
 import { AssignmentManagePage } from '@/pages/AssignmentManagePage'
 import { OfficialDocumentsPage } from '@/pages/OfficialDocumentsPage'
 import { ChatPage } from '@/pages/ChatPage'
+import { GPSTrackingPage } from '@/pages/GPSTrackingPage'
+import { LeavePage } from '@/pages/LeavePage'
+import { SOSPage } from '@/pages/SOSPage'
+import { NotificationsPage } from '@/pages/NotificationsPage'
+import { DeviceSessionsPage } from '@/pages/DeviceSessionsPage'
+import { OrganizationPage } from '@/pages/OrganizationPage'
+import { WeaponsPage } from '@/pages/WeaponsPage'
+import { RecruitmentPage } from '@/pages/RecruitmentPage'
+import { ExemptionPage } from '@/pages/ExemptionPage'
+import { TrainingPlanPage } from '@/pages/TrainingPlanPage'
+import { RewardsManagePage } from '@/pages/RewardsManagePage'
 import type { AppRoute } from '@/components/layout/Sidebar'
 import { QuickActionsWidget } from '@/components/layout/QuickActionsWidget'
 
@@ -65,6 +76,16 @@ function pathToAppRoute(pathname: string): AppRoute {
   if (pathname.startsWith('/reports') || pathname.startsWith('/kpi') || pathname.startsWith('/audit')) return 'reports'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname.startsWith('/gps')) return 'gps-tracking'
+  if (pathname.startsWith('/leave')) return 'leave'
+  if (pathname.startsWith('/sos')) return 'sos'
+  if (pathname.startsWith('/notifications')) return 'notifications'
+  if (pathname.startsWith('/devices')) return 'device-sessions'
+  if (pathname.startsWith('/organization')) return 'organization'
+  if (pathname.startsWith('/weapons')) return 'weapons'
+  if (pathname.startsWith('/recruitment')) return 'recruitment'
+  if (pathname.startsWith('/exemptions')) return 'exemptions'
+  if (pathname.startsWith('/training')) return 'training'
+  if (pathname.startsWith('/rewards')) return 'rewards'
   if (pathname.startsWith('/documents')) return 'official-documents'
   if (pathname.startsWith('/chat')) return 'chat'
   if (pathname.startsWith('/docs')) return 'help'
@@ -76,6 +97,7 @@ function AppShell() {
   const { isAuthenticated } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   if (!isAuthenticated) {
     return <LoginPage />
@@ -86,37 +108,51 @@ function AppShell() {
   // onNavigate translates AppRoute back to a URL path for React Router navigation
   const handleNavigate = (route: AppRoute) => {
     const routeMap: Record<AppRoute, string> = {
-      'dashboard':      '/dashboard',
-      'militia-list':   '/militia',
-      'user-management':'/users',
-      'tasks':          '/tasks/list',
-      'attendance':     '/attendance',
-      'leave':          '/leave',
-      'sos':            '/sos',
-      'gps-tracking':   '/gps',
-      'payroll':        '/payroll',
-      'audit-log':      '/audit',
-      'notifications':  '/notifications',
-      'device-sessions':'/devices',
-      'reports':        '/reports/attendance',
-      'approvals':      '/approvals',
-      'timesheet':      '/timesheet',
-      'kpi-dashboard':  '/kpi/dashboard',
-      'assignments':    '/assignments',
+      'dashboard':          '/dashboard',
+      'militia-list':       '/militia',
+      'militia-search':     '/militia/search',
+      'user-management':    '/users',
+      'tasks':              '/tasks/list',
+      'attendance':         '/attendance',
+      'leave':              '/leave',
+      'sos':                '/sos',
+      'gps-tracking':       '/gps',
+      'payroll':            '/payroll',
+      'audit-log':          '/audit',
+      'notifications':      '/notifications',
+      'device-sessions':    '/devices',
+      'reports':            '/reports/attendance',
+      'approvals':          '/approvals',
+      'timesheet':          '/timesheet',
+      'kpi-dashboard':      '/kpi/dashboard',
+      'assignments':        '/assignments',
       'official-documents': '/documents',
-      'chat':           '/chat',
-      'settings':       '/settings/profile',
-      'help':           '/docs',
+      'chat':               '/chat',
+      'settings':           '/settings/profile',
+      'help':               '/docs',
+      'organization':       '/organization',
+      'weapons':            '/weapons',
+      'recruitment':        '/recruitment',
+      'exemptions':         '/exemptions',
+      'training':           '/training',
+      'rewards':            '/rewards',
     }
     navigate(routeMap[route] ?? '/dashboard')
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <MemoSidebar current={currentRoute} onNavigate={handleNavigate} />
-      <div className="flex-1 flex flex-col overflow-hidden pl-64">
-        <MemoHeader />
-        <main className="flex-1 overflow-y-auto pt-16">
+    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
+      <MemoSidebar
+        current={currentRoute}
+        onNavigate={handleNavigate}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden lg:ml-64">
+        <MemoHeader
+          onMenuToggle={() => setSidebarOpen(o => !o)}
+        />
+        <main className="flex-1 overflow-y-auto pt-20 flex flex-col">
           <Routes>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/tasks/list" element={<TaskListPage />} />
@@ -143,6 +179,17 @@ function AppShell() {
             <Route path="/assignments" element={<AssignmentManagePage />} />
             <Route path="/documents" element={<OfficialDocumentsPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/gps" element={<GPSTrackingPage />} />
+            <Route path="/leave" element={<LeavePage />} />
+            <Route path="/sos" element={<SOSPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/devices" element={<DeviceSessionsPage />} />
+            <Route path="/organization" element={<OrganizationPage />} />
+            <Route path="/weapons" element={<WeaponsPage />} />
+            <Route path="/recruitment" element={<RecruitmentPage />} />
+            <Route path="/exemptions" element={<ExemptionPage />} />
+            <Route path="/training" element={<TrainingPlanPage />} />
+            <Route path="/rewards" element={<RewardsManagePage />} />
             <Route
               path="/admin/*"
               element={
@@ -154,6 +201,7 @@ function AppShell() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          <GlobalFooter />
         </main>
       </div>
       <QuickActionsWidget />
