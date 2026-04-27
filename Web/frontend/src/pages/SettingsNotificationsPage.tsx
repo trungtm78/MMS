@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bell, Save } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { toast } from 'sonner'
 import client from '@/api/client'
 
@@ -58,55 +58,59 @@ export function SettingsNotificationsPage() {
     onError: () => toast.error('Lưu thất bại, vui lòng thử lại'),
   })
 
+  function handleToggle(key: keyof NotificationPrefs) {
+    const next = { ...prefs, [key]: !prefs[key] }
+    setPrefs(next)
+    // Call mutation immediately on each toggle
+    mutation.mutate()
+  }
+
   return (
-    <div className="p-6 space-y-6" data-testid="settings-notifications-page">
+    <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="settings-notifications-page">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#1F3A5F]">Cài Đặt Thông Báo</h1>
-          <p className="text-sm text-gray-600 mt-1">Quản lý các loại thông báo bạn muốn nhận</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">Cài Đặt Thông Báo</h1>
+          <p className="text-sm text-[#64748B] mt-1">Quản lý các loại thông báo bạn muốn nhận</p>
         </div>
-        <button
-          onClick={() => mutation.mutate()}
-          disabled={mutation.isPending || isLoading}
-          className="px-4 py-2 bg-[#1F3A5F] text-white rounded-lg hover:bg-[#2d5380] text-sm font-medium flex items-center gap-2 disabled:opacity-60"
-          data-testid="save-notifications-btn"
-        >
-          <Save size={16} />
-          {mutation.isPending ? 'Đang lưu...' : 'Lưu cài đặt'}
-        </button>
       </div>
 
-      {isLoading && <div className="text-center text-gray-400 py-8 text-sm">Đang tải...</div>}
+      {isLoading && <div className="text-center text-[#64748B] py-8 text-sm">Đang tải...</div>}
 
-      {!isLoading && <div className="bg-white rounded-lg border border-gray-200 shadow-sm divide-y divide-gray-100">
-        <div className="px-6 py-4 flex items-center gap-3 bg-gray-50 rounded-t-lg">
-          <Bell size={18} className="text-[#1F3A5F]" />
-          <p className="text-sm font-semibold text-gray-700">Loại thông báo</p>
-        </div>
-        {PREF_LABELS.map(({ key, label, desc }) => (
-          <div key={key} className="px-6 py-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900">{label}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-            </div>
-            <button
-              role="switch"
-              aria-checked={prefs[key]}
-              onClick={() => setPrefs((p) => ({ ...p, [key]: !p[key] }))}
-              data-testid={`toggle-${key}`}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                prefs[key] ? 'bg-[#1F3A5F]' : 'bg-gray-200'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  prefs[key] ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+      {!isLoading && (
+        <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden divide-y divide-[#E2E8F0]">
+          {/* Section header */}
+          <div className="px-6 py-4 flex items-center gap-3 bg-[#F8FAFC]">
+            <Bell size={18} className="text-[#C62828]" />
+            <p className="text-sm font-semibold text-[#0F172A]">Loại thông báo</p>
           </div>
-        ))}
-      </div>}
+
+          {PREF_LABELS.map(({ key, label, desc }) => (
+            <div key={key} className="px-6 py-4 flex items-center justify-between hover:bg-[#F8FAFC] transition-colors">
+              <div>
+                <p className="text-sm font-medium text-[#0F172A]">{label}</p>
+                <p className="text-xs text-[#64748B] mt-0.5">{desc}</p>
+              </div>
+              {/* Toggle styled with #C62828 when active */}
+              <button
+                role="switch"
+                aria-checked={prefs[key]}
+                onClick={() => handleToggle(key)}
+                data-testid={`toggle-${key}`}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:ring-offset-1 ${
+                  prefs[key] ? 'bg-[#C62828]' : 'bg-[#E2E8F0]'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    prefs[key] ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
