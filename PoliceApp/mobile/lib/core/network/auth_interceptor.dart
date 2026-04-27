@@ -36,9 +36,8 @@ class AuthInterceptor extends Interceptor {
           options: Options(headers: {'Authorization': null}),
         );
 
-        final data = response.data['data'] as Map<String, dynamic>;
-        final newAccessToken = data['accessToken'] as String;
-        final newRefreshToken = data['refreshToken'] as String?;
+        final newAccessToken = response.data['accessToken'] as String;
+        final newRefreshToken = response.data['refreshToken'] as String?;
         await storage.saveAccessToken(newAccessToken);
         if (newRefreshToken != null) {
           await storage.saveRefreshToken(newRefreshToken);

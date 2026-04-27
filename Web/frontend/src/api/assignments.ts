@@ -41,10 +41,17 @@ export async function removeAssignment(id: string): Promise<void> {
 }
 
 export async function getCaOfficers(): Promise<UserRow[]> {
-  const { data } = await apiClient.get<{ data: UserRow[] }>('/users', {
-    params: { role: 'ca_officer', limit: 100 },
+  const [ward, area] = await Promise.all([
+    apiClient.get<{ data: UserRow[] }>('/admin/users', { params: { role: 'police_ward', limit: 100 } }),
+    apiClient.get<{ data: UserRow[] }>('/admin/users', { params: { role: 'police_area', limit: 100 } }),
+  ])
+  const combined = [...(ward.data.data ?? []), ...(area.data.data ?? [])]
+  const seen = new Set<string>()
+  return combined.filter((u) => {
+    if (seen.has(u.id)) return false
+    seen.add(u.id)
+    return true
   })
-  return data.data
 }
 
 export async function getAvailableDqtv(caUserId: string, q?: string): Promise<MilitiaUserRow[]> {

@@ -11,6 +11,7 @@ class MainShellCA extends StatelessWidget {
     Routes.caHome,
     Routes.caDqtvList,
     Routes.caMap,
+    Routes.caChat,
     Routes.caTaskCreate,
     Routes.caProfile,
   ];
@@ -43,6 +44,7 @@ class MainShellCA extends StatelessWidget {
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Trang chủ'),
           BottomNavigationBarItem(icon: Icon(Icons.people_outlined), activeIcon: Icon(Icons.people), label: 'DQTV'),
           BottomNavigationBarItem(icon: Icon(Icons.map_outlined), activeIcon: Icon(Icons.map), label: 'Bản đồ'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat_outlined), activeIcon: Icon(Icons.chat), label: 'Tin nhắn'),
           BottomNavigationBarItem(icon: Icon(Icons.assignment_outlined), activeIcon: Icon(Icons.assignment), label: 'Nhiệm vụ'),
           BottomNavigationBarItem(icon: Icon(Icons.person_outlined), activeIcon: Icon(Icons.person), label: 'Cá nhân'),
         ],

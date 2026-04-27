@@ -22,6 +22,6 @@ export default () => ({
     loginLimit: 5, // max login attempts — US-W001 BR: lockout after 5
   },
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim()),
   },
 });

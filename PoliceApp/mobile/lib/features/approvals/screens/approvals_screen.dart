@@ -53,8 +53,8 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> with SingleTi
   Future<void> _decide(String id, String action, {String? reason}) async {
     try {
       final dio = ref.read(dioProvider);
-      final url = ApiConstants.leaveDecision.replaceAll('{id}', id);
-      await dio.post(url, data: {'action': action, if (reason != null) 'reason': reason});
+      final url = ApiConstants.leaveReview.replaceAll('{id}', id);
+      await dio.patch(url, data: {'status': action, if (reason != null) 'note': reason});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(action == 'approved' ? 'Đã duyệt đơn' : 'Đã từ chối đơn'),

@@ -11,24 +11,32 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
 
-  // Redis adapter for Socket.IO (enables multi-instance pub/sub)
-  const pubClient = new Redis({
-    host: config.get<string>('REDIS_HOST', 'localhost'),
-    port: config.get<number>('REDIS_PORT', 6379),
-    password: config.get<string>('REDIS_PASSWORD') || undefined,
-  });
-  const subClient = pubClient.duplicate();
-  const redisAdapter = createAdapter(pubClient, subClient);
+  // Redis adapter for Socket.IO — optional (falls back to in-memory when Redis unavailable)
+  try {
+    const pubClient = new Redis({
+      host: config.get<string>('REDIS_HOST', 'localhost'),
+      port: config.get<number>('REDIS_PORT', 6379),
+      password: config.get<string>('REDIS_PASSWORD') || undefined,
+      connectTimeout: 2000,
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+    });
+    await pubClient.connect();
+    const subClient = pubClient.duplicate();
+    const redisAdapter = createAdapter(pubClient, subClient);
 
-  // Custom IoAdapter that applies the Redis adapter
-  class RedisIoAdapter extends IoAdapter {
-    createIOServer(port: number, options?: Record<string, unknown>) {
-      const server = super.createIOServer(port, options);
-      server.adapter(redisAdapter);
-      return server;
+    class RedisIoAdapter extends IoAdapter {
+      createIOServer(port: number, options?: Record<string, unknown>) {
+        const server = super.createIOServer(port, options);
+        server.adapter(redisAdapter);
+        return server;
+      }
     }
+    app.useWebSocketAdapter(new RedisIoAdapter(app));
+  } catch {
+    // Redis unavailable — Socket.IO uses default in-memory adapter (single-instance OK)
+    console.warn('Redis unavailable — Socket.IO using in-memory adapter');
   }
-  app.useWebSocketAdapter(new RedisIoAdapter(app));
 
   // Global prefix
   app.setGlobalPrefix(config.get<string>('apiPrefix') ?? 'api/v1/mms_core');

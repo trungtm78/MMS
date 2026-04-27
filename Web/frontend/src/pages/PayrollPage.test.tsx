@@ -53,4 +53,9 @@ describe('PayrollPage', () => {
       expect(screen.getByText('Tháng 4/2026')).toBeInTheDocument()
     })
   })
+
+  it('does NOT render coming-soon banner', () => {
+    wrap(<PayrollPage />)
+    expect(screen.queryByTestId('coming-soon-banner')).not.toBeInTheDocument()
+  })
 })

@@ -22,6 +22,8 @@ import {
   Target,
   HelpCircle,
   GitBranch,
+  BookOpen,
+  MessageCircle,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -43,6 +45,8 @@ export type AppRoute =
   | 'timesheet'
   | 'kpi-dashboard'
   | 'assignments'
+  | 'official-documents'
+  | 'chat'
   | 'settings'
   | 'help'
 
@@ -85,6 +89,8 @@ export function Sidebar({ current, onNavigate, sosBadge = 0 }: SidebarProps) {
     { route: 'reports', label: 'Báo cáo', icon: <FileText size={18} /> },
     ...(can.manageMilitia ? [{ route: 'kpi-dashboard' as AppRoute, label: 'Chỉ tiêu KPI', icon: <Target size={18} /> }] : []),
     ...(can.manageUsers ? [{ route: 'assignments' as AppRoute, label: 'Phân công', icon: <GitBranch size={18} /> }] : []),
+    { route: 'official-documents' as AppRoute, label: 'Văn bản pháp lý', icon: <BookOpen size={18} /> },
+    { route: 'chat' as AppRoute, label: 'Tin nhắn', icon: <MessageCircle size={18} /> },
     { route: 'help' as AppRoute, label: 'Hướng dẫn', icon: <HelpCircle size={18} /> },
   ]
 

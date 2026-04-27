@@ -33,16 +33,20 @@ class _HomeCAScreenState extends ConsumerState<HomeCAScreen> {
       final futures = await Future.wait([
         dio.get(ApiConstants.profile),
         dio.get(ApiConstants.tasks, queryParameters: {'status': 'assigned', 'limit': '5'}),
-        dio.get(ApiConstants.alerts, queryParameters: {'status': 'active', 'limit': '3'}),
-        dio.get(ApiConstants.gpsTeam),
+        dio.get(ApiConstants.sosList, queryParameters: {'status': 'active', 'limit': '3'}),
+        dio.get(ApiConstants.gpsLive),
+        dio.get(ApiConstants.dashboardStats).catchError((_) => null),
       ]);
       if (!mounted) return;
+      final statsResp = futures[4];
+      final stats = statsResp?.data is Map ? statsResp!.data as Map<String, dynamic> : <String, dynamic>{};
       setState(() {
         _dashboardData = {
           'user': futures[0].data['data'],
           'tasks': futures[1].data['data'],
           'alerts': futures[2].data['data'],
           'gpsTeam': futures[3].data['data'],
+          'stats': stats,
         };
         _loading = false;
       });
@@ -98,13 +102,31 @@ class _HomeCAScreenState extends ConsumerState<HomeCAScreen> {
                       ),
                       const SizedBox(height: 16),
                       // KPI summary row
-                      Row(children: [
-                        _KpiCard(label: 'Đang trực', value: '${(_dashboardData!['gpsTeam'] as List?)?.where((m) => m['status'] == 'online' || m['status'] == 'moving').length ?? 0}', color: AppColors.success),
-                        const SizedBox(width: 8),
-                        _KpiCard(label: 'Nhiệm vụ', value: '${(_dashboardData!['tasks'] as List?)?.length ?? 0}', color: AppColors.navy),
-                        const SizedBox(width: 8),
-                        _KpiCard(label: 'Chờ duyệt', value: '-', color: AppColors.warning),
-                      ]),
+                      Builder(builder: (_) {
+                        final stats = _dashboardData!['stats'] as Map<String, dynamic>? ?? {};
+                        final activeToday = stats['activeToday'] as int? ??
+                            (_dashboardData!['gpsTeam'] as List?)?.where((m) => m['status'] == 'online' || m['status'] == 'moving').length ?? 0;
+                        final pendingTasks = stats['pendingTasks'] as int? ??
+                            (_dashboardData!['tasks'] as List?)?.length ?? 0;
+                        final pendingApprovals = stats['pendingApprovals'] as int? ?? 0;
+                        final activeSos = stats['activeSosAlerts'] as int? ??
+                            (_dashboardData!['alerts'] as List?)?.length ?? 0;
+                        return Column(children: [
+                          Row(children: [
+                            _KpiCard(label: 'Đang trực', value: '$activeToday', color: AppColors.success),
+                            const SizedBox(width: 8),
+                            _KpiCard(label: 'Nhiệm vụ', value: '$pendingTasks', color: AppColors.navy),
+                            const SizedBox(width: 8),
+                            _KpiCard(label: 'Chờ duyệt', value: '$pendingApprovals', color: AppColors.warning),
+                          ]),
+                          if (activeSos > 0) ...[
+                            const SizedBox(height: 8),
+                            Row(children: [
+                              _KpiCard(label: 'SOS khẩn', value: '$activeSos', color: AppColors.error),
+                            ]),
+                          ],
+                        ]);
+                      }),
                       const SizedBox(height: 16),
                       // Alerts
                       if ((_dashboardData!['alerts'] as List?)?.isNotEmpty == true) ...[

@@ -52,9 +52,12 @@ class ApiConstants {
   static const String kpiHistory = '/kpi/history';
   static const String kpiRanking = '/kpi/ranking';
 
+  // GPS
+  static const String gpsRecord = '/gps/record';
+
   // Incidents / SOS
-  static const String sos = '/incidents/sos';
-  static const String incidentReport = '/incidents';
+  static const String sos = '/sos';
+  static const String incidentReport = '/work-reports';
 
   // Notifications
   static const String notifications = '/notifications';

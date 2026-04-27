@@ -29,9 +29,9 @@ class _DQTVListScreenState extends ConsumerState<DQTVListScreen> {
     setState(() { _loading = true; });
     try {
       final dio = ref.read(dioProvider);
-      final params = <String, dynamic>{'role': 'militia'};
-      if (_search.isNotEmpty) params['search'] = _search;
-      final resp = await dio.get(ApiConstants.users, queryParameters: params);
+      final params = <String, dynamic>{};
+      if (_search.isNotEmpty) params['q'] = _search;
+      final resp = await dio.get(ApiConstants.militiaList, queryParameters: params);
       if (!mounted) return;
       setState(() {
         _list = List<Map<String, dynamic>>.from(resp.data['data'] as List? ?? []);

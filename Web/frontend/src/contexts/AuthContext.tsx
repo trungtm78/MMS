@@ -1,9 +1,12 @@
 // US-W001: Auth context — JWT-based (replaces mock from Refs)
 // AC-1: login → redirect by role; AC-3: silent refresh; AC-5: logout
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
 import { authApi } from '@/api/auth'
 import { TOKEN_KEYS, clearTokens, getAccessToken } from '@/api/client'
 import type { User, LoginRequest } from '@/types'
+
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const IDLE_EVENTS = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'] as const
 
 interface AuthContextType {
   user: User | null
@@ -18,6 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Restore session on mount if access token exists
   useEffect(() => {
@@ -64,6 +68,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authApi.logout()
     setUser(null)
   }, [])
+
+  // NĐ 85/2016: idle auto-logout — reset timer on any user interaction
+  useEffect(() => {
+    if (!user) return
+
+    const resetTimer = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = setTimeout(() => {
+        logout()
+      }, DEFAULT_IDLE_TIMEOUT_MS)
+    }
+
+    resetTimer()
+    IDLE_EVENTS.forEach((e) => window.addEventListener(e, resetTimer))
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      IDLE_EVENTS.forEach((e) => window.removeEventListener(e, resetTimer))
+    }
+  }, [user, logout])
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout }}>

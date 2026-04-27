@@ -48,9 +48,9 @@ export class AssignmentsController {
     });
   }
 
-  // GET /assignments?caUserId= — admin sees any; ca_officer sees own
+  // GET /assignments?caUserId= — admin sees any; ca_officer/police_ward/police_area sees own
   @Get()
-  @Roles('system_admin', 'ca_officer')
+  @Roles('system_admin', 'ca_officer', 'police_ward', 'police_area')
   list(
     @Query('caUserId') caUserId: string | undefined,
     @Request() req: { user: JwtPayload },

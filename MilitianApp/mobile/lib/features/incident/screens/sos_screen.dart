@@ -51,8 +51,11 @@ class _SosScreenState extends ConsumerState<SosScreen> {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
       await dio.post(ApiConstants.sos, data: {
-        if (lat != null) 'latitude': lat,
-        if (lng != null) 'longitude': lng,
+        'incidentType': 'sos',
+        'severity': 'urgent',
+        'title': 'SOS',
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
       });
     } catch (_) {}
     await Future.delayed(const Duration(seconds: 3));

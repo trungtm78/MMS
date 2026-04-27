@@ -121,4 +121,67 @@ describe('KpiService', () => {
       expect(result.id).toBe('eval-1');
     });
   });
+
+  // ── getCurrentScore / getHistory ────────────────────────────────────────
+
+  describe('getCurrentScore', () => {
+    it('returns rich DTO when evaluation exists', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ score: '8.05', recommendation: 'maintain', month: 4, year: 2026 }]) // current
+        .mockResolvedValueOnce([{ score: '7.50' }]) // previous month
+        .mockResolvedValueOnce([{ cnt: '3' }]); // rank calculation
+
+      const result = await service.getCurrentScore('user-1', 4, 2026);
+      expect(result.score).toBeCloseTo(8.05);
+      expect(result.totalScore).toBeCloseTo(8.05);
+      expect(result.change).toBeCloseTo(0.55);
+      expect(result.rank).toBe(4);
+      expect(result.month).toBe(4);
+      expect(result.year).toBe(2026);
+    });
+
+    it('returns null scores when no evaluation exists', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]); // no evaluation
+
+      const result = await service.getCurrentScore('user-1', 4, 2026);
+      expect(result.score).toBeNull();
+      expect(result.totalScore).toBeNull();
+      expect(result.change).toBeNull();
+      expect(result.rank).toBeNull();
+      expect(result.month).toBe(4);
+      expect(result.year).toBe(2026);
+    });
+
+    it('returns null change when no previous month data', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ score: '9.00', recommendation: 'reward', month: 4, year: 2026 }])
+        .mockResolvedValueOnce([]) // no previous month
+        .mockResolvedValueOnce([{ cnt: '0' }]);
+
+      const result = await service.getCurrentScore('user-1', 4, 2026);
+      expect(result.change).toBeNull();
+      expect(result.rank).toBe(1);
+    });
+  });
+
+  describe('getHistory', () => {
+    it('returns empty array when no evaluations', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      const result = await service.getHistory('user-1');
+      expect(result).toEqual([]);
+    });
+
+    it('returns sorted array of history items', async () => {
+      mockDataSource.query.mockResolvedValueOnce([
+        { month: 1, year: 2026, score: '7.50', recommendation: 'maintain' },
+        { month: 2, year: 2026, score: '8.00', recommendation: 'reward' },
+        { month: 3, year: 2026, score: '6.80', recommendation: 'training' },
+      ]);
+      const result = await service.getHistory('user-1');
+      expect(result).toHaveLength(3);
+      expect(result[0].month).toBe(1);
+      expect(result[1].score).toBeCloseTo(8.00);
+      expect(result[2].recommendation).toBe('training');
+    });
+  });
 });

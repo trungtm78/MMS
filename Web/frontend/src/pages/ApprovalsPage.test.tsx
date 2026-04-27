@@ -60,4 +60,38 @@ describe('ApprovalsPage', () => {
       expect(screen.getByTestId('reject-apr-1')).toBeInTheDocument()
     })
   })
+
+  // Banner removed — no longer rendered
+  it('does NOT render coming-soon banner', () => {
+    wrap(<ApprovalsPage />)
+    expect(screen.queryByTestId('coming-soon-banner')).not.toBeInTheDocument()
+  })
+
+  // Error state
+  it('shows error banner when API fails', async () => {
+    vi.mocked(apiClient.default.get).mockRejectedValue(new Error('Network error'))
+    wrap(<ApprovalsPage />)
+    await waitFor(() => {
+      expect(screen.getByTestId('error-banner')).toBeInTheDocument()
+      expect(screen.getByText(/Không thể tải danh sách phê duyệt/)).toBeInTheDocument()
+    })
+  })
+
+  it('error banner has retry button', async () => {
+    vi.mocked(apiClient.default.get).mockRejectedValue(new Error('Network error'))
+    wrap(<ApprovalsPage />)
+    await waitFor(() => {
+      expect(screen.getByTestId('retry-btn')).toBeInTheDocument()
+    })
+  })
+
+  // Approve mutation
+  it('approve button calls PUT /approvals/:id/approve', async () => {
+    wrap(<ApprovalsPage />)
+    await waitFor(() => expect(screen.getByTestId('approve-apr-1')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('approve-apr-1'))
+    await waitFor(() => {
+      expect(vi.mocked(apiClient.default.put)).toHaveBeenCalledWith('/approvals/apr-1/approve')
+    })
+  })
 })

@@ -120,9 +120,12 @@ class _IncidentReportScreenState extends ConsumerState<IncidentReportScreen> {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
       await dio.post(ApiConstants.incidentReport, data: {
-        'taskId': _selectedTask,
-        'description': _descCtrl.text.trim(),
-        'location': _locationCtrl.text.trim(),
+        'reportType': 'work',
+        'title': _tasks.firstWhere(
+          (t) => t.$1 == _selectedTask,
+          orElse: () => (_selectedTask, 'Báo cáo công việc'),
+        ).$2,
+        'content': _descCtrl.text.trim(),
       });
       if (mounted) {
         setState(() { _loading = false; _showSuccess = true; });

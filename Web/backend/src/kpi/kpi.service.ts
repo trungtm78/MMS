@@ -5,6 +5,25 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+
+export interface CurrentScoreResult {
+  score: number | null;
+  totalScore: number | null;
+  change: number | null;
+  rank: number | null;
+  rankInUnit: number | null;
+  month: number;
+  year: number;
+  attendanceScore: number | null;
+  taskScore: number | null;
+}
+
+export interface KpiHistoryItem {
+  month: number;
+  year: number;
+  score: number;
+  recommendation: string;
+}
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
@@ -118,5 +137,93 @@ export class KpiService {
       recommendation: dto.recommendation,
       createdAt: new Date(),
     };
+  }
+
+  async getCurrentScore(
+    userId: string,
+    month?: number,
+    year?: number,
+  ): Promise<CurrentScoreResult> {
+    const now = new Date();
+    const targetMonth = month ?? now.getMonth() + 1;
+    const targetYear = year ?? now.getFullYear();
+
+    const rows = await this.dataSource.query<{
+      score: string; recommendation: string; month: number; year: number;
+    }[]>(
+      `SELECT ke.weighted_score AS score, ke.recommendation, ke.month, ke.year
+       FROM kpi_evaluations ke
+       JOIN militia_profiles mp ON mp.user_id = ke.target_user_id
+       WHERE ke.target_user_id = $1
+         AND ke.month = $2 AND ke.year = $3
+       ORDER BY ke.created_at DESC LIMIT 1`,
+      [userId, targetMonth, targetYear],
+    );
+
+    if (!rows.length) {
+      return {
+        score: null, totalScore: null, change: null,
+        rank: null, rankInUnit: null,
+        month: targetMonth, year: targetYear,
+        attendanceScore: null, taskScore: null,
+      };
+    }
+
+    const currentScore = parseFloat(rows[0].score);
+
+    // Get last month's score for change calculation
+    const prevMonth = targetMonth === 1 ? 12 : targetMonth - 1;
+    const prevYear = targetMonth === 1 ? targetYear - 1 : targetYear;
+    const prevRows = await this.dataSource.query<{ score: string }[]>(
+      `SELECT ke.weighted_score AS score
+       FROM kpi_evaluations ke
+       WHERE ke.target_user_id = $1 AND ke.month = $2 AND ke.year = $3
+       ORDER BY ke.created_at DESC LIMIT 1`,
+      [userId, prevMonth, prevYear],
+    );
+    const change = prevRows.length
+      ? Math.round((currentScore - parseFloat(prevRows[0].score)) * 100) / 100
+      : null;
+
+    // Approximate rank: count users with higher score this month + 1
+    const rankRows = await this.dataSource.query<{ cnt: string }[]>(
+      `SELECT COUNT(DISTINCT target_user_id)::text AS cnt
+       FROM kpi_evaluations
+       WHERE month = $1 AND year = $2 AND weighted_score > $3`,
+      [targetMonth, targetYear, currentScore],
+    );
+    const rank = parseInt(rankRows[0]?.cnt ?? '0', 10) + 1;
+
+    return {
+      score: currentScore,
+      totalScore: currentScore,
+      change,
+      rank,
+      rankInUnit: null,
+      month: targetMonth,
+      year: targetYear,
+      attendanceScore: null,
+      taskScore: null,
+    };
+  }
+
+  async getHistory(userId: string): Promise<KpiHistoryItem[]> {
+    const rows = await this.dataSource.query<{
+      month: number; year: number; score: string; recommendation: string;
+    }[]>(
+      `SELECT DISTINCT ON (month, year) month, year,
+              weighted_score AS score, recommendation
+       FROM kpi_evaluations
+       WHERE target_user_id = $1
+       ORDER BY month, year, created_at DESC`,
+      [userId],
+    );
+
+    return rows.map(r => ({
+      month: r.month,
+      year: r.year,
+      score: parseFloat(r.score),
+      recommendation: r.recommendation,
+    }));
   }
 }

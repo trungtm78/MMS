@@ -35,6 +35,8 @@ import { ApprovalsPage } from '@/pages/ApprovalsPage'
 import { TimesheetPage } from '@/pages/TimesheetPage'
 import { DocumentationPage } from '@/pages/DocumentationPage'
 import { AssignmentManagePage } from '@/pages/AssignmentManagePage'
+import { OfficialDocumentsPage } from '@/pages/OfficialDocumentsPage'
+import { ChatPage } from '@/pages/ChatPage'
 import type { AppRoute } from '@/components/layout/Sidebar'
 import { QuickActionsWidget } from '@/components/layout/QuickActionsWidget'
 
@@ -63,6 +65,8 @@ function pathToAppRoute(pathname: string): AppRoute {
   if (pathname.startsWith('/reports') || pathname.startsWith('/kpi') || pathname.startsWith('/audit')) return 'reports'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname.startsWith('/gps')) return 'gps-tracking'
+  if (pathname.startsWith('/documents')) return 'official-documents'
+  if (pathname.startsWith('/chat')) return 'chat'
   if (pathname.startsWith('/docs')) return 'help'
   if (pathname.startsWith('/admin')) return 'dashboard'
   return 'dashboard'
@@ -99,6 +103,8 @@ function AppShell() {
       'timesheet':      '/timesheet',
       'kpi-dashboard':  '/kpi/dashboard',
       'assignments':    '/assignments',
+      'official-documents': '/documents',
+      'chat':           '/chat',
       'settings':       '/settings/profile',
       'help':           '/docs',
     }
@@ -135,6 +141,8 @@ function AppShell() {
             <Route path="/timesheet" element={<TimesheetPage />} />
             <Route path="/docs" element={<DocumentationPage />} />
             <Route path="/assignments" element={<AssignmentManagePage />} />
+            <Route path="/documents" element={<OfficialDocumentsPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route
               path="/admin/*"
               element={

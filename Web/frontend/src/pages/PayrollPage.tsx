@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { DollarSign, Download, CheckCircle, Lock } from 'lucide-react'
+import { DollarSign, Download, CheckCircle, Lock, Edit2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { payrollApi } from '@/api/payroll'
 import type { PayrollPeriod, KpiScore } from '@/types'
@@ -21,9 +21,18 @@ const scoreColor = (s: number) =>
 
 const formatPeriod = (p: PayrollPeriod) => `Tháng ${p.month}/${p.year}`
 
+interface AdjustModalState {
+  militiaId: string
+  militiaName: string
+  currentScore: number | null
+}
+
 export function PayrollPage() {
   const queryClient = useQueryClient()
   const [selectedPeriodId, setSelectedPeriodId] = useState('')
+  const [adjustModal, setAdjustModal] = useState<AdjustModalState | null>(null)
+  const [adjustScore, setAdjustScore] = useState('')
+  const [adjustNote, setAdjustNote] = useState('')
 
   const { data: periods, isLoading: periodsLoading } = useQuery({
     queryKey: ['payroll-periods'],
@@ -49,6 +58,19 @@ export function PayrollPage() {
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
     },
     onError: () => toast.error('Không thể khóa kỳ lương'),
+  })
+
+  const adjustMutation = useMutation({
+    mutationFn: ({ militiaId, score, note }: { militiaId: string; score: number; note: string }) =>
+      payrollApi.adjustKpi(militiaId, { adjustedScore: score, adjustmentNote: note }),
+    onSuccess: () => {
+      toast.success('Đã lưu điều chỉnh KPI')
+      queryClient.invalidateQueries({ queryKey: ['payroll-kpi', selectedPeriodId] })
+      setAdjustModal(null)
+      setAdjustScore('')
+      setAdjustNote('')
+    },
+    onError: () => toast.error('Không thể lưu điều chỉnh'),
   })
 
   const selectedPeriod = periods?.find((p) => p.id === selectedPeriodId)
@@ -217,6 +239,9 @@ export function PayrollPage() {
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">
                     Ghi chú
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">
+                    Hành động
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -253,6 +278,20 @@ export function PayrollPage() {
                       <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
                         {k.adjustmentNote ?? '—'}
                       </td>
+                      <td className="px-6 py-4">
+                        <button
+                          data-testid={`adjust-kpi-btn-${k.id}`}
+                          onClick={() => {
+                            setAdjustModal({ militiaId: k.militiaId, militiaName: k.militiaName, currentScore: k.score })
+                            setAdjustScore(String(k.adjustedScore ?? k.score ?? ''))
+                            setAdjustNote(k.adjustmentNote ?? '')
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded border border-blue-200 transition-colors"
+                        >
+                          <Edit2 size={12} />
+                          Điều chỉnh
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -261,6 +300,67 @@ export function PayrollPage() {
           </div>
         )}
       </div>
+
+      {/* KPI Adjustment Modal */}
+      {adjustModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4" data-testid="kpi-adjust-modal">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">
+              Điều chỉnh KPI — {adjustModal.militiaName}
+            </h3>
+            <p className="text-sm text-slate-500 mb-4">
+              Điểm KPI hiện tại: <span className="font-semibold">{adjustModal.currentScore ?? '—'}</span>
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Điểm điều chỉnh (0–100)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={adjustScore}
+                  onChange={(e) => setAdjustScore(e.target.value)}
+                  data-testid="adjust-score-input"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Lý do điều chỉnh</label>
+                <textarea
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  data-testid="adjust-note-input"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  adjustMutation.mutate({
+                    militiaId: adjustModal.militiaId,
+                    score: Number(adjustScore),
+                    note: adjustNote,
+                  })
+                }}
+                disabled={!adjustScore || !adjustNote || adjustMutation.isPending}
+                data-testid="save-adjust-btn"
+                className="flex-1 px-4 py-2 bg-[#1F3A5F] text-white rounded-lg text-sm hover:bg-[#162d4a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {adjustMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              </button>
+              <button
+                onClick={() => { setAdjustModal(null); setAdjustScore(''); setAdjustNote('') }}
+                data-testid="cancel-adjust-btn"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

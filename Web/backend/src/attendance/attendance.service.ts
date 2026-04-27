@@ -7,6 +7,31 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+export interface CheckInDto {
+  location?: { lat?: number; lng?: number; accuracy?: number };
+  source?: string;
+}
+
+export interface CheckOutDto {
+  location?: { lat?: number; lng?: number; accuracy?: number };
+}
+
+export interface TodayStatusResult {
+  status: string;
+  checkinAt: Date | null;
+  checkoutAt: Date | null;
+  workDate: string;
+}
+
+export interface AttendanceStats {
+  totalDays: number;
+  presentDays: number;
+  lateDays: number;
+  absentDays: number;
+  currentMonth: number;
+  currentYear: number;
+}
+
 export interface CreateAttendanceDto {
   militiaId: string;
   workDate: string; // YYYY-MM-DD
@@ -180,6 +205,137 @@ export class AttendanceService {
     );
 
     return { data, total, page, limit };
+  }
+
+  // Mobile: check-in for current user
+  async checkIn(userId: string, dto: CheckInDto): Promise<{
+    id: string; militiaId: string; status: string; workDate: string; checkinAt: Date;
+  }> {
+    const militiaRows = await this.dataSource.query<
+      { id: string; fullName: string; militiaCode: string }[]
+    >(
+      `SELECT id, full_name AS "fullName", militia_code AS "militiaCode"
+       FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!militiaRows.length) throw new NotFoundException('militia_not_found');
+    const militia = militiaRows[0];
+
+    const today = new Date().toISOString().slice(0, 10);
+    const dupRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM attendance_records WHERE militia_id = $1 AND work_date = $2::date LIMIT 1`,
+      [militia.id, today],
+    );
+    if (dupRows.length) throw new ConflictException('already_checked_in');
+
+    const source = dto.source ?? 'mobile';
+    const inserted = await this.dataSource.query<{ id: string; checkin_at: Date }[]>(
+      `INSERT INTO attendance_records (militia_id, work_date, status, checkin_at, source)
+       VALUES ($1::uuid, $2::date, 'checked_in', NOW(), $3)
+       RETURNING id, checkin_at`,
+      [militia.id, today, source],
+    );
+
+    return {
+      id: inserted[0].id,
+      militiaId: militia.id,
+      status: 'checked_in',
+      workDate: today,
+      checkinAt: inserted[0].checkin_at,
+    };
+  }
+
+  // Mobile: check-out for current user
+  async checkOut(userId: string, _dto: CheckOutDto): Promise<{
+    id: string; militiaId: string; status: string; checkoutAt: Date;
+  }> {
+    const militiaRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!militiaRows.length) throw new NotFoundException('militia_not_found');
+    const militiaId = militiaRows[0].id;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const updated = await this.dataSource.query<{ id: string; checkout_at: Date }[]>(
+      `UPDATE attendance_records SET checkout_at = NOW()
+       WHERE militia_id = $1 AND work_date = $2::date AND checkout_at IS NULL
+       RETURNING id, checkout_at`,
+      [militiaId, today],
+    );
+    if (!updated.length) throw new NotFoundException('no_open_checkin');
+
+    return {
+      id: updated[0].id,
+      militiaId,
+      status: 'checked_out',
+      checkoutAt: updated[0].checkout_at,
+    };
+  }
+
+  // Mobile: get today's status for current user
+  async getTodayStatus(userId: string): Promise<TodayStatusResult | null> {
+    const militiaRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!militiaRows.length) return null;
+    const militiaId = militiaRows[0].id;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.dataSource.query<{
+      status: string; checkin_at: Date | null; checkout_at: Date | null; work_date: string;
+    }[]>(
+      `SELECT status, checkin_at, checkout_at, work_date::text
+       FROM attendance_records WHERE militia_id = $1 AND work_date = $2::date LIMIT 1`,
+      [militiaId, today],
+    );
+    if (!rows.length) return null;
+    return {
+      status: rows[0].status,
+      checkinAt: rows[0].checkin_at,
+      checkoutAt: rows[0].checkout_at,
+      workDate: rows[0].work_date,
+    };
+  }
+
+  // Mobile: get monthly stats for current user
+  async getStats(userId: string): Promise<AttendanceStats> {
+    const militiaRows = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!militiaRows.length) throw new NotFoundException('militia_not_found');
+    const militiaId = militiaRows[0].id;
+
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    const rows = await this.dataSource.query<{
+      totalDays: string; presentDays: string; lateDays: string; absentDays: string;
+    }[]>(
+      `SELECT
+         COUNT(*) AS "totalDays",
+         COUNT(*) FILTER (WHERE status IN ('checked_in', 'present')) AS "presentDays",
+         COUNT(*) FILTER (WHERE status = 'late') AS "lateDays",
+         COUNT(*) FILTER (WHERE status = 'absent') AS "absentDays"
+       FROM attendance_records
+       WHERE militia_id = $1
+         AND EXTRACT(MONTH FROM work_date) = $2
+         AND EXTRACT(YEAR FROM work_date) = $3`,
+      [militiaId, currentMonth, currentYear],
+    );
+
+    const r = rows[0];
+    return {
+      totalDays: parseInt(r.totalDays, 10),
+      presentDays: parseInt(r.presentDays, 10),
+      lateDays: parseInt(r.lateDays, 10),
+      absentDays: parseInt(r.absentDays, 10),
+      currentMonth,
+      currentYear,
+    };
   }
 
   private mapStatus(status: string): string {

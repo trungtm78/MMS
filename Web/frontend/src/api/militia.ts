@@ -6,12 +6,23 @@ import type { MilitiaProfile, MilitiaSearchItem, PaginatedResponse } from '@/typ
 
 export interface MilitiaListItem {
   id: string
+  userId: string | null
+  militiaCode: string
   fullName: string
   unitCode: string
+  unitName: string
   status: string
   phone: string | null
   email: string | null
+  rank: string | null
   avatarUrl: string | null
+  // NĐ 72/2020 Điều 15-18 compliance fields:
+  occupation: string | null
+  educationLevel: string | null
+  healthStatus: string | null
+  bloodType: string | null
+  permanentAddress: string | null
+  judicialClearanceStatus: string | null
 }
 
 export interface MilitiaSearchResult {

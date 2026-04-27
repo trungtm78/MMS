@@ -36,7 +36,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
   Future<void> _loadTeam() async {
     try {
       final dio = ref.read(dioProvider);
-      final resp = await dio.get(ApiConstants.gpsTeam);
+      final resp = await dio.get(ApiConstants.gpsLive);
       if (!mounted) return;
       setState(() {
         _members = List<Map<String, dynamic>>.from(resp.data['data'] as List? ?? []);
@@ -62,7 +62,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
           .build(),
     );
 
-    _socket!.on('location_update', (data) {
+    _socket!.on('gps:update', (data) {
       if (!mounted) return;
       final update = data as Map<String, dynamic>;
       setState(() {

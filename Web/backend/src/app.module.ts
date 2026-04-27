@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TerminusModule } from '@nestjs/terminus';
-import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { redisStore } from 'cache-manager-ioredis-yet';
 import configuration from './config/configuration';
 import { User } from './database/entities/user.entity';
@@ -16,6 +15,7 @@ import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { MilitiaModule } from './militia/militia.module';
 import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -26,6 +26,18 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { FilesModule } from './files/files.module';
 import { KpiModule } from './kpi/kpi.module';
 import { AssignmentsModule } from './assignments/assignments.module';
+import { LeaveModule } from './leave/leave.module';
+import { TrainingModule } from './training/training.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { AuditModule } from './audit/audit.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { GpsModule } from './gps/gps.module';
+import { SosModule } from './sos/sos.module';
+import { WorkReportsModule } from './work-reports/work-reports.module';
+import { OfficialDocumentsModule } from './official-documents/official-documents.module';
+import { ChatModule } from './chat/chat.module';
+import { DevicesModule } from './devices/devices.module';
 import { MilitiaProfile } from './militia/militia.entity';
 import { Task } from './tasks/task.entity';
 import { TaskAssignment } from './tasks/task-assignment.entity';
@@ -42,14 +54,23 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     CacheModule.registerAsync({
       isGlobal: true,
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        store: await redisStore({
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD') || undefined,
-        }),
-        ttl: 300_000, // 5 minutes default TTL in ms
-      }),
+      useFactory: async (configService: ConfigService) => {
+        // Fall back to in-memory store when Redis is unavailable (dev without Docker)
+        const redisHost = configService.get('REDIS_HOST', 'localhost');
+        const redisPort = configService.get<number>('REDIS_PORT', 6379);
+        try {
+          const store = await redisStore({
+            host: redisHost,
+            port: redisPort,
+            password: configService.get('REDIS_PASSWORD') || undefined,
+            connectTimeout: 2000,
+            maxRetriesPerRequest: 1,
+          });
+          return { store, ttl: 300_000 };
+        } catch {
+          return { ttl: 300_000 }; // in-memory fallback
+        }
+      },
       inject: [ConfigService],
     }),
 
@@ -82,18 +103,7 @@ import { AttendanceRecord } from './attendance/attendance.entity';
       inject: [ConfigService],
     }),
 
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        throttlers: [{ ttl: 60_000, limit: 100 }],
-        storage: new ThrottlerStorageRedisService({
-          host: config.get('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          password: config.get('REDIS_PASSWORD') || undefined,
-        }),
-      }),
-      inject: [ConfigService],
-    }),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
 
     TerminusModule,
     HealthModule,
@@ -106,10 +116,23 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     FilesModule,
     KpiModule,
     AssignmentsModule,
+    LeaveModule,
+    TrainingModule,
+    SchedulerModule,
+    PayrollModule,
+    AuditModule,
+    DashboardModule,
+    GpsModule,
+    SosModule,
+    WorkReportsModule,
+    OfficialDocumentsModule,
+    ChatModule,
+    DevicesModule,
   ],
   controllers: [AuthController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     AuthService,
     JwtAuthGuard,
     RolesGuard,

@@ -72,21 +72,29 @@ export class AdminService {
     page = 1,
     limit = 20,
     unitCode?: string,
+    roleCode?: string,
   ): Promise<PaginatedResult<UserListItem>> {
     const offset = (page - 1) * limit;
     const scopeUnit = requester.role === 'system_admin' ? unitCode : requester.unitScope;
 
-    let whereClause = '';
+    const conditions: string[] = [];
     const params: unknown[] = [];
     if (scopeUnit) {
-      whereClause = `WHERE un.code = $1`;
       params.push(scopeUnit);
+      conditions.push(`un.code = $${params.length}`);
     }
+    if (roleCode) {
+      params.push(roleCode);
+      conditions.push(`r.code = $${params.length}`);
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countResult = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(DISTINCT u.id) as count FROM users u
        LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
        LEFT JOIN units un ON un.id = uus.unit_id
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
        ${whereClause}`,
       params,
     );
@@ -95,7 +103,7 @@ export class AdminService {
     const limitParam = params.length + 1;
     const offsetParam = params.length + 2;
     const rows = await this.dataSource.query<Record<string, string>[]>(
-      `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.created_at,
+      `SELECT DISTINCT ON (u.id) u.id, u.username, u.full_name, u.email, u.phone, u.status, u.created_at,
               r.code as role_code, un.code as unit_code
        FROM users u
        LEFT JOIN user_unit_scopes uus ON uus.user_id = u.id
@@ -103,7 +111,7 @@ export class AdminService {
        LEFT JOIN user_roles ur ON ur.user_id = u.id
        LEFT JOIN roles r ON r.id = ur.role_id
        ${whereClause}
-       ORDER BY u.created_at DESC
+       ORDER BY u.id, u.created_at DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
       [...params, limit, offset],
     );

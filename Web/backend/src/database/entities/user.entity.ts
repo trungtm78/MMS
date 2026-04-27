@@ -13,7 +13,11 @@ export type UserRole =
   | 'police_ward'
   | 'police_area'
   | 'office_staff'
-  | 'dqtv';
+  | 'dqtv'
+  | 'ca_officer'
+  | 'ca_ward'
+  | 'ca_area'
+  | 'dqtv_member';
 export type UserStatus = 'active' | 'inactive' | 'suspended';
 
 @Entity('users')

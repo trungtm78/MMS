@@ -5,13 +5,17 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import * as crypto from 'crypto';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { CA_ROLES } from '../common/constants/roles';
 
 export interface MilitiaSearchItem {
   id: string;
+  userId: string | null;
   militiaCode: string;
   fullName: string;
   phone: string | null;
@@ -19,6 +23,19 @@ export interface MilitiaSearchItem {
   status: string;
   unitCode: string;
   unitName: string;
+}
+
+// NĐ 72/2020 Điều 15-18: Full detail profile (used by getMilitiaById)
+export interface MilitiaDetailProfile extends MilitiaSearchItem {
+  email: string | null;
+  avatarUrl: string | null;
+  // 6 NĐ 72 compliance fields (migration 012):
+  occupation: string | null;
+  educationLevel: string | null;
+  healthStatus: string | null;
+  bloodType: string | null;
+  permanentAddress: string | null;
+  judicialClearanceStatus: string | null;
 }
 
 export interface CreateMilitiaDto {
@@ -36,11 +53,56 @@ export interface CreateMilitiaDto {
 
 @Injectable()
 export class MilitiaService {
+  private readonly logger = new Logger(MilitiaService.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly assignmentsService: AssignmentsService,
   ) {}
+
+  // ── CCCD encryption helpers ────────────────────────────────────────────
+
+  private getEncryptionKey(): Buffer | null {
+    const key = process.env.AES_CCCD_KEY;
+    if (!key) return null;
+    if (key.length !== 64) {
+      this.logger.warn('AES_CCCD_KEY must be 64 hex chars (32 bytes); falling back to plaintext');
+      return null;
+    }
+    return Buffer.from(key, 'hex');
+  }
+
+  // Exposed as package-private (no underscore) so spec can call via (service as any)
+  encryptCccd(plaintext: string): { lookupHash: string; encrypted: string } {
+    const key = this.getEncryptionKey();
+    if (!key) throw new Error('AES_CCCD_KEY env var not set or invalid');
+    const lookupHash = crypto.createHmac('sha256', key).update(plaintext).digest('hex');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const combined = Buffer.concat([iv, tag, encrypted]);
+    return { lookupHash, encrypted: combined.toString('base64url') };
+  }
+
+  decryptCccd(encryptedB64: string): string {
+    const key = this.getEncryptionKey();
+    if (!key) throw new Error('AES_CCCD_KEY env var not set or invalid');
+    const combined = Buffer.from(encryptedB64, 'base64url');
+    const iv = combined.subarray(0, 12);
+    const tag = combined.subarray(12, 28);
+    const ciphertext = combined.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(ciphertext) + decipher.final('utf8');
+  }
+
+  computeLookupHash(plaintext: string): string {
+    const key = this.getEncryptionKey();
+    if (!key) throw new Error('AES_CCCD_KEY env var not set or invalid');
+    return crypto.createHmac('sha256', key).update(plaintext).digest('hex');
+  }
 
   // US-SS-01 AC-1: Search militia by name (unaccent), code, phone
   // US-SS-02 AC-3: PostgreSQL unaccent for accent-insensitive matching
@@ -55,6 +117,7 @@ export class MilitiaService {
     const rows = await this.dataSource.query<MilitiaSearchItem[]>(
       `SELECT
          mp.id,
+         mp.user_id        AS "userId",
          mp.militia_code   AS "militiaCode",
          mp.full_name      AS "fullName",
          mp.phone,
@@ -113,15 +176,33 @@ export class MilitiaService {
     // Default dob/joinDate to today if not provided (required NOT NULL columns)
     const today = new Date().toISOString().slice(0, 10);
 
+    // Encrypt CCCD if AES_CCCD_KEY is set; otherwise store plaintext (dev fallback)
+    let cccdPlaintext: string | null = defaultCccd;
+    let cccdLookupHash: string | null = null;
+    let cccdEncrypted: string | null = null;
+    const encKey = this.getEncryptionKey();
+    if (encKey) {
+      try {
+        const { lookupHash, encrypted } = this.encryptCccd(defaultCccd);
+        cccdLookupHash = lookupHash;
+        cccdEncrypted = encrypted;
+        cccdPlaintext = null; // migrate away from plaintext when key is present
+      } catch (err) {
+        this.logger.warn(`CCCD encryption failed, storing plaintext: ${(err as Error).message}`);
+      }
+    }
+
     const inserted = await this.dataSource.query<{ id: string }[]>(
       `INSERT INTO militia_profiles
-         (militia_code, full_name, cccd, phone, rank, unit_id, gender, dob, position, join_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active')
+         (militia_code, full_name, cccd, cccd_lookup_hash, cccd_encrypted, phone, rank, unit_id, gender, dob, position, join_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
        RETURNING id`,
       [
         dto.militiaCode,
         dto.fullName,
-        defaultCccd,
+        cccdPlaintext,
+        cccdLookupHash,
+        cccdEncrypted,
         dto.phone ?? null,
         dto.rank ?? null,
         unitId,
@@ -143,7 +224,7 @@ export class MilitiaService {
   // Paginated search with unitScope enforcement + CA explicit assignment filter
   async searchMilitia(
     user: { role: string; unitScope: string | null; sub?: string | null },
-    params: { q?: string; unitCode?: string; page?: number; limit?: number },
+    params: { q?: string; unitCode?: string; page?: number; limit?: number; excludeAssignedTo?: string },
   ): Promise<{ data: MilitiaSearchItem[]; total: number; page: number; limit: number }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
@@ -153,11 +234,17 @@ export class MilitiaService {
     // CA officers with explicit assignments: filter to assigned DQTV only.
     // If CA has zero assignments, fall back to unitScope (backward compat for new CAs).
     let assignedUserIds: string[] | null = null;
-    if (user.role === 'ca_officer' && user.sub) {
+    if (CA_ROLES.has(user.role) && user.sub) {
       const ids = await this.assignmentsService.getAssignedDqtvIds(user.sub);
       if (ids.length > 0) {
         assignedUserIds = ids;
       }
+    }
+
+    // Resolve IDs already assigned to the given CA (for excludeAssignedTo filter)
+    let excludedUserIds: string[] | null = null;
+    if (params.excludeAssignedTo) {
+      excludedUserIds = await this.assignmentsService.getAssignedDqtvIds(params.excludeAssignedTo);
     }
 
     const effectiveUnit = user.role === 'system_admin' ? params.unitCode : user.unitScope ?? undefined;
@@ -171,13 +258,16 @@ export class MilitiaService {
            AND mp.user_id = ANY($1::uuid[])
            AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
              OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
-             OR mp.phone ILIKE '%'||$2||'%')`,
-        [assignedUserIds, q],
+             OR mp.phone ILIKE '%'||$2||'%')
+           ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}`,
+        excludedUserIds && excludedUserIds.length > 0
+          ? [assignedUserIds, q, excludedUserIds]
+          : [assignedUserIds, q],
       );
       const total = parseInt(countResult[0]?.count ?? '0', 10);
 
       const rows = await this.dataSource.query<MilitiaSearchItem[]>(
-        `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+        `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
                 mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
          FROM militia_profiles mp
          JOIN units u ON u.id = mp.unit_id
@@ -186,9 +276,12 @@ export class MilitiaService {
            AND ($2 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$2||'%'))
              OR LOWER(mp.militia_code) ILIKE LOWER('%'||$2||'%')
              OR mp.phone ILIKE '%'||$2||'%')
+           ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}
          ORDER BY mp.full_name
-         LIMIT $3 OFFSET $4`,
-        [assignedUserIds, q, limit, offset],
+         LIMIT $${excludedUserIds && excludedUserIds.length > 0 ? 4 : 3} OFFSET $${excludedUserIds && excludedUserIds.length > 0 ? 5 : 4}`,
+        excludedUserIds && excludedUserIds.length > 0
+          ? [assignedUserIds, q, excludedUserIds, limit, offset]
+          : [assignedUserIds, q, limit, offset],
       );
 
       return { data: rows, total, page, limit };
@@ -202,13 +295,16 @@ export class MilitiaService {
          AND ($1 = '' OR unaccent(LOWER(mp.full_name)) ILIKE unaccent(LOWER('%'||$1||'%'))
            OR LOWER(mp.militia_code) ILIKE LOWER('%'||$1||'%')
            OR mp.phone ILIKE '%'||$1||'%')
-         AND ($2::text IS NULL OR u.code = $2)`,
-      [q, effectiveUnit ?? null],
+         AND ($2::text IS NULL OR u.code = $2)
+         ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}`,
+      excludedUserIds && excludedUserIds.length > 0
+        ? [q, effectiveUnit ?? null, excludedUserIds]
+        : [q, effectiveUnit ?? null],
     );
     const total = parseInt(countResult[0]?.count ?? '0', 10);
 
     const rows = await this.dataSource.query<MilitiaSearchItem[]>(
-      `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+      `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
               mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
@@ -217,22 +313,184 @@ export class MilitiaService {
            OR LOWER(mp.militia_code) ILIKE LOWER('%'||$1||'%')
            OR mp.phone ILIKE '%'||$1||'%')
          AND ($2::text IS NULL OR u.code = $2)
+         ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}
        ORDER BY mp.full_name
-       LIMIT $3 OFFSET $4`,
-      [q, effectiveUnit ?? null, limit, offset],
+       LIMIT $${excludedUserIds && excludedUserIds.length > 0 ? 4 : 3} OFFSET $${excludedUserIds && excludedUserIds.length > 0 ? 5 : 4}`,
+      excludedUserIds && excludedUserIds.length > 0
+        ? [q, effectiveUnit ?? null, excludedUserIds, limit, offset]
+        : [q, effectiveUnit ?? null, limit, offset],
     );
 
     return { data: rows, total, page, limit };
   }
 
-  // Get single militia member with unitScope enforcement
+  // Search militia by CCCD (identity verification) using lookup hash
+  async searchByCccd(
+    user: { role: string; unitScope: string | null },
+    cccd: string,
+  ): Promise<MilitiaSearchItem | null> {
+    const lookupHash = this.computeLookupHash(cccd);
+
+    const rows = await this.dataSource.query<(MilitiaSearchItem & { unitCode: string })[]>(
+      `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+              mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE mp.cccd_lookup_hash = $1
+       LIMIT 1`,
+      [lookupHash],
+    );
+
+    if (!rows.length) return null;
+
+    const row = rows[0];
+    if (user.role !== 'system_admin' && user.unitScope && row.unitCode !== user.unitScope) {
+      throw new ForbiddenException('unit_scope_violation');
+    }
+
+    return row;
+  }
+
+  // P3-18: History tab — assignments + task history
+  async getMilitiaHistory(id: string): Promise<Record<string, unknown>> {
+    const [assignments, taskHistory] = await Promise.all([
+      this.dataSource.query(
+        `SELECT a.id, a.ca_user_id AS "caUserId", u.username AS "caUsername",
+                a.assigned_at AS "assignedAt"
+         FROM ca_dqtv_assignments a
+         JOIN users u ON u.id = a.ca_user_id
+         WHERE a.dqtv_user_id = (SELECT user_id FROM militia_profiles WHERE id = $1)
+         ORDER BY a.assigned_at DESC`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT ta.id, t.title, ta.status, ta.created_at AS "createdAt", ta.updated_at AS "updatedAt"
+         FROM task_assignments ta
+         JOIN tasks t ON t.id = ta.task_id
+         WHERE ta.assignee_id = (SELECT user_id FROM militia_profiles WHERE id = $1)
+         ORDER BY ta.created_at DESC LIMIT 50`,
+        [id],
+      ),
+    ]);
+    return { assignments, taskHistory };
+  }
+
+  // P3-18: Rewards tab — militia_rewards table
+  async getMilitiaRewards(id: string): Promise<unknown[]> {
+    return this.dataSource.query(
+      `SELECT id, reward_type AS "rewardType", title, description,
+              issued_date AS "issuedDate", issued_by AS "issuedBy", created_at AS "createdAt"
+       FROM militia_rewards WHERE militia_id = $1 ORDER BY issued_date DESC NULLS LAST`,
+      [id],
+    );
+  }
+
+  // P3-18: Documents tab — files related to militia profile
+  async getMilitiaDocuments(id: string): Promise<unknown[]> {
+    return this.dataSource.query(
+      `SELECT id, original_name AS "originalName", mime_type AS "mimeType",
+              size, url, created_at AS "uploadedAt"
+       FROM files WHERE related_id = $1 AND related_type = 'militia_profile'
+       ORDER BY created_at DESC`,
+      [id],
+    );
+  }
+
+  // NĐ 13/2023 Điều 10-14: Data subject rights — export own data bundle
+  async exportMyData(userId: string): Promise<Record<string, unknown>> {
+    const profileRows = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
+              mp.phone, mp.email, mp.rank, mp.status,
+              mp.occupation, mp.education_level AS "educationLevel",
+              mp.health_status AS "healthStatus", mp.blood_type AS "bloodType",
+              mp.permanent_address AS "permanentAddress",
+              mp.judicial_clearance_status AS "judicialClearanceStatus",
+              u.code AS "unitCode", u.name AS "unitName"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE mp.user_id = $1`,
+      [userId],
+    );
+    if (!profileRows.length) {
+      return { profile: null, training: [], attendance: [], leaveRequests: [], kpiScores: [], exportedAt: new Date().toISOString() };
+    }
+    const profile = profileRows[0];
+    const militiaId = profile['id'] as string;
+
+    const [training, attendance, leaveRequests, kpiScores] = await Promise.all([
+      this.dataSource.query(
+        `SELECT id, training_type AS "trainingType", start_date AS "startDate",
+                end_date AS "endDate", days_count AS "daysCount", result, notes
+         FROM training_records WHERE militia_id = $1 ORDER BY start_date DESC`,
+        [militiaId],
+      ),
+      this.dataSource.query(
+        `SELECT id, work_date AS "workDate", check_in_time AS "checkInTime",
+                check_out_time AS "checkOutTime", status, notes
+         FROM attendance_records WHERE militia_id = $1
+         ORDER BY work_date DESC LIMIT 180`,
+        [militiaId],
+      ),
+      this.dataSource.query(
+        `SELECT id, leave_type AS "leaveType", start_date AS "startDate",
+                end_date AS "endDate", status, reason
+         FROM leave_requests WHERE requester_id = $1 ORDER BY created_at DESC`,
+        [userId],
+      ),
+      this.dataSource.query(
+        `SELECT id, period_id AS "periodId", score, created_at AS "createdAt"
+         FROM kpi_scores WHERE militia_id = $1 ORDER BY created_at DESC LIMIT 12`,
+        [militiaId],
+      ),
+    ]);
+
+    return {
+      profile,
+      training,
+      attendance,
+      leaveRequests,
+      kpiScores,
+      exportedAt: new Date().toISOString(),
+      note: 'Attendance limited to last 180 days per NĐ 13/2023',
+    };
+  }
+
+  // NĐ 13/2023: Data correction request — logs to audit trail
+  async requestDataCorrection(
+    userId: string,
+    dto: { field: string; requestedValue: string; reason: string },
+  ): Promise<{ accepted: boolean; message: string }> {
+    await this.dataSource.query(
+      `INSERT INTO audit_logs(actor_id, action, entity_type, after_json, created_at)
+       VALUES ($1, 'DATA_CORRECTION_REQUEST', 'militia_profile', $2::jsonb, NOW())`,
+      [userId, JSON.stringify({ field: dto.field, requestedValue: dto.requestedValue, reason: dto.reason })],
+    );
+    return { accepted: true, message: 'Yêu cầu đã được ghi nhận và sẽ được xem xét trong 30 ngày' };
+  }
+
+  // Get single militia member with unitScope enforcement — includes 6 NĐ 72/2020 fields
   async getMilitiaById(
     user: { role: string; unitScope: string | null },
     id: string,
-  ): Promise<MilitiaSearchItem> {
-    const rows = await this.dataSource.query<(MilitiaSearchItem & { unitCode: string })[]>(
-      `SELECT mp.id, mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
-              mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
+  ): Promise<MilitiaDetailProfile> {
+    const rows = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT mp.id,
+              mp.user_id            AS "userId",
+              mp.militia_code       AS "militiaCode",
+              mp.full_name          AS "fullName",
+              mp.phone,
+              mp.email,
+              mp.rank,
+              mp.status,
+              mp.avatar_url         AS "avatarUrl",
+              u.code                AS "unitCode",
+              u.name                AS "unitName",
+              mp.occupation,
+              mp.education_level    AS "educationLevel",
+              mp.health_status      AS "healthStatus",
+              mp.blood_type         AS "bloodType",
+              mp.permanent_address  AS "permanentAddress",
+              mp.judicial_clearance_status AS "judicialClearanceStatus"
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
        WHERE mp.id = $1`,
@@ -240,9 +498,28 @@ export class MilitiaService {
     );
     if (!rows.length) throw new NotFoundException('militia_not_found');
     const row = rows[0];
-    if (user.role !== 'system_admin' && user.unitScope && row.unitCode !== user.unitScope) {
+    const unitCode = row['unitCode'] as string;
+    if (user.role !== 'system_admin' && user.unitScope && unitCode !== user.unitScope) {
       throw new ForbiddenException('unit_scope_violation');
     }
-    return row;
+    return {
+      id: row['id'] as string,
+      userId: (row['userId'] as string | null) ?? null,
+      militiaCode: row['militiaCode'] as string,
+      fullName: row['fullName'] as string,
+      phone: (row['phone'] as string | null) ?? null,
+      email: (row['email'] as string | null) ?? null,
+      rank: (row['rank'] as string | null) ?? null,
+      status: row['status'] as string,
+      avatarUrl: (row['avatarUrl'] as string | null) ?? null,
+      unitCode,
+      unitName: row['unitName'] as string,
+      occupation: (row['occupation'] as string | null) ?? null,
+      educationLevel: (row['educationLevel'] as string | null) ?? null,
+      healthStatus: (row['healthStatus'] as string | null) ?? null,
+      bloodType: (row['bloodType'] as string | null) ?? null,
+      permanentAddress: (row['permanentAddress'] as string | null) ?? null,
+      judicialClearanceStatus: (row['judicialClearanceStatus'] as string | null) ?? null,
+    };
   }
 }

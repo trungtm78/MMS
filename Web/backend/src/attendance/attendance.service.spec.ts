@@ -143,4 +143,113 @@ describe('AttendanceService', () => {
       expect(params[0]).toBe('2026-04-15');
     });
   });
+
+  // ── Mobile check-in / check-out / today / stats ──────────────────────
+
+  describe('checkIn', () => {
+    it('returns checked_in for valid user', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1', fullName: 'Nguyen Van A', militiaCode: 'DQTV001' }]) // find militia
+        .mockResolvedValueOnce([]) // no existing record
+        .mockResolvedValueOnce([{ id: 'rec-1', checkin_at: new Date('2026-04-27T08:00:00Z') }]); // insert
+
+      const result = await service.checkIn('user-1', { source: 'mobile' });
+      expect(result.status).toBe('checked_in');
+      expect(result.id).toBe('rec-1');
+      expect(result.militiaId).toBe('militia-1');
+    });
+
+    it('throws ConflictException when already checked in today', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1', fullName: 'X', militiaCode: 'D001' }])
+        .mockResolvedValueOnce([{ id: 'existing-rec' }]); // duplicate
+
+      await expect(service.checkIn('user-1', {})).rejects.toThrow(ConflictException);
+    });
+
+    it('throws NotFoundException when no militia profile found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.checkIn('unknown-user', {})).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('checkOut', () => {
+    it('updates checkout_at and returns checked_out status', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1' }]) // find militia
+        .mockResolvedValueOnce([{ id: 'rec-1', checkout_at: new Date('2026-04-27T17:00:00Z') }]); // update
+
+      const result = await service.checkOut('user-1', {});
+      expect(result.status).toBe('checked_out');
+      expect(result.id).toBe('rec-1');
+    });
+
+    it('throws NotFoundException when no open check-in record', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1' }])
+        .mockResolvedValueOnce([]); // no open record
+
+      await expect(service.checkOut('user-1', {})).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getTodayStatus', () => {
+    it('returns null when no militia profile exists', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      const result = await service.getTodayStatus('user-1');
+      expect(result).toBeNull();
+    });
+
+    it('returns null when no attendance record for today', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1' }])
+        .mockResolvedValueOnce([]); // no record
+      const result = await service.getTodayStatus('user-1');
+      expect(result).toBeNull();
+    });
+
+    it('returns status/checkinAt/checkoutAt/workDate when record exists', async () => {
+      const fakeCheckin = new Date('2026-04-27T08:00:00Z');
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1' }])
+        .mockResolvedValueOnce([{
+          status: 'checked_in',
+          checkin_at: fakeCheckin,
+          checkout_at: null,
+          work_date: '2026-04-27',
+        }]);
+
+      const result = await service.getTodayStatus('user-1');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('checked_in');
+      expect(result!.checkinAt).toBe(fakeCheckin);
+      expect(result!.checkoutAt).toBeNull();
+    });
+  });
+
+  describe('getStats', () => {
+    it('returns correct counts from DB', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'militia-1' }])
+        .mockResolvedValueOnce([{
+          totalDays: '20',
+          presentDays: '18',
+          lateDays: '1',
+          absentDays: '1',
+        }]);
+
+      const result = await service.getStats('user-1');
+      expect(result.totalDays).toBe(20);
+      expect(result.presentDays).toBe(18);
+      expect(result.lateDays).toBe(1);
+      expect(result.absentDays).toBe(1);
+      expect(result.currentMonth).toBeGreaterThanOrEqual(1);
+      expect(result.currentYear).toBeGreaterThanOrEqual(2026);
+    });
+
+    it('throws NotFoundException when no militia profile', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.getStats('unknown-user')).rejects.toThrow(NotFoundException);
+    });
+  });
 });
