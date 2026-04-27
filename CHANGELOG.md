@@ -2,6 +2,68 @@
 
 ---
 
+## [0.2.0.0] — 2026-04-27
+
+### Added
+
+**ANTT Branding & UI/UX Redesign (Phase 1-3)**
+- Complete redesign applying official UBND Phường Phú Định ANTT color system: `#C62828` red, `#2E7D32` green, `#F4F269` yellow
+- New `GlobalFooter` component with ward address, contact info, and NCSC trust badge
+- Header redesigned: `h-20`, `bg-[#F4F269]`, `border-b-4 border-[#C62828]`, ANTT banner logo, WS/SOS/bell/user-dropdown in right rail
+- Sidebar redesigned: `bg-[#2E7D32]`, collapsible grouped navigation (8 groups), `openMenus` Set state, active item `bg-[#F4F269] text-[#C62828]`, mobile slide-in overlay
+- LoginPage redesigned: `bg-[#F4F269]` background, ANTT logo, red border form card, show/hide password toggle
+- DashboardPage: 4 stat cards with trend badges, Recharts line+bar charts, gradient quick-actions panel
+- All 23 content pages restyled to design system (MilitiaList, MilitiaProfilePage, TaskListPage, TimesheetPage, PayrollPage, AttendanceReportPage, TaskReportPage, ChiTieuDashboardPage, CustomReportPage, ApprovalsPage, UserManagementPage, AssignmentManagePage, ActivityLogPage, SettingsProfilePage, SettingsPasswordPage, SettingsSystemPage, SettingsChiTieuPage, SettingsNotificationsPage, DocumentationPage, ChatPage, OfficialDocumentsPage, QuickActionsWidget, MilitiaSearchPage)
+
+**Phase 0 — Stub Completions**
+- `SettingsProfilePage`: proper edit-mode toggle with PATCH `/users/me/profile` mutation, cancel resets to original values
+- `SettingsPasswordPage`: Zod schema (min 8, confirmPassword match), POST `/auth/change-password` with 400 error handling
+- `SettingsNotificationsPage`: each toggle calls PATCH `/users/me/notifications` immediately with optimistic update + rollback
+- `SettingsChiTieuPage`: Zod validation (min 0, reasonable max), inline errors `text-[#C62828]`, submit disabled when invalid
+- `SettingsSystemPage`: AlertDialog confirm before destructive save, `data-testid="confirm-save-btn"` for testability
+- `DocumentationPage`: client-side search filter via `useMemo`, accordion sections with `border-[#E2E8F0]`, ANTT section headers
+
+**Phase 0.5 — New Route Pages**
+- `GPSTrackingPage` (`/gps`): Leaflet map with `react-leaflet`, sidebar filter, `refetchInterval: 30000`, RBAC guard `can.viewGps`
+- `LeavePage` (`/leave`): 2 tabs (my requests / manage approvals), modal form, approve/reject mutations
+- `SOSPage` (`/sos`): live alert list with resolve mutation, empty state
+- `NotificationsPage` (`/notifications`): filter Tất cả/Chưa đọc/Đã đọc, mark-as-read per item, mark-all button
+- `DeviceSessionsPage` (`/devices`): session table with revoke confirm dialog, RBAC guard `can.manageDevices`
+
+**Phase 4 — Legal Compliance Modules (Luật 48/2019 & Nghị định 72/2020)**
+- `OrganizationPage` (`/organization`): unit tree view (Đại đội → Trung đội → Tiểu đội), biên chế thực tế vs quy định, Loại 1/2-3 classification per Chương 3 Luật 48/2019
+- `WeaponsPage` (`/weapons`): weapon inventory with serial numbers, allocation log (issue/return), periodic inventory form per Luật quản lý sử dụng vũ khí
+- `RecruitmentPage` (`/recruitment`): application workflow tabs, criteria checklist (political/health/judicial), approve → creates militia record per Luật 48/2019 Điều 18-21
+- `ExemptionPage` (`/exemptions`): miễn/hoãn nghĩa vụ records, expiry warning badge (≤30 days), legalBasis field per Điều 20 Nghị định 72/2020
+- `TrainingPlanPage` (`/training`): annual training plans, per-session attendance checkboxes, compliance % vs 15-day minimum per Thông tư 69/2020/TT-BQP
+- `RewardsManagePage` (`/rewards`): 12 commendation forms per Thông tư 57/2020, discipline workflow with appeal per Thông tư 93/2024
+
+**Phase 4 — Backend (NestJS)**
+- `organization` module: `GET /organization/structure`, `PUT /organization/positions/:id`, `POST /organization/units`
+- `weapons` module: `GET/POST/PUT /weapons`, `GET/POST /weapons/allocations`, `POST /weapons/inventory-check`
+- `exemption` module: `GET/POST /exemptions`, `PATCH /exemptions/:id/review`
+- TypeORM entities: `OrganizationUnit`, `WeaponItem`, `WeaponAllocation`, `ExemptionRecord`
+
+**RBAC Additions**
+- `can.manageWeapons` — `system_admin`, `police_ward`, `ubnd_leader`
+- `can.manageRecruitment` — `system_admin`, `police_ward`, `ubnd_leader`
+
+### Changed
+
+- App.tsx: 5 new routes added (`/gps`, `/leave`, `/sos`, `/notifications`, `/devices`, `/organization`, `/weapons`, `/recruitment`, `/exemptions`, `/training`, `/rewards`)
+- Sidebar: 8 grouped collapsible sections replacing flat list, `'organization'/'weapons'/'recruitment'/'exemptions'/'training'/'rewards'` AppRoute entries added
+- `MilitiaProfilePage`: 6 NĐ 72/2020 fields added to Personal tab (occupation, educationLevel, healthStatus, bloodType, permanentAddress, judicialClearanceStatus)
+- Training tab on MilitiaProfilePage: per-member training records table with `compliance-badge` (≥15 days = Đạt)
+- Content area layout: `pt-20 lg:ml-64` to accommodate `h-20` header
+
+### Tests
+
+- Frontend unit tests: **214 tests** (30 suites) — all green
+- New test files: `GPSTrackingPage.test.tsx`, `LeavePage.test.tsx`, `SOSPage.test.tsx`, `NotificationsPage.test.tsx`, `DeviceSessionsPage.test.tsx`, `OrganizationPage.test.tsx`, `WeaponsPage.test.tsx`, `RecruitmentPage.test.tsx`, `ExemptionPage.test.tsx`, `TrainingPlanPage.test.tsx`, `RewardsManagePage.test.tsx`
+- Updated tests: PayrollPage (totalPages field, multi-element heading), SettingsSystemPage (confirm dialog step), MilitiaProfilePage (TrainingRecord types, badge class patterns), SettingsNotificationsPage (auto-save design)
+
+---
+
 ## [0.1.1.0] — 2026-04-26
 
 ### Added
