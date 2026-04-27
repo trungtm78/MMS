@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+tags:
+  - critical
+  - sos
+
+---
+
+- takeScreenshot: 03_home_screen
+
+- tapOn:
+    point: "92%,84%"
+- waitForAnimationToEnd
+
+- assertNotVisible: "404"
+- assertNotVisible: "Not Found"
+
+- takeScreenshot: 03_sos_screen
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "DioError"
+- assertNotVisible: "e.toString()"

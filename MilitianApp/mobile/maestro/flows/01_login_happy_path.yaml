@@ -1,0 +1,32 @@
+appId: ${APP_ID}
+tags:
+  - smoke
+  - auth
+
+---
+- launchApp
+- waitForAnimationToEnd
+
+- assertVisible: "ĐĂNG NHẬP"
+
+- tapOn:
+    point: "50%,48%"
+- inputText: "${TEST_USERNAME}"
+
+- tapOn:
+    point: "50%,56%"
+- inputText: "${TEST_PASSWORD}"
+
+- hideKeyboard
+
+- takeScreenshot: 01_login_form_filled
+
+- tapOn: "ĐĂNG NHẬP"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 01_login_result
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "e.toString()"
+- assertNotVisible: "SocketException"

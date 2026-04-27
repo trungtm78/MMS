@@ -1,0 +1,14 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - chat
+  - c10
+
+---
+- tapOn:
+    point: "58%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_chat_screen
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"

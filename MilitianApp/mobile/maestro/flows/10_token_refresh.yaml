@@ -1,0 +1,19 @@
+appId: ${APP_ID}
+tags:
+  - auth
+  - d2
+  - critical
+
+---
+
+- tapOn:
+    point: "50%,96%"
+- waitForAnimationToEnd
+- tapOn:
+    point: "90%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 10_still_logged_in
+
+- assertNotVisible: "Phiên đăng nhập hết hạn"
+- assertNotVisible: "Exception:"

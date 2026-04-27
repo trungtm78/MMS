@@ -1,0 +1,16 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - critical
+  - c2
+  - approvals
+
+---
+- tapOn:
+    point: "74%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 03_tasks_screen
+
+- assertNotVisible: "405"
+- assertNotVisible: "Method Not Allowed"
+- assertNotVisible: "Exception:"

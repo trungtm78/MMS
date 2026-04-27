@@ -1,0 +1,15 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - reports
+  - c6
+
+---
+- tapOn:
+    point: "10%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 06_home_screen
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"

@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +9,14 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../auth/providers/auth_provider.dart';
+
+// record package removed: record_linux-0.7.2 incompatible with record_platform_interface-1.5.0
+class _AudioRecorderStub {
+  Future<bool> hasPermission() async => false;
+  Future<void> start(dynamic config, {required String path}) async {}
+  Future<String?> stop() async => null;
+  void dispose() {}
+}
 
 class TaskReportScreen extends ConsumerStatefulWidget {
   final String taskId;
@@ -32,8 +39,8 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
   final List<File> _photos = [];
   final _picker = ImagePicker();
 
-  // Audio
-  final _recorder = AudioRecorder();
+  // Audio (recording disabled — record package removed for build compatibility)
+  final _recorder = _AudioRecorderStub();
   final _player = AudioPlayer();
   String? _audioPath;
   bool _isRecording = false;
@@ -98,7 +105,7 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
     if (!hasPermission) return;
     final dir = await getTemporaryDirectory();
     final path = '${dir.path}/task_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+    await _recorder.start(null, path: path);
     setState(() { _isRecording = true; _recordingSecs = 0; _audioPath = null; });
     // Count seconds
     _countRecordingSecs();

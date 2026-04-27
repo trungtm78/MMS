@@ -1,0 +1,29 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - smoke
+  - auth
+
+---
+- launchApp
+- waitForAnimationToEnd
+
+- assertVisible: "ĐĂNG NHẬP"
+
+- tapOn:
+    point: "50%,49%"
+- inputText: "${CA_USERNAME}"
+- pressKey: Enter
+- inputText: "${CA_PASSWORD}"
+- hideKeyboard
+
+- takeScreenshot: 01_ca_login_form
+
+- tapOn: "ĐĂNG NHẬP"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 01_ca_login_result
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "e.toString()"
+- assertNotVisible: "SocketException"

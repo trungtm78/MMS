@@ -1,0 +1,16 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - dashboard
+  - c8
+  - smoke
+
+---
+- tapOn:
+    point: "10%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 08_dashboard
+
+- assertNotVisible: "null"
+- assertNotVisible: "undefined"
+- assertNotVisible: "NaN"

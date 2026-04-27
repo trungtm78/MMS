@@ -5,8 +5,8 @@ import {
   useEffect,
   useRef,
   useCallback,
-  KeyboardEvent,
 } from 'react'
+import type { KeyboardEvent } from 'react'
 import type { SmartSelectOption } from '@/types'
 
 export interface UseSmartSelectOptions {

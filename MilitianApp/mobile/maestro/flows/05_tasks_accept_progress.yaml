@@ -1,0 +1,16 @@
+appId: ${APP_ID}
+tags:
+  - tasks
+  - critical
+
+---
+
+- tapOn:
+    point: "50%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_tasks_list
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"

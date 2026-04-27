@@ -53,6 +53,8 @@ export function useRbac() {
     viewReports: hasMinRole('ubnd_leader'),
     manageDevices: hasRole('system_admin'),
     manageOwnSessions: true, // any authenticated user
+    manageWeapons: hasRole('system_admin', 'police_ward', 'ubnd_leader'),
+    manageRecruitment: hasMinRole('office_staff'),
   } as const
 
   return { role, user, can, hasRole, hasMinRole, canAccessUnit }

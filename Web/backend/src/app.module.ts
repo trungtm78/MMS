@@ -38,6 +38,9 @@ import { WorkReportsModule } from './work-reports/work-reports.module';
 import { OfficialDocumentsModule } from './official-documents/official-documents.module';
 import { ChatModule } from './chat/chat.module';
 import { DevicesModule } from './devices/devices.module';
+import { OrganizationModule } from './organization/organization.module';
+import { WeaponsModule } from './weapons/weapons.module';
+import { ExemptionModule } from './exemption/exemption.module';
 import { MilitiaProfile } from './militia/militia.entity';
 import { Task } from './tasks/task.entity';
 import { TaskAssignment } from './tasks/task-assignment.entity';
@@ -128,6 +131,9 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     OfficialDocumentsModule,
     ChatModule,
     DevicesModule,
+    OrganizationModule,
+    WeaponsModule,
+    ExemptionModule,
   ],
   controllers: [AuthController],
   providers: [

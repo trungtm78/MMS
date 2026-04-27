@@ -28,13 +28,6 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled:   'Đã hủy',
 }
 
-const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
-  urgent: { bg: '#FFEBEE', text: '#C62828' },
-  high:   { bg: '#FFF3E0', text: '#F57C00' },
-  medium: { bg: '#FFFDE7', text: '#FBC02D' },
-  low:    { bg: '#F5F5F5', text: '#757575' },
-}
-
 const PRIORITY_LABELS: Record<string, string> = {
   urgent: 'Khẩn cấp', high: 'Cao', medium: 'Trung bình', low: 'Thấp',
 }
@@ -66,29 +59,41 @@ export function TaskListPage() {
     setPage(1)
   }
 
+  const getPriorityClass = (priority: string) => {
+    if (priority === 'urgent') return 'bg-red-100 text-red-700'
+    if (priority === 'high') return 'bg-red-100 text-red-700'
+    if (priority === 'medium') return 'bg-yellow-100 text-yellow-700'
+    return 'bg-green-100 text-green-700'
+  }
+
   return (
     <div className="p-6 space-y-6" data-testid="task-list-page">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[28px] font-bold text-[#0F172A]">Danh Sách Nhiệm Vụ</h1>
+          <h1 className="text-2xl font-bold text-[#0F172A]">Danh Sách Nhiệm Vụ</h1>
           <p className="text-sm text-[#64748B] mt-1">Quản lý và theo dõi tất cả nhiệm vụ đã giao</p>
         </div>
       </div>
 
       {/* Status Tabs */}
-      <div className="bg-white rounded-xl border border-[#E2E8F0] p-1 flex items-center gap-1 overflow-x-auto" data-testid="status-tabs">
-        {STATUS_TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => handleStatusChange(tab.id)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-lg whitespace-nowrap transition-all ${
-              selectedStatus === tab.id ? 'bg-[#1F3A5F] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'
-            }`}
-            data-testid={`tab-${tab.id}`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden" data-testid="status-tabs">
+        <div className="flex items-center overflow-x-auto border-b border-[#E2E8F0]">
+          {STATUS_TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => handleStatusChange(tab.id)}
+              className={`px-5 py-3.5 text-sm font-medium whitespace-nowrap transition-all relative ${
+                selectedStatus === tab.id
+                  ? 'text-[#C62828] border-b-2 border-[#C62828] -mb-px'
+                  : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F8FAFC]'
+              }`}
+              data-testid={`tab-${tab.id}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search */}
@@ -100,7 +105,7 @@ export function TaskListPage() {
             placeholder="Tìm theo mã nhiệm vụ, tiêu đề..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full h-10 pl-10 pr-4 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+            className="w-full h-10 pl-10 pr-4 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
             data-testid="task-search-input"
           />
         </div>
@@ -110,7 +115,7 @@ export function TaskListPage() {
       <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden" data-testid="task-table">
         {isLoading ? (
           <div className="p-12 text-center">
-            <div className="inline-block w-8 h-8 border-4 border-[#1F3A5F] border-t-transparent rounded-full animate-spin"></div>
+            <div className="inline-block w-8 h-8 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : (
           <>
@@ -118,12 +123,12 @@ export function TaskListPage() {
               <table className="w-full">
                 <thead className="bg-[#F8FAFC] border-b-2 border-[#E2E8F0]">
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">Mã NV</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">Tiêu đề</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">DQTV</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">Ưu tiên</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">Deadline</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">Trạng thái</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Mã NV</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Tiêu đề</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">DQTV</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Ưu tiên</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Deadline</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Trạng thái</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -136,11 +141,10 @@ export function TaskListPage() {
                     </tr>
                   ) : filtered.map(task => {
                     const statusColor = STATUS_COLORS[task.status] ?? STATUS_COLORS.pending
-                    const priorityColor = PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.low
                     return (
                       <tr key={task.id} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC] transition-colors" data-testid={`task-row-${task.id}`}>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-mono text-[#1F3A5F] font-medium">{task.code}</span>
+                          <span className="text-sm font-mono text-[#C62828] font-medium">{task.code}</span>
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-sm font-semibold text-[#0F172A] max-w-xs truncate">{task.title}</p>
@@ -149,7 +153,7 @@ export function TaskListPage() {
                           <span className="text-sm text-[#0F172A]">{task.assigneeName ?? '—'}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="px-2.5 py-1 text-xs font-semibold rounded-full" style={{ backgroundColor: priorityColor.bg, color: priorityColor.text }}>
+                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getPriorityClass(task.priority)}`}>
                             {PRIORITY_LABELS[task.priority] ?? task.priority}
                           </span>
                         </td>
@@ -175,16 +179,28 @@ export function TaskListPage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between px-6 py-4 border-t border-[#E2E8F0]">
+            <div className="flex items-center justify-between px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC]">
               <p className="text-sm text-[#64748B]">
                 Tổng <span className="font-semibold text-[#0F172A]">{total}</span> nhiệm vụ
               </p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-2 rounded-lg border border-[#E2E8F0] disabled:opacity-40 hover:bg-[#F8FAFC]" data-testid="prev-page">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-2 rounded-lg border border-[#E2E8F0] disabled:opacity-40 hover:bg-white hover:border-[#C62828] transition-colors"
+                  data-testid="prev-page"
+                >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-sm font-medium text-gray-700">{page} / {totalPages || 1}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-2 rounded-lg border border-[#E2E8F0] disabled:opacity-40 hover:bg-[#F8FAFC]" data-testid="next-page">
+                <span className="text-sm font-medium text-[#0F172A] min-w-[80px] text-center">
+                  {page} / {totalPages || 1}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="p-2 rounded-lg border border-[#E2E8F0] disabled:opacity-40 hover:bg-white hover:border-[#C62828] transition-colors"
+                  data-testid="next-page"
+                >
                   <ChevronRight size={16} />
                 </button>
               </div>

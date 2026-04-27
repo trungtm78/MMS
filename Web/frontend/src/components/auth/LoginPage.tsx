@@ -8,12 +8,15 @@ import { Navigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { GlobalFooter } from '@/components/layout/GlobalFooter'
+import anttLogo from '@/assets/668337ed7f590a8cbedffff9ffd07736f5a4d4e3.png'
 
 const loginSchema = z.object({
   username:   z.string().min(1, 'Vui lòng nhập tên đăng nhập'),
   password:   z.string().min(1, 'Vui lòng nhập mật khẩu'),
-  rememberMe: z.boolean().default(false),
+  rememberMe: z.boolean(),
 })
 
 type LoginFormValues = z.infer<typeof loginSchema>
@@ -25,6 +28,7 @@ interface LoginPageProps {
 export function LoginPage({ onSuccess }: LoginPageProps) {
   const { login, isAuthenticated } = useAuth()
   const [serverError, setServerError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   const {
     register,
@@ -60,94 +64,113 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   })
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
-        {/* Logo / title */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-2xl font-bold">M</span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-800">Hệ thống MMS</h1>
-          <p className="text-slate-500 text-sm mt-1">Quản lý Dân Quân Tự Vệ</p>
-        </div>
-
-        <form
-          data-testid="login-form"
-          onSubmit={onSubmit}
-          className="space-y-5"
-          aria-label="Đăng nhập"
-          noValidate
-        >
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-slate-700 mb-1">
-              Tên đăng nhập
-            </label>
-            <input
-              id="username"
-              type="text"
-              data-testid="username-input"
-              autoComplete="username"
-              {...register('username')}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Nhập tên đăng nhập"
+    <div className="min-h-screen bg-[#F4F269] flex flex-col">
+      <div className="flex-1 flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md">
+          {/* Logo */}
+          <div className="flex justify-center mb-6">
+            <img
+              src={anttLogo}
+              alt="Bảo vệ An ninh Trật tự"
+              className="w-40 h-40 object-contain"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
             />
-            {errors.username && (
-              <p className="mt-1 text-xs text-red-600" role="alert">{errors.username.message}</p>
-            )}
           </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-              Mật khẩu
-            </label>
-            <input
-              id="password"
-              type="password"
-              data-testid="password-input"
-              autoComplete="current-password"
-              {...register('password')}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Nhập mật khẩu"
-            />
-            {errors.password && (
-              <p className="mt-1 text-xs text-red-600" role="alert">{errors.password.message}</p>
-            )}
-          </div>
+          {/* Form container */}
+          <div className="bg-[#F4F269] border-4 border-[#C62828] rounded-3xl p-8">
+            <h1 className="text-[#C62828] text-2xl font-bold text-center mb-6">ĐĂNG NHẬP</h1>
 
-          <div className="flex items-center gap-2">
-            <input
-              id="remember-me"
-              type="checkbox"
-              data-testid="remember-me-checkbox"
-              {...register('rememberMe')}
-              className="w-4 h-4 text-blue-600 border-slate-300 rounded"
-            />
-            <label htmlFor="remember-me" className="text-sm text-slate-600">
-              Ghi nhớ tôi (7 ngày)
-            </label>
-          </div>
-
-          {/* US-W001 NP-01: Server error message */}
-          {serverError && (
-            <div
-              role="alert"
-              data-testid="login-error-message"
-              className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3"
+            <form
+              data-testid="login-form"
+              onSubmit={onSubmit}
+              className="space-y-5"
+              aria-label="Đăng nhập"
+              noValidate
             >
-              {serverError}
-            </div>
-          )}
+              <div>
+                <label htmlFor="username" className="block text-sm font-bold text-[#C62828] mb-1">
+                  Tên đăng nhập
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  data-testid="username-input"
+                  autoComplete="username"
+                  {...register('username')}
+                  className="w-full border-2 border-[#C62828] rounded-lg px-3 h-12 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] bg-white"
+                  placeholder="Nhập tên đăng nhập"
+                />
+                {errors.username && (
+                  <p className="mt-1 text-xs text-red-600" role="alert">{errors.username.message}</p>
+                )}
+              </div>
 
-          <button
-            type="submit"
-            data-testid="login-btn"
-            disabled={isSubmitting}
-            className="w-full bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition-colors"
-          >
-            {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
-          </button>
-        </form>
+              <div>
+                <label htmlFor="password" className="block text-sm font-bold text-[#C62828] mb-1">
+                  Mật khẩu
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    data-testid="password-input"
+                    autoComplete="current-password"
+                    {...register('password')}
+                    className="w-full border-2 border-[#C62828] rounded-lg px-3 pr-10 h-12 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] bg-white"
+                    placeholder="Nhập mật khẩu"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#C62828] transition-colors"
+                    aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p className="mt-1 text-xs text-red-600" role="alert">{errors.password.message}</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="remember-me"
+                  type="checkbox"
+                  data-testid="remember-me-checkbox"
+                  {...register('rememberMe')}
+                  className="w-4 h-4 text-[#C62828] border-[#C62828] rounded accent-[#C62828]"
+                />
+                <label htmlFor="remember-me" className="text-sm text-[#0F172A]">
+                  Ghi nhớ tôi (7 ngày)
+                </label>
+              </div>
+
+              {/* US-W001 NP-01: Server error message */}
+              {serverError && (
+                <div
+                  role="alert"
+                  data-testid="login-error-message"
+                  className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3"
+                >
+                  {serverError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                data-testid="login-btn"
+                disabled={isSubmitting}
+                className="w-full bg-[#C62828] hover:bg-[#A91D1D] disabled:opacity-60 text-white font-bold h-12 rounded-lg transition-colors"
+              >
+                {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              </button>
+            </form>
+          </div>
+        </div>
       </div>
+      <GlobalFooter />
     </div>
   )
 }

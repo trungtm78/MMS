@@ -1,0 +1,16 @@
+appId: ${APP_ID}
+tags:
+  - chat
+  - b5
+
+---
+
+- tapOn:
+    point: "70%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 07_notifications_screen
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "404"
+- assertNotVisible: "null"

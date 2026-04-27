@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar, Clock, XCircle, CheckCircle } from 'lucide-react'
 import client from '@/api/client'
 
 interface AttendanceDay {
@@ -23,14 +23,14 @@ async function getTimesheet(userId: string, weekOffset: number): Promise<Timeshe
   return res.data
 }
 
-const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }> = {
-  present: { label: 'Có mặt', bg: 'bg-green-100', text: 'text-green-700' },
-  absent:  { label: 'Vắng',   bg: 'bg-red-100',   text: 'text-red-700' },
-  leave:   { label: 'Nghỉ phép', bg: 'bg-blue-100', text: 'text-blue-700' },
-  holiday: { label: 'Nghỉ lễ',  bg: 'bg-purple-100', text: 'text-purple-700' },
+const STATUS_STYLES: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+  present: { label: 'Có mặt',   bg: 'bg-green-50',  text: 'text-[#2E7D32]', dot: 'bg-[#2E7D32]' },
+  absent:  { label: 'Vắng',     bg: 'bg-red-50',    text: 'text-[#C62828]', dot: 'bg-[#C62828]' },
+  leave:   { label: 'Nghỉ phép', bg: 'bg-blue-50',  text: 'text-blue-700',  dot: 'bg-blue-500' },
+  holiday: { label: 'Nghỉ lễ',  bg: 'bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-500' },
 }
 
-const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+const DOW = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN']
 
 export function TimesheetPage() {
   const [weekOffset, setWeekOffset] = useState(0)
@@ -44,90 +44,131 @@ export function TimesheetPage() {
 
   return (
     <div className="p-6 space-y-6" data-testid="timesheet-page">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#1F3A5F]">Bảng Chấm Công</h1>
-          <p className="text-sm text-gray-600 mt-1">Xem lịch sử chấm công theo tuần</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">Bảng Chấm Công</h1>
+          <p className="text-sm text-[#64748B] mt-1">Xem lịch sử chấm công theo tuần</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setWeekOffset((w) => w - 1)}
-            className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50"
+            className="p-2 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC] hover:border-[#C62828] transition-colors"
             data-testid="prev-week"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} className="text-[#64748B]" />
           </button>
-          <span className="text-sm font-medium text-gray-700 min-w-[150px] text-center">
+          <span className="text-sm font-semibold text-[#0F172A] min-w-[160px] text-center px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg">
             {data?.weekLabel ?? 'Tuần hiện tại'}
           </span>
           <button
             onClick={() => setWeekOffset((w) => Math.min(0, w + 1))}
             disabled={weekOffset >= 0}
-            className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40"
+            className="p-2 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC] hover:border-[#C62828] disabled:opacity-40 transition-colors"
             data-testid="next-week"
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={16} className="text-[#64748B]" />
           </button>
         </div>
       </div>
 
       {isError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-          Không thể tải bảng chấm công.
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 text-sm text-[#C62828]">
+          <XCircle size={18} className="flex-shrink-0" />
+          Không thể tải bảng chấm công. Vui lòng thử lại.
         </div>
       )}
 
       {isLoading ? (
-        <div className="text-center text-gray-400 py-12 text-sm">Đang tải...</div>
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-12 text-center">
+          <div className="inline-block w-8 h-8 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm text-[#64748B] mt-3">Đang tải dữ liệu...</p>
+        </div>
       ) : data ? (
         <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#E8F5E9] rounded-lg flex items-center justify-center flex-shrink-0">
+                <CheckCircle size={22} className="text-[#2E7D32]" />
+              </div>
+              <div>
+                <p className="text-sm text-[#64748B]">Ngày có mặt</p>
+                <p className="text-3xl font-bold text-[#2E7D32]">{data.summary.present}</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#FFEBEE] rounded-lg flex items-center justify-center flex-shrink-0">
+                <XCircle size={22} className="text-[#C62828]" />
+              </div>
+              <div>
+                <p className="text-sm text-[#64748B]">Ngày vắng</p>
+                <p className="text-3xl font-bold text-[#C62828]">{data.summary.absent}</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#E3F2FD] rounded-lg flex items-center justify-center flex-shrink-0">
+                <Calendar size={22} className="text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-[#64748B]">Nghỉ phép</p>
+                <p className="text-3xl font-bold text-blue-600">{data.summary.leave}</p>
+              </div>
+            </div>
+          </div>
+
           {/* Weekly grid */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-gray-200">
+          <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+            {/* Day headers */}
+            <div className="grid grid-cols-7 border-b-2 border-[#E2E8F0]">
               {DOW.map((d, i) => (
-                <div key={i} className="px-3 py-3 text-center text-xs font-semibold text-gray-500 bg-gray-50">
+                <div
+                  key={i}
+                  className="px-3 py-3.5 text-center text-xs font-bold text-white bg-[#C62828] border-r border-red-700 last:border-r-0"
+                >
                   {d}
                 </div>
               ))}
             </div>
+            {/* Day cells */}
             <div className="grid grid-cols-7">
               {data.days.map((day, i) => {
                 const st = day.status ? STATUS_STYLES[day.status] : null
+                const dayNum = new Date(day.date).getDate()
+                const isToday = day.date === new Date().toISOString().slice(0, 10)
                 return (
                   <div
                     key={i}
                     data-testid={`day-${day.date}`}
-                    className="border-r border-b border-gray-100 last:border-r-0 p-3 min-h-[80px] flex flex-col gap-1"
+                    className={`border-r border-b border-[#F1F5F9] last:border-r-0 p-3 min-h-[90px] flex flex-col gap-1.5 transition-colors ${
+                      isToday ? 'bg-[#FFF8F8]' : 'hover:bg-[#F8FAFC]'
+                    }`}
                   >
-                    <p className="text-xs text-gray-400">{new Date(day.date).getDate()}</p>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-semibold ${
+                        isToday ? 'w-6 h-6 bg-[#C62828] text-white rounded-full flex items-center justify-center text-xs' : 'text-[#0F172A]'
+                      }`}>
+                        {dayNum}
+                      </span>
+                    </div>
                     {st ? (
-                      <span className={`inline-block text-xs px-1.5 py-0.5 rounded font-medium ${st.bg} ${st.text}`}>
+                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${st.bg} ${st.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}></span>
                         {st.label}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-300">—</span>
+                      <span className="text-xs text-[#CBD5E1]">—</span>
                     )}
                     {day.checkIn && (
-                      <p className="text-xs text-gray-500">{day.checkIn} - {day.checkOut ?? '?'}</p>
+                      <div className="flex items-center gap-1">
+                        <Clock size={11} className="text-[#94A3B8]" />
+                        <p className="text-xs text-[#64748B]">{day.checkIn}{day.checkOut ? ` – ${day.checkOut}` : ''}</p>
+                      </div>
                     )}
                   </div>
                 )
               })}
             </div>
-          </div>
-
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Ngày có mặt', value: data.summary.present, color: 'text-green-600' },
-              { label: 'Ngày vắng',   value: data.summary.absent,  color: 'text-red-600' },
-              { label: 'Nghỉ phép',   value: data.summary.leave,   color: 'text-blue-600' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm text-center">
-                <p className="text-sm text-gray-500">{label}</p>
-                <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
-              </div>
-            ))}
           </div>
         </>
       ) : null}

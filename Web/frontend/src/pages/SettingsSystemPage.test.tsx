@@ -74,6 +74,8 @@ describe('SettingsSystemPage', () => {
     await waitFor(() => expect(screen.getByTestId('edit-settings-btn')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('edit-settings-btn'))
     fireEvent.click(screen.getByTestId('save-settings-btn'))
+    await waitFor(() => expect(screen.getByTestId('confirm-save-btn')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-save-btn'))
     await waitFor(() => {
       expect(vi.mocked(apiClient.default.patch)).toHaveBeenCalledWith(
         '/admin/system-settings',

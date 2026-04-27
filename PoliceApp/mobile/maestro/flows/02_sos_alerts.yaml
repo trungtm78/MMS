@@ -1,0 +1,13 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - critical
+  - c1
+  - sos
+
+---
+- takeScreenshot: 02_home_dashboard
+
+- assertNotVisible: "404"
+- assertNotVisible: "Not Found"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"

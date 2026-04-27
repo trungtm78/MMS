@@ -1,0 +1,14 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - gps
+  - c4
+
+---
+- tapOn:
+    point: "42%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_gps_map
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"

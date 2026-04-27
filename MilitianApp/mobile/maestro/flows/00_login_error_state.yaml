@@ -1,0 +1,29 @@
+appId: ${APP_ID}
+tags:
+  - auth
+  - error-handling
+
+---
+- launchApp
+- waitForAnimationToEnd
+
+- assertVisible: "ĐĂNG NHẬP"
+
+- tapOn:
+    point: "50%,48%"
+- inputText: "wrong_user_xyz"
+
+- tapOn:
+    point: "50%,56%"
+- inputText: "wrongpassword"
+
+- hideKeyboard
+
+- tapOn: "ĐĂNG NHẬP"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 02_login_error
+
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"

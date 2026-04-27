@@ -1,0 +1,21 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - auth
+  - d2
+  - critical
+
+---
+- tapOn:
+    point: "26%,96%"
+- waitForAnimationToEnd
+- tapOn:
+    point: "74%,96%"
+- waitForAnimationToEnd
+- tapOn:
+    point: "90%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 09_still_authenticated
+
+- assertNotVisible: "Phiên đăng nhập hết hạn"
+- assertNotVisible: "Exception:"

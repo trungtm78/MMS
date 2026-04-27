@@ -1,5 +1,6 @@
 // Reusable Button component
-import { forwardRef, ButtonHTMLAttributes } from 'react'
+import { forwardRef } from 'react'
+import type { ButtonHTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'

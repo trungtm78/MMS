@@ -1,0 +1,15 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - profile
+  - c3
+
+---
+- tapOn:
+    point: "90%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 10_profile_screen
+
+- assertNotVisible: "404"
+- assertNotVisible: "null"
+- assertNotVisible: "Exception:"

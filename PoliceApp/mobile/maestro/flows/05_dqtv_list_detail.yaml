@@ -1,0 +1,14 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - dqtv
+  - c5
+
+---
+- tapOn:
+    point: "26%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_dqtv_list
+
+- assertNotVisible: "404"
+- assertNotVisible: "Exception:"

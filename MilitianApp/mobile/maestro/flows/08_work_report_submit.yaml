@@ -1,0 +1,17 @@
+appId: ${APP_ID}
+tags:
+  - work-reports
+  - b2
+
+---
+
+- tapOn:
+    point: "50%,96%"
+- waitForAnimationToEnd
+
+- takeScreenshot: 08_tasks_for_report
+
+- assertNotVisible: "404"
+- assertNotVisible: "Not Found"
+- assertNotVisible: "Exception:"
+- assertNotVisible: "e.toString()"

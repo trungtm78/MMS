@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SettingsNotificationsPage } from './SettingsNotificationsPage'
 import * as apiClient from '@/api/client'
@@ -38,8 +38,9 @@ describe('SettingsNotificationsPage', () => {
     })
   })
 
-  it('has save button', () => {
+  it('has auto-save toggles (no separate save button)', () => {
     wrap(<SettingsNotificationsPage />)
-    expect(screen.getByTestId('save-notifications-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('save-notifications-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('settings-notifications-page')).toBeInTheDocument()
   })
 })

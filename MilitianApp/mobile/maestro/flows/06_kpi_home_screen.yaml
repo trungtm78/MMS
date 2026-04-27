@@ -1,0 +1,14 @@
+appId: ${APP_ID}
+tags:
+  - kpi
+  - smoke
+
+---
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 06_home_kpi
+
+- assertNotVisible: "null"
+- assertNotVisible: "undefined"
+- assertNotVisible: "NaN"
