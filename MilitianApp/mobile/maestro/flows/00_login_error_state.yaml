@@ -1,7 +1,7 @@
 appId: ${APP_ID}
 tags:
-  - smoke
   - auth
+  - error-handling
 
 ---
 - launchApp
@@ -11,22 +11,19 @@ tags:
 
 - tapOn:
     point: "50%,48%"
-- inputText: "${TEST_USERNAME}"
+- inputText: "wrong_user_xyz"
 
 - tapOn:
     point: "50%,56%"
-- inputText: "${TEST_PASSWORD}"
+- inputText: "wrongpassword"
 
 - hideKeyboard
-
-- takeScreenshot: 01_login_form_filled
 
 - tapOn: "ĐĂNG NHẬP"
 
 - waitForAnimationToEnd
 
-- takeScreenshot: 01_login_result
+- takeScreenshot: 02_login_error
 
 - assertNotVisible: "Exception:"
-- assertNotVisible: "e.toString()"
-- assertNotVisible: "SocketException"
+- assertNotVisible: "null"

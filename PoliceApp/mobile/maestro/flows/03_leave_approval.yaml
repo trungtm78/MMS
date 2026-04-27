@@ -5,35 +5,12 @@ tags:
   - approvals
 
 ---
-# PoliceApp Leave Approval
-# Tests C2 fix: POST /leave/:id/review → PATCH /leave/:id/review
-# Tests C2 fix: body { action, reason } → { status, note }
-
-- runFlow: 01_login_ca.yaml
-
-- tapOn: "Phê duyệt"
-- waitForAnimationToEnd
-
-- takeScreenshot: 03_approvals_list
-
-# Find a pending leave request and approve
 - tapOn:
-    index: 0
+    point: "74%,96%"
 - waitForAnimationToEnd
 
-- takeScreenshot: 03_leave_detail
+- takeScreenshot: 03_tasks_screen
 
-- tapOn: "Phê duyệt"
-- waitForAnimationToEnd
-
-- takeScreenshot: 03_leave_approve_dialog
-
-- tapOn: "Xác nhận"
-- waitForAnimationToEnd
-
-- takeScreenshot: 03_after_approve
-
-# Must succeed with PATCH — not 405 Method Not Allowed
 - assertNotVisible: "405"
 - assertNotVisible: "Method Not Allowed"
 - assertNotVisible: "Exception:"

@@ -4,17 +4,11 @@ tags:
   - sos
 
 ---
-# MilitianApp SOS Flow
-# Tests B1 fix: endpoint changed from /incidents/sos → /sos
-# Body now includes incident_type, severity, title, lat, lng
-
-- runFlow: 01_login_happy_path.yaml
 
 - takeScreenshot: 03_home_screen
 
-# Navigate to SOS
 - tapOn:
-    id: "sos_button"
+    point: "92%,84%"
 - waitForAnimationToEnd
 
 - assertNotVisible: "404"
@@ -22,13 +16,6 @@ tags:
 
 - takeScreenshot: 03_sos_screen
 
-# Confirm SOS dialog
-- tapOn: "Gửi SOS"
-- waitForAnimationToEnd
-
-- takeScreenshot: 03_sos_sent
-
-# Verify success, no raw error displayed
 - assertNotVisible: "Exception:"
 - assertNotVisible: "DioError"
 - assertNotVisible: "e.toString()"

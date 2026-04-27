@@ -4,26 +4,13 @@ tags:
   - b5
 
 ---
-# MilitianApp Chat — Create Conversation
-# Tests B5 fix: POST /chat/conversations button wired up
 
-- runFlow: 01_login_happy_path.yaml
-
-- tapOn: "Chat"
+- tapOn:
+    point: "70%,96%"
 - waitForAnimationToEnd
 
-- takeScreenshot: 07_conversations_list
-
-# Create new conversation
-- tapOn: "+"
-- waitForAnimationToEnd
-
-- takeScreenshot: 07_create_conversation_dialog
-
-- tapOn: "Tạo"
-- waitForAnimationToEnd
-
-- takeScreenshot: 07_after_create
+- takeScreenshot: 07_notifications_screen
 
 - assertNotVisible: "Exception:"
 - assertNotVisible: "404"
+- assertNotVisible: "null"

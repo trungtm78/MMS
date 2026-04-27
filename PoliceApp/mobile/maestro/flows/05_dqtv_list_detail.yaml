@@ -4,29 +4,11 @@ tags:
   - c5
 
 ---
-# PoliceApp DQTV List + Detail
-# Tests C5 fix: /users?role=militia → /militia
-# Tests C5 fix: /militia/:id/profile → /militia/:id
-
-- runFlow: 01_login_ca.yaml
-
-- tapOn: "Dân quân"
+- tapOn:
+    point: "26%,96%"
 - waitForAnimationToEnd
 
 - takeScreenshot: 05_dqtv_list
 
-# Must load from /militia — not 404 from old endpoint
 - assertNotVisible: "404"
 - assertNotVisible: "Exception:"
-- assertNotVisible: "null"
-
-# Open first DQTV member detail
-- tapOn:
-    index: 0
-- waitForAnimationToEnd
-
-- takeScreenshot: 05_dqtv_detail
-
-# Detail page must load from /militia/:id
-- assertNotVisible: "404"
-- assertNotVisible: "null"

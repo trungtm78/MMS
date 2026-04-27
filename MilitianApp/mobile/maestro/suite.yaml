@@ -1,0 +1,11 @@
+flows:
+  - flows/00_login_error_state.yaml
+  - flows/01_login_happy_path.yaml
+  - flows/03_sos_flow.yaml
+  - flows/04_attendance_checkin.yaml
+  - flows/05_tasks_accept_progress.yaml
+  - flows/06_kpi_home_screen.yaml
+  - flows/07_chat_create_conversation.yaml
+  - flows/08_work_report_submit.yaml
+  - flows/09_change_password.yaml
+  - flows/10_token_refresh.yaml

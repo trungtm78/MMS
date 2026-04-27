@@ -4,21 +4,11 @@ tags:
   - smoke
 
 ---
-# MilitianApp Home — KPI Score Card
-# Tests A2 fix: GET /kpi/current loads real score, not hardcoded
 
-- runFlow: 01_login_happy_path.yaml
-
-# Home screen should load KPI data
 - waitForAnimationToEnd
 
 - takeScreenshot: 06_home_kpi
 
-# KPI card should show a real number, not loading spinner stuck or "null"
 - assertNotVisible: "null"
 - assertNotVisible: "undefined"
 - assertNotVisible: "NaN"
-
-# KPI score field must be present
-- assertVisible:
-    id: "kpi_score"

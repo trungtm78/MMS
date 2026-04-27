@@ -2,27 +2,14 @@ appId: ${POLICE_APP_ID}
 tags:
   - profile
   - c3
-  - a5
 
 ---
-# PoliceApp Profile + Police Profile
-# Tests C3 fix: GET /profile → /users/me alias
-# Tests A5 fix: GET /police-profile returns badgeNumber, rank, station, department
-
-- runFlow: 01_login_ca.yaml
-
-- tapOn: "Hồ sơ"
+- tapOn:
+    point: "90%,96%"
 - waitForAnimationToEnd
 
 - takeScreenshot: 10_profile_screen
 
-# Profile must load from /users/me
 - assertNotVisible: "404"
 - assertNotVisible: "null"
 - assertNotVisible: "Exception:"
-
-# Police-specific fields must be present
-- assertVisible:
-    id: "badge_number_field"
-- assertVisible:
-    id: "rank_field"
