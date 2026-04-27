@@ -1,7 +1,8 @@
 // US-SS-01..05: SmartSelect — FK lookup component (Odoo-style many2one)
 // Features: debounced search, keyboard nav, mouse interaction, click-outside,
 //           quick-create inline modal, unaccent backend search
-import { useState, useCallback, ReactNode, useId } from 'react'
+import { useState, useCallback, useId } from 'react'
+import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, ChevronDown, Loader2, Search, PlusCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'

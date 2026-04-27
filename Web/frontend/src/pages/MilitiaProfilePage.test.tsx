@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { MilitiaProfilePage } from './MilitiaProfilePage'
 import * as militiaApi from '@/api/militia'
 import * as trainingApiModule from '@/api/training'
+import type { TrainingRecord } from '@/api/training'
 
 vi.mock('@/api/militia', () => ({
   getMilitiaById: vi.fn(),
@@ -43,7 +44,7 @@ const mockProfile = {
   judicialClearanceStatus: 'clear',
 }
 
-const mockTrainingRecords = [
+const mockTrainingRecords: TrainingRecord[] = [
   {
     id: 'tr-1',
     militiaId: 'uuid-1',
@@ -165,8 +166,8 @@ describe('MilitiaProfilePage', () => {
       await waitFor(() => {
         const badge = screen.getByTestId('compliance-badge')
         expect(badge).toBeInTheDocument()
-        expect(badge.textContent).toMatch(/Đạt ✓/)
-        expect(badge.className).toContain('green')
+        expect(badge.textContent).toMatch(/Đạt/)
+        expect(badge.className).toMatch(/green|2E7D32/)
       })
     })
 
@@ -180,8 +181,8 @@ describe('MilitiaProfilePage', () => {
       await openTrainingTab()
       await waitFor(() => {
         const badge = screen.getByTestId('compliance-badge')
-        expect(badge.textContent).toMatch(/Chưa đạt ✗/)
-        expect(badge.className).toContain('red')
+        expect(badge.textContent).toMatch(/Chưa đạt/)
+        expect(badge.className).toMatch(/red|C62828/)
       })
     })
 

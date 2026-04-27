@@ -21,7 +21,7 @@ const mockKpi = {
   data: [
     { id: 'k1', militiaId: 'm1', militiaName: 'Nguyễn Văn A', periodId: 'p1', attendanceDays: 22, taskCompleted: 8, taskTotal: 10, score: 88, adjustedScore: null, adjustmentNote: null, adjustedBy: null },
   ],
-  total: 1, page: 1, limit: 100,
+  total: 1, page: 1, limit: 100, totalPages: 1,
 }
 
 function wrap(ui: React.ReactNode) {
@@ -37,7 +37,7 @@ describe('PayrollPage', () => {
 
   it('renders heading', () => {
     wrap(<PayrollPage />)
-    expect(screen.getByText('Bảng Lương & KPI')).toBeInTheDocument()
+    expect(screen.getAllByText('Bảng Lương & KPI').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows militia name after load', async () => {

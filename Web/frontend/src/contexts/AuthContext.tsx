@@ -1,6 +1,7 @@
 // US-W001: Auth context — JWT-based (replaces mock from Refs)
 // AC-1: login → redirect by role; AC-3: silent refresh; AC-5: logout
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { authApi } from '@/api/auth'
 import { TOKEN_KEYS, clearTokens, getAccessToken } from '@/api/client'
 import type { User, LoginRequest } from '@/types'

@@ -1,6 +1,6 @@
 // US-W001 AC-2: Route guard — redirect to login if not authenticated
 // US-W001 NP-06: Forbidden page if role insufficient
-import { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRbac } from '@/hooks/useRbac'

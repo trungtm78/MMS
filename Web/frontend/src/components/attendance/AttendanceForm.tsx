@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { CalendarCheck } from 'lucide-react'
 import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { militiaApi } from '@/api/militia'
@@ -98,85 +99,100 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
     <form
       data-testid="attendance-form"
       onSubmit={onSubmit}
-      className="space-y-4 max-w-xl"
+      className="space-y-6 max-w-xl"
       noValidate
     >
-      <h2 className="text-lg font-semibold text-slate-800">Ghi nhận chấm công</h2>
-
-      {/* Militia SmartSelect */}
-      <SmartSelect
-        name="militia"
-        label="Cán bộ dân quân *"
-        placeholder="Tìm theo tên, mã hoặc SĐT..."
-        value={militiaId}
-        onChange={(id) => handleMilitiaChange(id)}
-        onClear={handleMilitiaClear}
-        options={militiaOptions}
-        isLoading={militiaLoading}
-        error={!!errors.militiaId}
-        errorMessage={errors.militiaId?.message}
-        required
-        onSearch={setMilitiaQuery}
-      />
-
-      {/* Work date */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="attendance-date" className="text-sm font-medium text-slate-700">
-          Ngày chấm công *
-        </label>
-        <input
-          id="attendance-date"
-          type="date"
-          data-testid="attendance-date-input"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('workDate')}
-        />
-        {errors.workDate && (
-          <p className="text-xs text-red-500">{errors.workDate.message}</p>
-        )}
+      {/* Form header */}
+      <div className="flex items-center gap-3 pb-4 border-b border-[#E2E8F0]">
+        <div className="w-10 h-10 bg-[#FFEBEE] rounded-lg flex items-center justify-center">
+          <CalendarCheck size={20} className="text-[#C62828]" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-[#0F172A]">Ghi nhận chấm công</h2>
+          <p className="text-xs text-[#64748B]">Điền thông tin chấm công cho DQTV</p>
+        </div>
       </div>
 
-      {/* Status */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="attendance-status" className="text-sm font-medium text-slate-700">
-          Trạng thái *
-        </label>
-        <select
-          id="attendance-status"
-          data-testid="attendance-status-select"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('status')}
-        >
-          <option value="present">Có mặt</option>
-          <option value="absent">Vắng mặt</option>
-          <option value="late">Đi trễ</option>
-          <option value="half_day">Nửa ngày</option>
-        </select>
-      </div>
-
-      {/* Note */}
-      <div className="flex flex-col gap-1">
-        <label htmlFor="attendance-note" className="text-sm font-medium text-slate-700">Ghi chú</label>
-        <textarea
-          id="attendance-note"
-          rows={2}
-          placeholder="Ghi chú thêm..."
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          {...register('note')}
+      <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 space-y-5">
+        {/* Militia SmartSelect */}
+        <SmartSelect
+          name="militia"
+          label="Cán bộ dân quân *"
+          placeholder="Tìm theo tên, mã hoặc SĐT..."
+          value={militiaId}
+          onChange={(id) => handleMilitiaChange(id)}
+          onClear={handleMilitiaClear}
+          options={militiaOptions}
+          isLoading={militiaLoading}
+          error={!!errors.militiaId}
+          errorMessage={errors.militiaId?.message}
+          required
+          onSearch={setMilitiaQuery}
         />
+
+        {/* Work date */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="attendance-date" className="text-sm font-bold text-[#C62828]">
+            Ngày chấm công *
+          </label>
+          <input
+            id="attendance-date"
+            type="date"
+            data-testid="attendance-date-input"
+            className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('workDate')}
+          />
+          {errors.workDate && (
+            <p className="text-xs text-red-500">{errors.workDate.message}</p>
+          )}
+        </div>
+
+        {/* Status */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="attendance-status" className="text-sm font-bold text-[#C62828]">
+            Trạng thái *
+          </label>
+          <select
+            id="attendance-status"
+            data-testid="attendance-status-select"
+            className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('status')}
+          >
+            <option value="present">Có mặt</option>
+            <option value="absent">Vắng mặt</option>
+            <option value="late">Đi trễ</option>
+            <option value="half_day">Nửa ngày</option>
+          </select>
+        </div>
+
+        {/* Note */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="attendance-note" className="text-sm font-bold text-[#C62828]">Ghi chú</label>
+          <textarea
+            id="attendance-note"
+            rows={2}
+            placeholder="Ghi chú thêm..."
+            className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            {...register('note')}
+          />
+        </div>
       </div>
 
       {/* Success indicator */}
       {recordMutation.isSuccess && (
-        <div data-testid="attendance-create-success" className="text-sm text-green-600 font-medium">
+        <div data-testid="attendance-create-success" className="text-sm text-[#2E7D32] font-medium bg-[#E8F5E9] px-4 py-3 rounded-lg border border-green-200">
           Ghi nhận chấm công thành công!
         </div>
       )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <Button type="button" variant="secondary" onClick={() => { reset(); setMilitiaId('') }}>
+        <button
+          type="button"
+          onClick={() => { reset(); setMilitiaId('') }}
+          className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+        >
           Đặt lại
-        </Button>
+        </button>
         <Button
           type="submit"
           data-testid="attendance-submit-btn"

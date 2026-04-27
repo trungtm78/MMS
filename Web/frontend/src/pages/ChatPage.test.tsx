@@ -75,7 +75,7 @@ describe('ChatPage', () => {
 
   beforeEach(async () => {
     const { default: client } = await import('@/api/client')
-    mockClient = client as typeof mockClient
+    mockClient = client as unknown as typeof mockClient
     vi.clearAllMocks()
     mockClient.get.mockImplementation((url: string) => {
       if (url === '/chat/conversations') return Promise.resolve({ data: mockConversations })

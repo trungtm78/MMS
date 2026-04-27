@@ -1,5 +1,6 @@
 // US-W008: WebSocket context for real-time SOS alerts + GPS updates
-import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { getAccessToken } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
