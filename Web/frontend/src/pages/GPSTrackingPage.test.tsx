@@ -7,6 +7,21 @@ import * as apiClient from '@/api/client'
 
 vi.mock('@/api/client', () => ({ default: { get: vi.fn() } }))
 vi.mock('@/hooks/useRbac', () => ({ useRbac: () => ({ can: { viewGps: true } }) }))
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="leaflet-map">{children}</div>,
+  TileLayer: () => null,
+  Marker: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}))
+vi.mock('leaflet', () => {
+  const Cls = vi.fn(() => ({}))
+  ;(Cls as unknown as { Default: object }).Default = { prototype: {}, mergeOptions: vi.fn() }
+  return {
+    default: { Icon: Cls, icon: vi.fn() },
+    Icon: Cls,
+  }
+})
+vi.mock('leaflet/dist/leaflet.css', () => ({}))
 
 const mockLocations = [
   { id: 'loc-1', userId: 'u1', name: 'Nguyễn Văn A', lat: 10.762, lng: 106.660, status: 'online', lastUpdate: new Date().toISOString() },
@@ -39,9 +54,5 @@ describe('GPSTrackingPage', () => {
   it('shows member GPS entries after load', async () => {
     wrap(<GPSTrackingPage />)
     await waitFor(() => expect(screen.getByTestId('gps-member-u1')).toBeInTheDocument())
-  })
-
-  it('redirects non-GPS users to /forbidden', () => {
-    vi.doMock('@/hooks/useRbac', () => ({ useRbac: () => ({ can: { viewGps: false } }) }))
   })
 })
