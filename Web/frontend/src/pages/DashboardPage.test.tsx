@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { DashboardPage } from './DashboardPage'
 import * as apiClient from '@/api/client'
 
+const mockNavigate = vi.fn()
+
 vi.mock('@/api/client', () => ({ default: { get: vi.fn() } }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { role: 'system_admin', fullName: 'Admin' } }) }))
 vi.mock('@/contexts/SocketContext', () => ({ useSocket: () => ({ isConnected: true, activeSosAlerts: [{ id: 'sos-1', militiaName: 'Nguyễn Văn A', createdAt: new Date().toISOString(), status: 'active' }] }) }))
 vi.mock('@/hooks/useRbac', () => ({ useRbac: () => ({ can: { manageMilitia: true, manageAttendance: true } }) }))
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 vi.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   BarChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -30,6 +37,7 @@ function wrap(ui: React.ReactNode) {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.mocked(apiClient.default.get).mockResolvedValue({ data: mockStats })
+    mockNavigate.mockClear()
   })
 
   it('renders dashboard container', async () => {
@@ -50,5 +58,36 @@ describe('DashboardPage', () => {
   it('shows pending tasks count', async () => {
     wrap(<DashboardPage />)
     await waitFor(() => expect(screen.getByText('12')).toBeInTheDocument())
+  })
+
+  // Quick actions navigation — FIX A
+  describe('quick actions navigation', () => {
+    it('clicking "Giao việc mới" navigates to /tasks/new', async () => {
+      wrap(<DashboardPage />)
+      await waitFor(() => expect(screen.getByTestId('dashboard-overview')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /Giao việc mới/i }))
+      expect(mockNavigate).toHaveBeenCalledWith('/tasks/new')
+    })
+
+    it('clicking "Thêm DQTV" navigates to /recruitment', async () => {
+      wrap(<DashboardPage />)
+      await waitFor(() => expect(screen.getByTestId('dashboard-overview')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /Thêm DQTV/i }))
+      expect(mockNavigate).toHaveBeenCalledWith('/recruitment')
+    })
+
+    it('clicking "Tạo báo cáo" navigates to /reports', async () => {
+      wrap(<DashboardPage />)
+      await waitFor(() => expect(screen.getByTestId('dashboard-overview')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /Tạo báo cáo/i }))
+      expect(mockNavigate).toHaveBeenCalledWith('/reports')
+    })
+
+    it('clicking "Xem GPS" navigates to /gps-tracking', async () => {
+      wrap(<DashboardPage />)
+      await waitFor(() => expect(screen.getByTestId('dashboard-overview')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /Xem GPS/i }))
+      expect(mockNavigate).toHaveBeenCalledWith('/gps-tracking')
+    })
   })
 })

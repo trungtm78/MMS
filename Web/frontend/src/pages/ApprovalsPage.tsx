@@ -34,7 +34,7 @@ const TABS: { id: ApprovalStatus | 'all'; label: string }[] = [
 ]
 
 const STATUS_DISPLAY: Record<ApprovalStatus, { label: string; className: string; icon: React.ElementType }> = {
-  pending:  { label: 'Chờ duyệt', className: 'bg-yellow-100 text-yellow-700', icon: Clock },
+  pending:  { label: 'Chờ duyệt', className: 'bg-yellow-100 text-[#F57C00]', icon: Clock },
   approved: { label: 'Đã duyệt',  className: 'bg-green-100 text-[#2E7D32]',  icon: CheckCircle },
   rejected: { label: 'Từ chối',   className: 'bg-red-100 text-[#C62828]',     icon: XCircle },
 }
@@ -68,7 +68,7 @@ export function ApprovalsPage() {
           <p className="text-sm text-[#64748B] mt-1">Xét duyệt đơn nghỉ phép và nhiệm vụ</p>
         </div>
         {data.filter(d => d.status === 'pending').length > 0 && (
-          <span className="px-3 py-2 bg-[#FFEBEE] text-[#C62828] rounded-lg text-sm font-semibold border border-red-100">
+          <span className="px-3 py-2 bg-[#FFF3E0] text-[#F57C00] rounded-lg text-sm font-semibold">
             {data.filter(d => d.status === 'pending').length} đơn chờ duyệt
           </span>
         )}

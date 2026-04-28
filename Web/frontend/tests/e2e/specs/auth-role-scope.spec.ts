@@ -27,9 +27,12 @@ test.describe('E2E: Auth + RBAC + Scope — US-W001', () => {
     await page.getByTestId('login-btn').click()
     await page.waitForSelector('[data-testid="dashboard-overview"]', { timeout: 15_000 })
     await page.screenshot({ path: 'test-results/uat/screenshots/auth-step02-police-ward-dashboard.png' })
-    // Police_ward: sees militia list + GPS, NOT user-management
+    // Police_ward: sees militia list (personnel group is open by default)
     await expect(page.getByTestId('nav-militia-list')).toBeVisible()
+    // Expand "Theo Dõi & Cảnh Báo" group to see GPS nav item
+    await page.getByRole('button', { name: /Theo Dõi & Cảnh Báo/i }).click()
     await expect(page.getByTestId('nav-gps-tracking')).toBeVisible()
+    // Admin group is not shown for police_ward → nav-user-management not in DOM
     await expect(page.getByTestId('nav-user-management')).not.toBeVisible()
   })
 
@@ -40,6 +43,8 @@ test.describe('E2E: Auth + RBAC + Scope — US-W001', () => {
     await page.getByTestId('login-btn').click()
     await page.waitForSelector('[data-testid="dashboard-overview"]', { timeout: 15_000 })
     await page.screenshot({ path: 'test-results/uat/screenshots/auth-step02-admin-dashboard.png' })
+    // Expand "Quản Trị" group to see user-management nav item (scope to sidebar to avoid matching user-chip)
+    await page.getByTestId('sidebar').getByRole('button', { name: /Quản Trị/i }).click()
     await expect(page.getByTestId('nav-user-management')).toBeVisible()
   })
 

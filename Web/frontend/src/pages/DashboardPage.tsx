@@ -1,6 +1,7 @@
 // US-W001 AC-1: Post-login dashboard — role-specific landing
 // US-W008 AC-2: SOS alert banner visible immediately
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
@@ -77,6 +78,7 @@ function StatCard({
   value,
   trend,
   trendLabel,
+  highlight,
 }: {
   testId: string
   icon: React.ReactNode
@@ -85,14 +87,15 @@ function StatCard({
   value: string
   trend?: number
   trendLabel?: string
+  highlight?: boolean
 }) {
   return (
     <div
       data-testid={testId}
-      className="bg-white rounded-xl p-6 border border-[#E2E8F0] hover:shadow-lg hover:-translate-y-1 transition-all"
+      className={`bg-white rounded-xl p-6 hover:shadow-lg hover:-translate-y-1 transition-all ${highlight ? 'border-2 border-[#C62828]' : 'border border-[#E2E8F0]'}`}
     >
       <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconBg}`}>
+        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${iconBg}`}>
           {icon}
         </div>
         {trend !== undefined && (
@@ -119,7 +122,7 @@ function StatCardSkeleton() {
   return (
     <div className="bg-white rounded-xl p-6 border border-[#E2E8F0]">
       <div className="flex items-start justify-between mb-4">
-        <div className="w-12 h-12 rounded-xl animate-pulse bg-[#E2E8F0]" />
+        <div className="w-12 h-12 rounded-lg animate-pulse bg-[#E2E8F0]" />
       </div>
       <div className="h-3 w-24 animate-pulse bg-[#E2E8F0] rounded mb-2" />
       <div className="h-7 w-16 animate-pulse bg-[#E2E8F0] rounded" />
@@ -133,6 +136,7 @@ export function DashboardPage() {
   const { user } = useAuth()
   const { activeSosAlerts } = useSocket()
   const { can, role } = useRbac()
+  const navigate = useNavigate()
   const [selectedPeriod, setSelectedPeriod] = useState('2026')
 
   const { data: stats, refetch } = useQuery({
@@ -140,6 +144,17 @@ export function DashboardPage() {
     queryFn: fetchStats,
     refetchInterval: 30_000,
   })
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { data: timesheetData } = useQuery({
+    queryKey: ['timesheet', 'current', 0],
+    queryFn: () => client.get('/attendance/timesheet', { params: { userId: 'current', weekOffset: 0 } }).then(r => r.data),
+    enabled: role === 'dqtv',
+    staleTime: 60_000,
+  })
+
+  const todayAttendance = timesheetData?.days?.find((d: { date: string; status: string | null }) => d.date === today)
 
   const roleSubtitle =
     role === 'police_ward'   ? 'Tổng quan toàn phường' :
@@ -180,6 +195,50 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* DQTV Hero Card — shown only for dqtv role */}
+      {role === 'dqtv' && (
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-[#0F172A]">
+              Hôm nay — {new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })}
+            </h2>
+            <span className="text-xs text-[#64748B] bg-[#F8FAFC] px-3 py-1 rounded-full border border-[#E2E8F0]">
+              Cập nhật thực tế
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="flex items-center gap-3 p-3 bg-[#F8FAFC] rounded-lg">
+              <div className={`w-3 h-3 rounded-full shrink-0 ${
+                todayAttendance?.status === 'present' ? 'bg-[#2E7D32]' :
+                todayAttendance?.status === 'absent'  ? 'bg-[#C62828]' : 'bg-[#94A3B8]'
+              }`} />
+              <div>
+                <p className="text-xs text-[#64748B]">Điểm danh</p>
+                <p className="text-sm font-semibold text-[#0F172A]">
+                  {todayAttendance?.status === 'present' ? 'Có mặt' :
+                   todayAttendance?.status === 'absent'  ? 'Vắng mặt' :
+                   todayAttendance?.status === 'leave'   ? 'Nghỉ phép' : 'Chưa chấm'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-[#F8FAFC] rounded-lg">
+              <ClipboardList size={20} className="text-[#1F3A5F] shrink-0" />
+              <div>
+                <p className="text-xs text-[#64748B]">Nhiệm vụ đang thực hiện</p>
+                <p className="text-sm font-semibold text-[#0F172A]">{stats ? String(stats.pendingTasks) : '—'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-[#F8FAFC] rounded-lg">
+              <Clock size={20} className="text-[#64748B] shrink-0" />
+              <div>
+                <p className="text-xs text-[#64748B]">Ca trực tiếp theo</p>
+                <p className="text-sm font-semibold text-[#0F172A]">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SOS Alert Banner — US-W008 AC-2 */}
       {activeSosAlerts.length > 0 && (
         <div
@@ -217,12 +276,12 @@ export function DashboardPage() {
       )}
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {can.manageMilitia ? (
           <StatCard
             testId="stat-militia-online"
-            iconBg="bg-blue-100"
-            icon={<Users size={22} className="text-blue-600" />}
+            iconBg="bg-[#E3F2FD]"
+            icon={<Users size={22} className="text-[#1F3A5F]" />}
             label="Tổng DQTV đang hoạt động"
             value={stats ? String(stats.totalMilitia) : '—'}
             trend={5}
@@ -234,8 +293,8 @@ export function DashboardPage() {
         {stats ? (
           <StatCard
             testId="stat-tasks-pending"
-            iconBg="bg-amber-100"
-            icon={<ClipboardList size={22} className="text-amber-600" />}
+            iconBg="bg-[#E8F5E9]"
+            icon={<ClipboardList size={22} className="text-[#2E7D32]" />}
             label="Nhiệm vụ đang chờ"
             value={String(stats.pendingTasks)}
             trend={-3}
@@ -248,8 +307,8 @@ export function DashboardPage() {
           stats ? (
             <StatCard
               testId="stat-attendance-today"
-              iconBg="bg-[#2E7D32]/10"
-              icon={<UserCheck size={22} className="text-[#2E7D32]" />}
+              iconBg="bg-[#FFF3E0]"
+              icon={<UserCheck size={22} className="text-[#F57C00]" />}
               label="Chấm công hôm nay"
               value={String(stats.activeToday)}
               trend={8}
@@ -262,10 +321,11 @@ export function DashboardPage() {
         {stats ? (
           <StatCard
             testId="stat-sos-active"
-            iconBg="bg-red-100"
+            iconBg="bg-[#FFEBEE]"
             icon={<AlertTriangle size={22} className="text-[#C62828]" />}
             label="SOS chưa xử lý"
             value={String(stats.activeSosAlerts ?? activeSosAlerts.length)}
+            highlight={(stats.activeSosAlerts ?? activeSosAlerts.length) > 0}
           />
         ) : (
           <StatCardSkeleton />
@@ -278,16 +338,16 @@ export function DashboardPage() {
         <div className="lg:col-span-2 bg-white rounded-xl border border-[#E2E8F0] p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-base font-semibold text-[#0F172A]">Tỷ lệ hoàn thành công việc</h2>
+              <h2 className="text-lg font-semibold text-[#0F172A]">Tỷ lệ hoàn thành công việc</h2>
               <p className="text-xs text-[#64748B] mt-0.5">Theo tháng — năm {selectedPeriod}</p>
             </div>
             <div className="flex items-center gap-4 text-xs text-[#64748B]">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-[#1F3A5F] rounded inline-block" />Giao</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-[#2E7D32] rounded inline-block" />Hoàn thành</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-[#C62828] rounded inline-block" />Trễ hạn</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-[#1F3A5F] rounded-full inline-block" />Giao</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-[#2E7D32] rounded-full inline-block" />Hoàn thành</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-[#C62828] rounded-full inline-block" />Trễ hạn</span>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={300}>
             <LineChart data={TASK_CHART_DATA}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
               <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748B' }} axisLine={false} tickLine={false} />
@@ -306,10 +366,10 @@ export function DashboardPage() {
         {/* Bar chart — KP distribution */}
         <div className="bg-white rounded-xl border border-[#E2E8F0] p-6">
           <div className="mb-6">
-            <h2 className="text-base font-semibold text-[#0F172A]">Phân bố DQTV theo Khu phố</h2>
+            <h2 className="text-lg font-semibold text-[#0F172A]">Phân bố DQTV theo Khu phố</h2>
             <p className="text-xs text-[#64748B] mt-0.5">Tổng quân số hiện tại</p>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={300}>
             <BarChart data={KP_CHART_DATA} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
@@ -332,7 +392,7 @@ export function DashboardPage() {
             <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
               <AlertTriangle size={16} className="text-[#C62828]" />
             </div>
-            <h2 className="text-base font-semibold text-[#0F172A]">Cảnh báo SOS</h2>
+            <h2 className="text-lg font-semibold text-[#0F172A]">Cảnh báo SOS</h2>
             {activeSosAlerts.length > 0 && (
               <span className="ml-auto text-xs bg-[#C62828] text-white px-2 py-0.5 rounded-full font-medium">
                 {activeSosAlerts.length} mới
@@ -350,7 +410,7 @@ export function DashboardPage() {
           ) : (
             <div
               data-testid="sos-alert-section"
-              className="space-y-2"
+              className="space-y-3"
             >
               {activeSosAlerts.map((alert) => (
                 <div
@@ -376,19 +436,20 @@ export function DashboardPage() {
         {/* Quick actions panel */}
         <div className="bg-gradient-to-br from-[#1F3A5F] to-[#2E7D32] rounded-xl p-6 flex flex-col gap-4">
           <div className="mb-2">
-            <h2 className="text-base font-semibold text-white">Thao tác nhanh</h2>
+            <h2 className="text-lg font-semibold text-white">Thao tác nhanh</h2>
             <p className="text-xs text-white/70 mt-0.5">Truy cập nhanh các chức năng</p>
           </div>
 
           {[
-            { icon: <ClipboardList size={16} />, label: 'Giao việc mới' },
-            { icon: <Users size={16} />,         label: 'Thêm DQTV' },
-            { icon: <Calendar size={16} />,       label: 'Tạo báo cáo' },
-            { icon: <Clock size={16} />,           label: 'Xem GPS' },
-          ].map(({ icon, label }) => (
+            { icon: <ClipboardList size={16} />, label: 'Giao việc mới',  route: '/tasks/new' },
+            { icon: <Users size={16} />,         label: 'Thêm DQTV',      route: '/recruitment' },
+            { icon: <Calendar size={16} />,      label: 'Tạo báo cáo',    route: '/reports' },
+            { icon: <Clock size={16} />,         label: 'Xem GPS',         route: '/gps-tracking' },
+          ].map(({ icon, label, route }) => (
             <button
               key={label}
-              className="w-full flex items-center gap-3 bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-4 py-3 text-white text-sm font-medium"
+              onClick={() => navigate(route)}
+              className="w-full flex items-center gap-3 bg-white/10 hover:bg-white/20 transition-colors rounded-lg p-4 text-white text-sm font-medium"
             >
               <span className="text-white/80">{icon}</span>
               {label}

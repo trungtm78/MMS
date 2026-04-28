@@ -75,16 +75,20 @@ export function ActivityLogPage() {
       </div>
 
       {/* Search */}
-      <div className="relative max-w-md">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" />
-        <input
-          type="text"
-          placeholder="Tìm theo tên người dùng hoặc hành động..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          className="w-full pl-9 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] text-[#0F172A] bg-white"
-          data-testid="audit-search"
-        />
+      <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+        <div className="max-w-md">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" size={18} />
+            <input
+              type="text"
+              placeholder="Tìm theo tên người dùng hoặc hành động..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+              className="w-full pl-10 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-[#1F3A5F] text-sm text-[#0F172A]"
+              data-testid="audit-search"
+            />
+          </div>
+        </div>
       </div>
 
       {isError && (

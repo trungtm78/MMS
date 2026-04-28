@@ -64,10 +64,10 @@ export function AttendanceReportPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Báo Cáo Điểm Danh</h1>
+          <h1 className="text-[28px] font-bold text-[#0F172A]">Báo Cáo Điểm Danh</h1>
           <p className="text-sm text-[#64748B] mt-1">Thống kê điểm danh theo ngày</p>
         </div>
-        <button className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors bg-white">
+        <button className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors">
           <Download size={16} />
           Xuất Excel
         </button>
@@ -91,7 +91,7 @@ export function AttendanceReportPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-[#64748B]">Có mặt</p>
@@ -118,6 +118,15 @@ export function AttendanceReportPage() {
             </div>
           </div>
           <p className="text-3xl font-bold text-yellow-600">{stats.late}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-[#64748B]">Tổng</p>
+            <div className="w-8 h-8 bg-[#E8F5E9] rounded-lg flex items-center justify-center">
+              <TrendingUp size={15} className="text-[#1F3A5F]" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-[#0F172A]">{records.length}</p>
         </div>
       </div>
 

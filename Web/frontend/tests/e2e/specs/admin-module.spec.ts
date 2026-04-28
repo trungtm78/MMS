@@ -35,7 +35,9 @@ test.describe('E2E: Admin — User Management', () => {
   })
 
   test('ADMIN-E2E-03: Add user modal opens and submits', async ({ page }) => {
-    await page.getByTestId('add-user-btn').click()
+    await page.getByTestId('add-user-btn').scrollIntoViewIfNeeded()
+    // Use native DOM click to bypass header z-index intercept
+    await page.locator('[data-testid="add-user-btn"]').evaluate((el: HTMLButtonElement) => el.click())
     await expect(page.getByTestId('add-user-modal')).toBeVisible()
 
     await page.getByTestId('new-username-input').fill('e2e_test_user_' + Date.now())

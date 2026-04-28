@@ -154,6 +154,7 @@ function AppShell() {
           onMenuToggle={() => setSidebarOpen(o => !o)}
         />
         <main className="flex-1 overflow-y-auto pt-20 flex flex-col">
+          <div className="flex-1 flex flex-col">
           <Routes>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/tasks/list" element={<TaskListPage />} />
@@ -203,6 +204,7 @@ function AppShell() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          </div>
           <GlobalFooter />
         </main>
       </div>

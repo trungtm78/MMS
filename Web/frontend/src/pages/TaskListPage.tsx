@@ -60,10 +60,10 @@ export function TaskListPage() {
   }
 
   const getPriorityClass = (priority: string) => {
-    if (priority === 'urgent') return 'bg-red-100 text-red-700'
-    if (priority === 'high') return 'bg-red-100 text-red-700'
-    if (priority === 'medium') return 'bg-yellow-100 text-yellow-700'
-    return 'bg-green-100 text-green-700'
+    if (priority === 'urgent') return 'bg-[#FFEBEE] text-[#C62828]'
+    if (priority === 'high')   return 'bg-[#FFF3E0] text-[#F57C00]'
+    if (priority === 'medium') return 'bg-[#FFFDE7] text-[#FBC02D]'
+    return 'bg-[#F5F5F5] text-[#757575]'
   }
 
   return (

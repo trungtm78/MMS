@@ -131,7 +131,7 @@ export function PayrollPage() {
   }
 
   return (
-    <div className="p-6 space-y-6" data-testid="payroll-page">
+    <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="payroll-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -177,7 +177,7 @@ export function PayrollPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-[#C62828] to-[#A91D1D] rounded-xl p-5 text-white shadow-md">
+        <div className="bg-gradient-to-br from-[#1F3A5F] to-[#2E7D32] rounded-xl p-5 text-white shadow-md">
           <div className="flex items-center gap-2 text-white/80 text-sm mb-2">
             <CheckCircle size={16} />
             Điểm KPI TB

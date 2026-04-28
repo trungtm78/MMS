@@ -19,15 +19,26 @@
   --color-blue: #3B82F6;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/*
+ * IMPORTANT: keep these resets inside @layer base so Tailwind utilities
+ * (px-*, mb-*, p-*, m-*, etc.) can still override them. Non-layered global
+ * rules beat utilities in Tailwind v4 because utilities live in @layer utilities,
+ * and any non-layered selector wins the cascade against any layered selector
+ * regardless of specificity. That bug previously caused padding/margin classes
+ * on the LoginPage form to be silently ignored.
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background-color: #F8FAFC;
-  color: #1e293b;
-  min-height: 100vh;
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: #F8FAFC;
+    color: #1e293b;
+    min-height: 100vh;
+  }
 }

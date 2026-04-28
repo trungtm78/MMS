@@ -136,7 +136,7 @@ export function SettingsPasswordPage() {
         <button
           onClick={handleSubmit}
           disabled={mutation.isPending}
-          className="w-full py-3 bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg font-medium transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          className="w-full py-3 bg-[#1F3A5F] text-white hover:bg-[#2d5380] rounded-lg font-medium transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           data-testid="change-password-btn"
         >
           <Shield size={16} />
