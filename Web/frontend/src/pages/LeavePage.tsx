@@ -11,7 +11,7 @@ interface LeaveRequest {
   startDate: string
   endDate: string
   reason: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   createdAt: string
   applicantName?: string
 }
@@ -29,12 +29,14 @@ const STATUS_BADGE: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   approved: 'bg-green-100 text-[#2E7D32]',
   rejected: 'bg-red-100 text-[#C62828]',
+  cancelled: 'bg-gray-100 text-gray-500',
 }
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Chờ duyệt',
   approved: 'Đã duyệt',
   rejected: 'Từ chối',
+  cancelled: 'Đã hủy',
 }
 
 function formatDate(iso: string) {
@@ -157,10 +159,20 @@ function LeaveFormModal({ onClose }: { onClose: () => void }) {
 
 function MyLeavesTab() {
   const [showModal, setShowModal] = useState(false)
+  const queryClient = useQueryClient()
 
   const { data: leaves = [], isLoading } = useQuery<LeaveRequest[]>({
     queryKey: ['leave-my'],
     queryFn: () => client.get('/leave/my').then((r) => r.data),
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => client.patch(`/leave/${id}/cancel`),
+    onSuccess: () => {
+      toast.success('Đã hủy đơn xin nghỉ')
+      queryClient.invalidateQueries({ queryKey: ['leave-my'] })
+    },
+    onError: () => toast.error('Không thể hủy đơn nghỉ phép'),
   })
 
   return (
@@ -209,11 +221,24 @@ function MyLeavesTab() {
                     )}
                   </div>
                 </div>
-                <span
-                  className={`px-3 py-1 text-xs font-semibold rounded-full ${STATUS_BADGE[leave.status] ?? 'bg-gray-100 text-gray-600'}`}
-                >
-                  {STATUS_LABEL[leave.status] ?? leave.status}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {leave.status === 'pending' && (
+                    <button
+                      onClick={() => cancelMutation.mutate(leave.id)}
+                      disabled={cancelMutation.isPending}
+                      data-testid={`cancel-leave-btn-${leave.id}`}
+                      className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-[#64748B] border border-[#E2E8F0] rounded-lg hover:bg-red-50 hover:text-[#C62828] hover:border-red-200 transition-colors disabled:opacity-50"
+                    >
+                      <X size={12} />
+                      Hủy đơn
+                    </button>
+                  )}
+                  <span
+                    className={`px-3 py-1 text-xs font-semibold rounded-full ${STATUS_BADGE[leave.status] ?? 'bg-gray-100 text-gray-600'}`}
+                  >
+                    {STATUS_LABEL[leave.status] ?? leave.status}
+                  </span>
+                </div>
               </div>
             )
           })}

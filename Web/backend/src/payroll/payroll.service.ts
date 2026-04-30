@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -305,6 +306,51 @@ export class PayrollService {
     );
     if (!rows.length) throw new NotFoundException('payroll_item_not_found');
     return rows[0];
+  }
+
+  async createPeriod(year: number, month: number): Promise<Record<string, unknown>> {
+    try {
+      const rows = await this.dataSource.query<Record<string, unknown>[]>(
+        `INSERT INTO payroll_periods (year, month, status, created_at, updated_at)
+         VALUES ($1, $2, 'draft', NOW(), NOW())
+         RETURNING id, year, month, status, created_at AS "createdAt"`,
+        [year, month],
+      );
+      return rows[0];
+    } catch (err: unknown) {
+      const e = err as { code?: string };
+      if (e.code === '23505') {
+        throw new ConflictException(`payroll_period_${year}_${month}_already_exists`);
+      }
+      throw err;
+    }
+  }
+
+  async reopenPeriod(periodId: string, actor: JwtPayload): Promise<Record<string, unknown>> {
+    return this.dataSource.transaction(async (mgr) => {
+      const existing = await mgr.query<{ status: string }[]>(
+        `SELECT status FROM payroll_periods WHERE id = $1`,
+        [periodId],
+      );
+      if (!existing.length) throw new NotFoundException('period_not_found');
+      if (existing[0].status !== 'locked') {
+        throw new BadRequestException('period_not_locked');
+      }
+      const rows = await mgr.query<Record<string, unknown>[]>(
+        `UPDATE payroll_periods
+         SET status = 'draft', updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, year, month, status, updated_at AS "updatedAt"`,
+        [periodId],
+      );
+      // Audit log
+      await mgr.query(
+        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, before_json, after_json, created_at)
+         VALUES ($1, 'reopen_period', 'payroll_period', $2, '{"status":"locked"}', '{"status":"draft"}', NOW())`,
+        [actor.sub, periodId],
+      );
+      return rows[0];
+    });
   }
 
   // P3-13: lockPeriod with snapshot — inserts payroll_items then locks
