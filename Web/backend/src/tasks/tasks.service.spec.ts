@@ -213,6 +213,85 @@ describe('TasksService', () => {
     });
   });
 
+  describe('updateTask', () => {
+    it('updates pending task fields within a transaction', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'pending' }]) // SELECT FOR UPDATE
+        .mockResolvedValueOnce([{ id: 'task-1', title: 'New Title', status: 'pending', priority: 'high', deadline: null, updatedAt: new Date() }]); // UPDATE RETURNING
+
+      const result = await service.updateTask('task-1', { title: 'New Title', priority: 'high' }, 'user-1');
+      expect(result['id']).toBe('task-1');
+      expect(result['title']).toBe('New Title');
+      const [sql] = mockDataSource.query.mock.calls[0];
+      expect(sql).toContain('FOR UPDATE');
+    });
+
+    it('allows update on assigned status', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'assigned' }])
+        .mockResolvedValueOnce([{ id: 'task-1', title: 'Updated', status: 'assigned', priority: 'medium', deadline: null, updatedAt: new Date() }]);
+
+      const result = await service.updateTask('task-1', { title: 'Updated' }, 'user-1');
+      expect(result['title']).toBe('Updated');
+    });
+
+    it('throws NotFoundException when task not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.updateTask('bad-id', { title: 'X' }, 'user-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException when task status is in_progress', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'task-1', status: 'in_progress' }]);
+      await expect(service.updateTask('task-1', { title: 'X' }, 'user-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when no fields to update', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'task-1', status: 'pending' }]);
+      await expect(service.updateTask('task-1', {}, 'user-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when task status is completed', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'task-1', status: 'completed' }]);
+      await expect(service.updateTask('task-1', { title: 'X' }, 'user-1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('cancelTask', () => {
+    it('sets task status to cancelled', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'pending' }]) // SELECT FOR UPDATE
+        .mockResolvedValueOnce(undefined); // UPDATE
+
+      await expect(service.cancelTask('task-1', 'Lý do hủy', 'user-1')).resolves.toBeUndefined();
+      const [, updateSql] = mockDataSource.query.mock.calls[1];
+      // verify UPDATE was called (mockDataSource.query.mock.calls[1][0])
+      expect(mockDataSource.query.mock.calls[1][0]).toContain("status = 'cancelled'");
+    });
+
+    it('throws NotFoundException when task not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.cancelTask('bad-id', 'reason', 'user-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException when task is already completed', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'task-1', status: 'completed' }]);
+      await expect(service.cancelTask('task-1', 'reason', 'user-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException when task is already cancelled', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'task-1', status: 'cancelled' }]);
+      await expect(service.cancelTask('task-1', 'reason', 'user-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows cancel for in_progress task', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'task-1', status: 'in_progress' }])
+        .mockResolvedValueOnce(undefined);
+
+      await expect(service.cancelTask('task-1', 'reason', 'user-1')).resolves.toBeUndefined();
+    });
+  });
+
   describe('updateProgress', () => {
     it('updates progress and returns updated task', async () => {
       mockDataSource.query

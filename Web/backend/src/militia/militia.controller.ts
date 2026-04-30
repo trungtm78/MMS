@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -19,6 +21,7 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
+  IsIn,
   Length,
   Matches,
 } from 'class-validator';
@@ -71,6 +74,20 @@ export class QuickCreateMilitiaDto implements CreateMilitiaDto {
   @IsOptional()
   @IsString()
   joinDate?: string;
+}
+
+export class UpdateMilitiaDto {
+  @IsOptional() @IsString() @Length(2, 100) fullName?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() position?: string;
+  @IsOptional() @IsString() rank?: string;
+  @IsOptional() @IsIn(['male', 'female']) gender?: 'male' | 'female';
+  @IsOptional() @IsString() dob?: string;
+  @IsOptional() @IsString() joinDate?: string;
+  @IsOptional() @IsString() emergencyContactName?: string;
+  @IsOptional() @IsString() emergencyContactPhone?: string;
+  @IsOptional() @IsString() emergencyContactRelationship?: string;
 }
 
 @Controller('militia')
@@ -157,5 +174,29 @@ export class MilitiaController {
   @HttpCode(HttpStatus.CREATED)
   async quickCreate(@Body() dto: QuickCreateMilitiaDto) {
     return this.militiaService.quickCreate(dto);
+  }
+
+  // PATCH /militia/:id — update profile (office_staff, system_admin only)
+  @Patch(':id')
+  @Roles('system_admin', 'office_staff')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async updateMilitia(
+    @Param('id') id: string,
+    @Body() dto: UpdateMilitiaDto,
+    @Request() req: { user: JwtPayload },
+  ) {
+    return this.militiaService.updateMilitia(id, dto, req.user);
+  }
+
+  // DELETE /militia/:id — soft delete: set status='inactive' (system_admin only)
+  @Delete(':id')
+  @Roles('system_admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteMilitia(
+    @Param('id') id: string,
+    @Request() req: { user: JwtPayload },
+  ) {
+    await this.militiaService.deleteMilitia(id, req.user);
   }
 }

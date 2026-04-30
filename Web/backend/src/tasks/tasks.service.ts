@@ -258,6 +258,60 @@ export class TasksService {
     return { id: inserted[0].id, taskId, submittedAt: new Date() };
   }
 
+  // PATCH /tasks/:id — edit task details (pending/assigned only), with transaction + SELECT FOR UPDATE
+  async updateTask(
+    taskId: string,
+    dto: { title?: string; description?: string; type?: string; priority?: string; deadline?: string },
+    actorId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.dataSource.transaction(async (mgr) => {
+      const existing = await mgr.query<{ id: string; status: string }[]>(
+        `SELECT id, status FROM tasks WHERE id = $1 FOR UPDATE`,
+        [taskId],
+      );
+      if (!existing.length) throw new NotFoundException('task_not_found');
+      if (!['pending', 'assigned'].includes(existing[0].status)) {
+        throw new BadRequestException('task_cannot_be_edited_in_current_status');
+      }
+
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      if (dto.title !== undefined) { fields.push(`title = $${idx++}`); values.push(dto.title); }
+      if (dto.description !== undefined) { fields.push(`description = $${idx++}`); values.push(dto.description); }
+      if (dto.type !== undefined) { fields.push(`type = $${idx++}`); values.push(dto.type); }
+      if (dto.priority !== undefined) { fields.push(`priority = $${idx++}`); values.push(dto.priority); }
+      if (dto.deadline !== undefined) { fields.push(`deadline = $${idx++}`); values.push(dto.deadline); }
+      if (fields.length === 0) throw new BadRequestException('no_fields_to_update');
+      fields.push(`updated_at = NOW()`);
+      values.push(taskId);
+
+      const rows = await mgr.query<Record<string, unknown>[]>(
+        `UPDATE tasks SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, title, status, priority, deadline, updated_at AS "updatedAt"`,
+        values,
+      );
+      return rows[0];
+    });
+  }
+
+  // DELETE /tasks/:id — cancel task (set status='cancelled'), with transaction + SELECT FOR UPDATE
+  async cancelTask(taskId: string, reason: string, actorId: string): Promise<void> {
+    return this.dataSource.transaction(async (mgr) => {
+      const existing = await mgr.query<{ id: string; status: string }[]>(
+        `SELECT id, status FROM tasks WHERE id = $1 FOR UPDATE`,
+        [taskId],
+      );
+      if (!existing.length) throw new NotFoundException('task_not_found');
+      if (['completed', 'cancelled'].includes(existing[0].status)) {
+        throw new BadRequestException('task_cannot_be_cancelled');
+      }
+      await mgr.query(
+        `UPDATE tasks SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [taskId],
+      );
+    });
+  }
+
   // List tasks (for dashboard)
   async listTasks(
     params: { page?: number; limit?: number; status?: string } = {},

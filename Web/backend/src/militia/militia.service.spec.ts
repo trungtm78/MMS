@@ -335,6 +335,68 @@ describe('MilitiaService', () => {
     });
   });
 
+  // ── updateMilitia ──────────────────────────────────────────────────────
+
+  describe('updateMilitia', () => {
+    const actor = { sub: 'admin-1' };
+
+    it('updates provided fields and returns updated row', async () => {
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'mp-1', fullName: 'Nguyen Van B', phone: '0901234567', status: 'active', updatedAt: new Date().toISOString() },
+      ]);
+      const result = await service.updateMilitia('mp-1', { fullName: 'Nguyen Van B', phone: '0901234567' }, actor);
+      expect(result['id']).toBe('mp-1');
+      expect(result['fullName']).toBe('Nguyen Van B');
+      const [sql, params] = mockDataSource.query.mock.calls[0];
+      expect(sql).toContain('UPDATE militia_profiles SET');
+      expect(sql).toContain('full_name');
+      expect(sql).toContain('RETURNING');
+      expect(params).toContain('Nguyen Van B');
+      expect(params).toContain('mp-1');
+    });
+
+    it('throws BadRequestException when no fields provided', async () => {
+      await expect(service.updateMilitia('mp-1', {}, actor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when id does not match any record', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.updateMilitia('bad-id', { rank: 'Trung sĩ' }, actor)).rejects.toThrow(NotFoundException);
+    });
+
+    it('maps all supported fields to correct DB columns', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'mp-1', fullName: 'X', phone: null, status: 'active', updatedAt: '' }]);
+      await service.updateMilitia('mp-1', {
+        fullName: 'A', phone: '0901', address: 'Hanoi', position: 'P1', rank: 'R1',
+        gender: 'male', dob: '1990-01-01', joinDate: '2020-01-01',
+        emergencyContactName: 'B', emergencyContactPhone: '0902', emergencyContactRelationship: 'Sibling',
+      }, actor);
+      const [sql] = mockDataSource.query.mock.calls[0];
+      ['full_name', 'phone', 'address', 'position', 'rank', 'gender', 'dob', 'join_date',
+        'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship',
+      ].forEach(col => expect(sql).toContain(col));
+    });
+  });
+
+  // ── deleteMilitia ─────────────────────────────────────────────────────
+
+  describe('deleteMilitia', () => {
+    const actor = { sub: 'admin-1' };
+
+    it('sets status to inactive and returns void', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'mp-1' }]);
+      await expect(service.deleteMilitia('mp-1', actor)).resolves.toBeUndefined();
+      const [sql, params] = mockDataSource.query.mock.calls[0];
+      expect(sql).toContain("status = 'inactive'");
+      expect(params[0]).toBe('mp-1');
+    });
+
+    it('throws NotFoundException when militia not found or already inactive', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await expect(service.deleteMilitia('bad-id', actor)).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ── CA assignment scope regression tests ──────────────────────────────
 
   describe('searchMilitia — CA assignment scope', () => {
