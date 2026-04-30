@@ -41,6 +41,7 @@ import { DevicesModule } from './devices/devices.module';
 import { OrganizationModule } from './organization/organization.module';
 import { WeaponsModule } from './weapons/weapons.module';
 import { ExemptionModule } from './exemption/exemption.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
 import { MilitiaProfile } from './militia/militia.entity';
 import { Task } from './tasks/task.entity';
 import { TaskAssignment } from './tasks/task-assignment.entity';
@@ -134,6 +135,7 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     OrganizationModule,
     WeaponsModule,
     ExemptionModule,
+    RecruitmentModule,
   ],
   controllers: [AuthController],
   providers: [
