@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing'
 import { WeaponsService } from './weapons.service'
 import { getRepositoryToken } from '@nestjs/typeorm'
+import { DataSource } from 'typeorm'
 import { WeaponItem } from './entities/weapon-item.entity'
 import { WeaponAllocation } from './entities/weapon-allocation.entity'
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common'
@@ -9,15 +10,22 @@ describe('WeaponsService', () => {
   let service: WeaponsService
   let weaponRepo: jest.Mocked<any>
   let allocationRepo: jest.Mocked<any>
+  let mockDataSource: jest.Mocked<any>
 
   beforeEach(async () => {
     weaponRepo = { find: jest.fn(), findOne: jest.fn(), create: jest.fn(), save: jest.fn() }
     allocationRepo = { find: jest.fn(), findOne: jest.fn(), create: jest.fn(), save: jest.fn() }
+    mockDataSource = {
+      transaction: jest.fn((cb: (mgr: any) => Promise<any>) =>
+        cb({ query: jest.fn().mockResolvedValue([]) })
+      ),
+    }
     const module = await Test.createTestingModule({
       providers: [
         WeaponsService,
         { provide: getRepositoryToken(WeaponItem), useValue: weaponRepo },
         { provide: getRepositoryToken(WeaponAllocation), useValue: allocationRepo },
+        { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile()
     service = module.get(WeaponsService)

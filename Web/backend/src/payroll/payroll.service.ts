@@ -329,7 +329,7 @@ export class PayrollService {
   async reopenPeriod(periodId: string, actor: JwtPayload): Promise<Record<string, unknown>> {
     return this.dataSource.transaction(async (mgr) => {
       const existing = await mgr.query<{ status: string }[]>(
-        `SELECT status FROM payroll_periods WHERE id = $1`,
+        `SELECT status FROM payroll_periods WHERE id = $1 FOR UPDATE`,
         [periodId],
       );
       if (!existing.length) throw new NotFoundException('period_not_found');
