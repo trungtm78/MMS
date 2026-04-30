@@ -191,7 +191,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="militia-list">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -207,7 +207,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             <FileDown size={16} />
             {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
           </button>
-          <button className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
+          <button className="bg-[#2E7D32] text-white hover:bg-[#1B5E20] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
             <Plus size={16} />
             Thêm DQTV
           </button>
@@ -227,6 +227,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" size={16} />
               <input
                 type="text"
+                data-testid="militia-search-input"
                 placeholder="Tên hoặc mã DQTV..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -351,6 +352,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
           </div>
           <div className="flex gap-2">
             <button
+              data-testid="prev-page"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
               className="px-4 py-2 border border-[#E2E8F0] rounded-lg bg-white text-sm font-medium text-[#64748B] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors"
@@ -371,6 +373,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
               </button>
             ))}
             <button
+              data-testid="next-page"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
               className="px-4 py-2 border border-[#E2E8F0] rounded-lg bg-white text-sm font-medium text-[#64748B] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors"

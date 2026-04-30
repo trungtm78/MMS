@@ -81,12 +81,12 @@ export function UserManagementPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Quản lý người dùng & phân quyền</h1>
+          <h1 className="text-2xl font-semibold text-[#0F172A]">Quản lý người dùng & phân quyền</h1>
           <p className="text-sm text-[#64748B] mt-1">Quản lý tài khoản và phân quyền truy cập hệ thống</p>
         </div>
         <button
           onClick={() => setShowAddUser(true)}
-          className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors"
+          className="bg-[#2E7D32] text-white hover:bg-[#1B5E20] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors"
           data-testid="add-user-btn"
         >
           <Plus size={16} />
@@ -104,7 +104,7 @@ export function UserManagementPage() {
               placeholder="Nhập tên hoặc tài khoản..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] text-sm text-[#0F172A]"
+              className="w-full pl-10 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F3A5F] focus:border-[#1F3A5F] text-sm text-[#0F172A]"
               data-testid="user-search-input"
             />
           </div>

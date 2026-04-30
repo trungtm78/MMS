@@ -1,9 +1,37 @@
-// TODO: Install react-leaflet for interactive map
+import 'leaflet/dist/leaflet.css'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 import { useRbac } from '@/hooks/useRbac'
 import client from '@/api/client'
 import { MapPin, Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+
+// Fix default marker icons broken by webpack/vite asset pipeline
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+})
+
+const onlineIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
+
+const offlineIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
 
 interface GpsLocation {
   id: string
@@ -16,6 +44,9 @@ interface GpsLocation {
   lastUpdate: string
   accuracy?: number
 }
+
+// Phường Phú Định, Quận 8, TP.HCM center
+const PHU_DINH_CENTER: [number, number] = [10.7326, 106.6508]
 
 function formatTimestamp(iso: string) {
   if (!iso) return '—'
@@ -54,6 +85,7 @@ export function GPSTrackingPage() {
 
   const onlineCount = locations.filter((l) => l.status === 'online').length
   const offlineCount = locations.filter((l) => l.status === 'offline').length
+  const locationsWithCoords = locations.filter((l) => l.lat != null && l.lng != null)
 
   const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null
 
@@ -94,23 +126,41 @@ export function GPSTrackingPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Map placeholder */}
+          {/* Leaflet Map */}
           <div
-            className="bg-[#2E7D32]/10 border-2 border-dashed border-[#2E7D32]/30 rounded-xl flex flex-col items-center justify-center min-h-[400px] p-8"
+            className="rounded-xl overflow-hidden border border-[#E2E8F0] shadow-sm"
+            style={{ height: 420 }}
             data-testid="gps-map-placeholder"
           >
-            <MapPin size={48} className="text-[#2E7D32] mb-4" />
-            <p className="text-lg font-semibold text-[#2E7D32]">Bản đồ GPS</p>
-            <p className="text-sm text-[#64748B] mt-2 text-center">
-              Cài đặt react-leaflet để hiển thị bản đồ tương tác
-            </p>
-            <p className="text-xs text-[#64748B] mt-1">Phường Phú Định – Quận 8 – TP.HCM</p>
-            {onlineCount > 0 && (
-              <div className="mt-4 flex items-center gap-2 bg-[#2E7D32]/20 px-4 py-2 rounded-lg">
-                <span className="w-2 h-2 bg-[#2E7D32] rounded-full animate-pulse" />
-                <span className="text-sm text-[#2E7D32] font-medium">{onlineCount} thành viên đang trực tuyến</span>
-              </div>
-            )}
+            <MapContainer
+              center={PHU_DINH_CENTER}
+              zoom={15}
+              style={{ height: '100%', width: '100%' }}
+              scrollWheelZoom={false}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              {locationsWithCoords.map((loc) => (
+                <Marker
+                  key={loc.id}
+                  position={[loc.lat!, loc.lng!]}
+                  icon={loc.status === 'online' ? onlineIcon : offlineIcon}
+                >
+                  <Popup>
+                    <div className="text-sm">
+                      <p className="font-semibold">{loc.name}</p>
+                      <p className="text-gray-500">{loc.district ?? 'Phú Định'}</p>
+                      <p className={loc.status === 'online' ? 'text-green-600' : 'text-gray-500'}>
+                        {loc.status === 'online' ? 'Trực tuyến' : 'Ngoại tuyến'}
+                      </p>
+                      <p className="text-gray-400 text-xs">{formatTimestamp(loc.lastUpdate)}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
+            </MapContainer>
           </div>
 
           {/* Member list */}
@@ -123,10 +173,10 @@ export function GPSTrackingPage() {
                 <div className="p-4 space-y-3">
                   {[1, 2, 3, 4, 5].map((i) => (
                     <div key={i} className="flex items-center gap-3 animate-pulse">
-                      <div className="w-9 h-9 bg-gray-200 rounded-full shrink-0" />
+                      <div className="w-9 h-9 bg-[#E2E8F0] rounded-full shrink-0" />
                       <div className="flex-1 space-y-1.5">
-                        <div className="h-3 bg-gray-200 rounded w-1/2" />
-                        <div className="h-2.5 bg-gray-100 rounded w-1/3" />
+                        <div className="h-3 bg-[#E2E8F0] rounded w-1/2" />
+                        <div className="h-2.5 bg-[#F1F5F9] rounded w-1/3" />
                       </div>
                     </div>
                   ))}
@@ -136,7 +186,7 @@ export function GPSTrackingPage() {
                   Không có dữ liệu GPS
                 </div>
               ) : (
-                <ul className="divide-y divide-[#F1F5F9]">
+                <ul className="divide-y divide-[#E2E8F0]">
                   {locations.map((loc) => (
                     <li
                       key={loc.id}

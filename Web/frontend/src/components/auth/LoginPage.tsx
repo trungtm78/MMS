@@ -1,14 +1,14 @@
 // US-W001 AC-1: Login page with JWT authentication
 // data-testid map: login-form, username-input, password-input, remember-me-checkbox,
 //                  login-btn, login-error-message
-// F4: migrated from controlled useState inputs to react-hook-form + zodResolver
-//     for consistency with other forms and to eliminate per-keystroke re-renders
+// Design ported from Web/Refs/src/app/components/LoginPage.tsx (proportions match Refs)
+// Icon-in-input uses flex row (not absolute) to prevent overlap with entered text.
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, User, Lock } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { GlobalFooter } from '@/components/layout/GlobalFooter'
 import anttLogo from '@/assets/668337ed7f590a8cbedffff9ffd07736f5a4d4e3.png'
@@ -39,7 +39,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     defaultValues: { username: '', password: '', rememberMe: false },
   })
 
-  // Already authenticated — redirect to dashboard (must be after all hooks)
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
   }
@@ -50,10 +49,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       await login({ username, password, rememberMe })
       onSuccess?.()
     } catch (err: unknown) {
-      // US-W001 NP-01: Vague error message — do not reveal if username exists
       const axiosError = err as { response?: { status?: number; data?: { message?: string } } }
       if (axiosError.response?.status === 423) {
-        // US-W001 NP-02: Account locked
         setServerError('Tài khoản đã bị khóa tạm thời. Vui lòng thử lại sau 30 phút.')
       } else if (axiosError.response?.status === 403) {
         setServerError('Tài khoản đã bị vô hiệu hóa. Liên hệ quản trị viên.')
@@ -65,21 +62,21 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   return (
     <div className="min-h-screen bg-[#F4F269] flex flex-col">
-      <div className="flex-1 flex items-center justify-center px-4 py-8">
-        <div className="w-full max-w-md">
+      <div className="flex-1 flex items-center justify-center px-6 py-8">
+        <div className="w-full max-w-md flex flex-col items-center justify-center gap-8">
           {/* Logo */}
-          <div className="flex justify-center mb-6">
-            <img
-              src={anttLogo}
-              alt="Bảo vệ An ninh Trật tự"
-              className="w-40 h-40 object-contain"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          </div>
+          <img
+            src={anttLogo}
+            alt="Bảo vệ An ninh Trật tự"
+            className="w-36 h-36 md:w-44 md:h-44 object-contain"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
 
           {/* Form container */}
-          <div className="bg-[#F4F269] border-4 border-[#C62828] rounded-3xl p-8">
-            <h1 className="text-[#C62828] text-2xl font-bold text-center mb-6">ĐĂNG NHẬP</h1>
+          <div className="w-full bg-[#F4F269] border-4 border-[#C62828] rounded-3xl px-10 pt-7 pb-8">
+            <h3 className="text-[#C62828] text-2xl font-bold text-center mb-7 leading-relaxed tracking-wide">
+              ĐĂNG NHẬP
+            </h3>
 
             <form
               data-testid="login-form"
@@ -88,85 +85,120 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               aria-label="Đăng nhập"
               noValidate
             >
+              {/* Username */}
               <div>
-                <label htmlFor="username" className="block text-sm font-bold text-[#C62828] mb-1">
-                  Tên đăng nhập
+                <label
+                  htmlFor="username"
+                  className="block text-[#C62828] text-sm font-bold mb-2 leading-relaxed"
+                >
+                  Tài khoản
                 </label>
-                <input
-                  id="username"
-                  type="text"
-                  data-testid="username-input"
-                  autoComplete="username"
-                  {...register('username')}
-                  className="w-full border-2 border-[#C62828] rounded-lg px-3 h-12 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] bg-white"
-                  placeholder="Nhập tên đăng nhập"
-                />
+                <div className="flex items-center h-10 bg-white border-2 border-[#C62828] rounded-lg focus-within:ring-2 focus-within:ring-[#C62828]/40 transition-shadow">
+                  <div className="pl-3 pr-2 flex items-center justify-center text-gray-600 shrink-0">
+                    <User size={18} />
+                  </div>
+                  <input
+                    id="username"
+                    type="text"
+                    data-testid="username-input"
+                    autoComplete="username"
+                    {...register('username')}
+                    className="flex-1 min-w-0 h-full pr-3 bg-transparent outline-none text-gray-900 text-sm placeholder:text-gray-400"
+                    placeholder="Nhập tên đăng nhập"
+                  />
+                </div>
                 {errors.username && (
-                  <p className="mt-1 text-xs text-red-600" role="alert">{errors.username.message}</p>
+                  <p className="mt-1.5 text-xs text-red-600 font-medium" role="alert">{errors.username.message}</p>
                 )}
               </div>
 
+              {/* Password */}
               <div>
-                <label htmlFor="password" className="block text-sm font-bold text-[#C62828] mb-1">
+                <label
+                  htmlFor="password"
+                  className="block text-[#C62828] text-sm font-bold mb-2 leading-relaxed"
+                >
                   Mật khẩu
                 </label>
-                <div className="relative">
+                <div className="flex items-center h-10 bg-white border-2 border-[#C62828] rounded-lg focus-within:ring-2 focus-within:ring-[#C62828]/40 transition-shadow">
+                  <div className="pl-3 pr-2 flex items-center justify-center text-gray-600 shrink-0">
+                    <Lock size={18} />
+                  </div>
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     data-testid="password-input"
                     autoComplete="current-password"
                     {...register('password')}
-                    className="w-full border-2 border-[#C62828] rounded-lg px-3 pr-10 h-12 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] bg-white"
+                    className="flex-1 min-w-0 h-full bg-transparent outline-none text-gray-900 text-sm placeholder:text-gray-400"
                     placeholder="Nhập mật khẩu"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#C62828] transition-colors"
+                    className="mr-1.5 w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded transition-colors shrink-0"
                     aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="mt-1 text-xs text-red-600" role="alert">{errors.password.message}</p>
+                  <p className="mt-1.5 text-xs text-red-600 font-medium" role="alert">{errors.password.message}</p>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Remember Me — moved above button so it's not at the form edge */}
+              <div className="flex items-center gap-2 pt-1">
                 <input
                   id="remember-me"
                   type="checkbox"
                   data-testid="remember-me-checkbox"
                   {...register('rememberMe')}
-                  className="w-4 h-4 text-[#C62828] border-[#C62828] rounded accent-[#C62828]"
+                  className="w-5 h-5 accent-[#FF69B4] cursor-pointer"
                 />
-                <label htmlFor="remember-me" className="text-sm text-[#0F172A]">
-                  Ghi nhớ tôi (7 ngày)
+                <label
+                  htmlFor="remember-me"
+                  className="text-[#C62828] text-sm font-medium cursor-pointer select-none leading-relaxed"
+                >
+                  Ghi nhớ đăng nhập
                 </label>
               </div>
 
-              {/* US-W001 NP-01: Server error message */}
-              {serverError && (
-                <div
-                  role="alert"
-                  data-testid="login-error-message"
-                  className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3"
-                >
-                  {serverError}
-                </div>
-              )}
-
+              {/* Submit button */}
               <button
                 type="submit"
                 data-testid="login-btn"
                 disabled={isSubmitting}
-                className="w-full bg-[#C62828] hover:bg-[#A91D1D] disabled:opacity-60 text-white font-bold h-12 rounded-lg transition-colors"
+                className="w-full h-10 bg-[#C62828] hover:bg-[#A91D1D] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg active:scale-95 transition-all shadow-md tracking-wider mt-2"
               >
-                {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                {isSubmitting ? 'ĐANG ĐĂNG NHẬP...' : 'ĐĂNG NHẬP'}
               </button>
+
+              {/* Server error — placed AFTER button per US-W001 NP-01 */}
+              {serverError && (
+                <div
+                  role="alert"
+                  data-testid="login-error-message"
+                  className="px-3 py-2 bg-red-50 border border-red-500 rounded-lg"
+                >
+                  <p className="text-red-700 font-medium text-center text-xs">{serverError}</p>
+                </div>
+              )}
             </form>
+
+            <div className="border-t border-[#C62828]/30 mt-6 pt-4">
+              <p className="text-[#C62828] text-xs font-semibold mb-2 text-center">Tài khoản demo</p>
+              <div className="space-y-1 text-xs text-[#C62828]/80">
+                <div className="flex justify-between px-2 py-1 bg-[#C62828]/5 rounded">
+                  <span>admin</span>
+                  <span className="font-mono">Admin@123</span>
+                </div>
+                <div className="flex justify-between px-2 py-1 bg-[#C62828]/5 rounded">
+                  <span>dqtv01</span>
+                  <span className="font-mono">Dqtv@123</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

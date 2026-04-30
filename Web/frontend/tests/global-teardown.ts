@@ -1,7 +1,7 @@
 // Global Playwright teardown: remove E2E test users
 import { Client } from 'pg'
 
-const E2E_USERNAMES = ['e2e_police_ward', 'e2e_militia', 'e2e_admin']
+const E2E_USERNAMES = ['e2e_police_ward', 'e2e_militia', 'e2e_admin', 'e2e_staff']
 
 export default async function globalTeardown() {
   const c = new Client({

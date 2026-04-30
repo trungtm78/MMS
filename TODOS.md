@@ -16,6 +16,35 @@
 **Title:** Recruitment module — frontend + backend
 **Description:** `Recruitment.tsx` Refs component ready but no backend endpoint exists. Need `POST /api/v1/militia/recruitment` + approval workflow before frontend can be implemented. Deferred until backend endpoint is added.
 **Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-19)
+**Status:** DONE — Recruitment module fully implemented v0.2.1.0 (2026-04-30)
+
+---
+
+**Priority:** P1
+**Title:** IDOR on GET /leave/:id — missing ownership check
+**Description:** Any authenticated user can read any leave request without checking if they own it or have reviewer role. `leave.controller.ts:66` `getLeaveRequest(id)` — no `user` param passed to service. Fix: pass `req.user` and enforce `requester_id = user.sub` for non-reviewer roles in service.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-30)
+
+---
+
+**Priority:** P1
+**Title:** Stored XSS in payroll HTML export
+**Description:** `payroll.service.ts` `exportHtml()` interpolates `fullName`, `militiaCode`, `unitName` from DB directly into HTML without escaping. A militia profile name like `<script>alert(1)</script>` executes in reviewer's browser. Fix: HTML-escape all DB values before embedding in template.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-30)
+
+---
+
+**Priority:** P1
+**Title:** submitReport allows reports on cancelled/completed tasks
+**Description:** `tasks.service.ts` `submitReport()` has no status guard — can submit a report on a cancelled task, which then reactivates it to 'completed', bypassing cancellation. Fix: check `task.status === 'in_progress'` before inserting report.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-30)
+
+---
+
+**Priority:** P2
+**Title:** Recruitment status transitions — no state machine guard
+**Description:** `recruitment.service.ts` `updateApplication()` allows arbitrary status changes without validating allowed transitions (e.g., can skip 'reviewing', revert 'approved' back to 'new'). Add explicit allowed-transitions map.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-30)
 
 ---
 

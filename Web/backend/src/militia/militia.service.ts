@@ -468,6 +468,64 @@ export class MilitiaService {
     return { accepted: true, message: 'Yêu cầu đã được ghi nhận và sẽ được xem xét trong 30 ngày' };
   }
 
+  // PATCH /militia/:id — update mutable fields (militiaCode is immutable)
+  async updateMilitia(
+    id: string,
+    dto: Partial<{
+      fullName: string; phone: string; address: string; position: string; rank: string;
+      gender: string; dob: string; joinDate: string;
+      emergencyContactName: string; emergencyContactPhone: string; emergencyContactRelationship: string;
+    }>,
+    actor: { sub: string },
+  ): Promise<Record<string, unknown>> {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+
+    const fieldMap: Record<string, string> = {
+      fullName: 'full_name',
+      phone: 'phone',
+      address: 'address',
+      position: 'position',
+      rank: 'rank',
+      gender: 'gender',
+      dob: 'dob',
+      joinDate: 'join_date',
+      emergencyContactName: 'emergency_contact_name',
+      emergencyContactPhone: 'emergency_contact_phone',
+      emergencyContactRelationship: 'emergency_contact_relationship',
+    };
+
+    for (const [key, col] of Object.entries(fieldMap)) {
+      const val = (dto as Record<string, unknown>)[key];
+      if (val !== undefined) {
+        fields.push(`${col} = $${idx++}`);
+        values.push(val);
+      }
+    }
+
+    if (fields.length === 0) throw new BadRequestException('no_fields_to_update');
+
+    fields.push(`updated_at = NOW()`);
+    values.push(id);
+
+    const rows = await this.dataSource.query<Record<string, unknown>[]>(
+      `UPDATE militia_profiles SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, full_name AS "fullName", phone, status, updated_at AS "updatedAt"`,
+      values,
+    );
+    if (!rows.length) throw new NotFoundException('militia_not_found');
+    return rows[0];
+  }
+
+  // DELETE /militia/:id — soft delete: set status='inactive'
+  async deleteMilitia(id: string, actor: { sub: string }): Promise<void> {
+    const result = await this.dataSource.query<{ id: string }[]>(
+      `UPDATE militia_profiles SET status = 'inactive', updated_at = NOW() WHERE id = $1 AND status != 'inactive' RETURNING id`,
+      [id],
+    );
+    if (!result.length) throw new NotFoundException('militia_not_found_or_already_inactive');
+  }
+
   // Get single militia member with unitScope enforcement — includes 6 NĐ 72/2020 fields
   async getMilitiaById(
     user: { role: string; unitScope: string | null },

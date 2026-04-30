@@ -1,8 +1,8 @@
 // US-W003: Militia member full profile — 6 tabs
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { User, Edit, ArrowLeft, Phone, Mail, Calendar, Award, Shield, Briefcase, FileText } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { User, Edit, ArrowLeft, Phone, Mail, Calendar, Award, Shield, Briefcase, FileText, Download } from 'lucide-react'
 import { getMilitiaById } from '@/api/militia'
 import { trainingApi } from '@/api/training'
 import client from '@/api/client'
@@ -188,6 +188,24 @@ export function MilitiaProfilePage() {
     enabled: !!id && activeTab === 'changelog',
   })
 
+  const exportMutation = useMutation({
+    mutationFn: async () => {
+      const res = await client.get('/militia/me/data-export')
+      return res.data
+    },
+    onSuccess: (data) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const date = new Date().toISOString().slice(0, 10)
+      a.download = `ho-so-DQTV-${profile?.fullName ?? 'member'}-${date}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+    onError: () => { /* silently ignore */ },
+  })
+
   if (isLoading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-64">
@@ -231,8 +249,12 @@ export function MilitiaProfilePage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button className="px-4 py-2 border border-[#C62828] text-[#C62828] rounded-lg hover:bg-red-50 flex items-center gap-2 text-sm font-medium transition-colors">
-            <FileText size={16} />
+          <button
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending}
+            className="px-4 py-2 border border-[#C62828] text-[#C62828] rounded-lg hover:bg-red-50 flex items-center gap-2 text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
             Xuất hồ sơ
           </button>
           <button className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
@@ -299,16 +321,16 @@ export function MilitiaProfilePage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 data-testid={`tab-${tab.id}`}
-                className={`px-5 py-4 text-sm font-medium whitespace-nowrap flex items-center gap-2 relative transition-colors ${
+                className={`px-6 py-4 text-sm font-medium whitespace-nowrap flex items-center gap-2 relative transition-colors ${
                   isActive
-                    ? 'text-[#C62828] bg-red-50/50'
+                    ? 'text-[#1F3A5F] bg-gray-50'
                     : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F8FAFC]'
                 }`}
               >
                 <Icon size={15} />
                 {tab.label}
                 {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#C62828]" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#1F3A5F]" />
                 )}
               </button>
             )

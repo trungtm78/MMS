@@ -2,6 +2,21 @@
 
 ---
 
+## [0.2.1.0] — 2026-04-30
+
+### Added
+- **Payroll Period Management** — create new payroll periods (`POST /payroll/periods`) and reopen locked periods (`POST /payroll/periods/:id/reopen`); periods transition to `draft` state on reopen with full audit log
+- **Leave Cancel** — militia members can cancel their own pending leave requests (`PATCH /leave/:id/cancel`); frontend "Hủy đơn" button added to LeavePage
+- **Militia Update + Soft Delete** — commanders can update militia profiles (`PATCH /militia/:id`) and soft-delete (deactivate) records (`DELETE /militia/:id`); MilitiaProfilePage Edit button now functional
+- **Task Edit + Cancel** — CA officers can edit pending/assigned tasks (`PATCH /tasks/:id`) with race-condition-safe SELECT FOR UPDATE, and cancel tasks with required reason (`DELETE /tasks/:id`); TaskListPage now shows Edit/Cancel actions
+- **Weapons Full CRUD** — complete weapon inventory management: create, update, get by ID, retire (soft delete) weapons, plus allocate weapons to militia and record returns (`PATCH /weapons/allocations/:id/return`). Custody records are immutable — no hard deletes.
+- **Recruitment Module** — new backend module for militia recruitment applications (`/recruitment/applications`): create, list, review (status transitions: new → reviewing → approved/rejected), and soft delete. Includes reviewer notes and audit fields.
+- **Organization Full CRUD** — unit management with proper TypeScript DTOs replacing `any` types; add `GET`, `PATCH`, `DELETE` for individual units with sub-unit dependency checks; `PUT positions/:id` → `PATCH` for consistent REST semantics.
+
+### Fixed
+- Race conditions in payroll `reopenPeriod`, leave `cancelLeaveRequest`, weapon `retire`, and weapon `createAllocation` — all now use database-level `SELECT FOR UPDATE` within transactions to prevent concurrent mutation conflicts.
+- Weapon service: replaced `null as unknown as Date` TypeORM type hack with proper `IsNull()` operator.
+
 ## [0.2.0.0] — 2026-04-27
 
 ### Added

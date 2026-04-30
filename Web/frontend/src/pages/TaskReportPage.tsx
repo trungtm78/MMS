@@ -44,8 +44,8 @@ export function TaskReportPage() {
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="task-report-page">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-[#0F172A]">Báo Cáo Nhiệm Vụ</h1>
-        <p className="text-sm text-[#64748B] mt-1">Thống kê tổng quan tình hình thực hiện nhiệm vụ</p>
+        <h1 className="text-[28px] font-bold text-[#0F172A]">Báo Cáo Nhiệm Vụ</h1>
+        <p className="text-sm text-[#64748B] mt-1">Báo cáo thống kê tình hình thực hiện nhiệm vụ</p>
       </div>
 
       {isError && (

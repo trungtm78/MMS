@@ -6,6 +6,7 @@ const E2E_USERS = [
   { username: 'e2e_police_ward', password: 'E2eTest@PW1', fullName: 'E2E CA Phường', role: 'police_ward' },
   { username: 'e2e_militia', password: 'E2eTest@DQ1', fullName: 'E2E Dân Quân', role: 'militia' },
   { username: 'e2e_admin', password: 'E2eTest@Ad1', fullName: 'E2E Admin', role: 'system_admin' },
+  { username: 'e2e_staff', password: 'E2eTest@St1', fullName: 'E2E Staff', role: 'police_ward' },
 ]
 
 export default async function globalSetup() {
@@ -45,6 +46,21 @@ export default async function globalSetup() {
       await c.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)', [userId, roleRes.rows[0].id])
     }
     console.log(`[E2E Setup] Created ${u.username} (${u.role}) id=${userId}`)
+
+    // Create a militia profile for e2e_militia user (needed for task assignment in SS-E2E-19)
+    if (u.username === 'e2e_militia') {
+      const unitRes = await c.query<{ id: string }>('SELECT id FROM units LIMIT 1')
+      if (unitRes.rows[0]) {
+        const unitId = unitRes.rows[0].id
+        await c.query(
+          `INSERT INTO militia_profiles (militia_code, full_name, user_id, unit_id, gender, status, cccd, dob, join_date)
+           VALUES ('QS-E2E-001', 'An E2E Dân Quân Test', $1, $2, 'male', 'active', '000000000001', '1990-01-01', '2020-01-01')
+           ON CONFLICT (militia_code) DO UPDATE SET user_id=$1, full_name='An E2E Dân Quân Test'`,
+          [userId, unitId],
+        )
+        console.log(`[E2E Setup] Created militia profile QS-E2E-001 for ${u.username}`)
+      }
+    }
   }
 
   await c.end()

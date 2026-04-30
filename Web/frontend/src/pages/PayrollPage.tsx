@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DollarSign, Download, CheckCircle, Lock, Edit2, Shield, Heart } from 'lucide-react'
 import { toast } from 'sonner'
 import { payrollApi } from '@/api/payroll'
+import { PayrollKpiFilter } from '@/components/payroll/PayrollKpiFilter'
 import type { PayrollPeriod, KpiScore } from '@/types'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -130,7 +131,7 @@ export function PayrollPage() {
   }
 
   return (
-    <div className="p-6 space-y-6" data-testid="payroll-page">
+    <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="payroll-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -176,7 +177,7 @@ export function PayrollPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-[#C62828] to-[#A91D1D] rounded-xl p-5 text-white shadow-md">
+        <div className="bg-gradient-to-br from-[#1F3A5F] to-[#2E7D32] rounded-xl p-5 text-white shadow-md">
           <div className="flex items-center gap-2 text-white/80 text-sm mb-2">
             <CheckCircle size={16} />
             Điểm KPI TB
@@ -247,6 +248,9 @@ export function PayrollPage() {
         {/* KPI Tab */}
         {activeTab === 'kpi' && (
           <>
+            <div className="p-4">
+              <PayrollKpiFilter />
+            </div>
             {isLoading ? (
               <div className="p-12 text-center">
                 <div className="inline-block w-8 h-8 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin"></div>

@@ -55,6 +55,18 @@ export interface TaskResult {
   militiaCode: string
 }
 
+export interface UpdateTaskPayload {
+  title?: string
+  description?: string
+  type?: string
+  priority?: string
+  deadline?: string
+}
+
+export interface CancelTaskPayload {
+  reason: string
+}
+
 export const tasksApi = {
   create: async (dto: CreateTaskPayload): Promise<TaskResult> => {
     const response = await client.post<TaskResult>('/tasks', dto)
@@ -64,5 +76,14 @@ export const tasksApi = {
   list: async (params?: { status?: string; page?: number; limit?: number }): Promise<TaskResult[]> => {
     const response = await client.get<TaskResult[]>('/tasks', { params })
     return response.data
+  },
+
+  update: async (id: string, dto: UpdateTaskPayload): Promise<TaskResult> => {
+    const response = await client.patch<TaskResult>(`/tasks/${id}`, dto)
+    return response.data
+  },
+
+  cancel: async (id: string, dto: CancelTaskPayload): Promise<void> => {
+    await client.delete(`/tasks/${id}`, { data: dto })
   },
 }

@@ -121,4 +121,15 @@ export class LeaveController {
   ) {
     await this.leaveService.reviewLeaveRequest(req.user, id, 'reject', reason);
   }
+
+  /** PATCH /leave/:id/cancel — cancel own pending leave request */
+  @Patch('leave/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancelLeaveRequest(
+    @Request() req: AuthRequest,
+    @Param('id') id: string,
+  ) {
+    await this.leaveService.cancelLeaveRequest(req.user, id);
+  }
 }

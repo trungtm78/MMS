@@ -1,46 +1,23 @@
 // US-W001 AC-2: Sidebar — menu filtered by role (RBAC)
 // US-W002: system_admin sees User Management; others do not
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useRbac } from '@/hooks/useRbac'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import client from '@/api/client'
 import {
   LayoutDashboard, Users, ClipboardList, Clock, CalendarOff, MapPin,
   DollarSign, FileText, Bell, Settings, LogOut, AlertTriangle, ShieldCheck,
   Smartphone, CheckSquare, Target, HelpCircle, GitBranch, BookOpen,
-  MessageCircle, ChevronDown, X, Shield, Award, UserPlus, Building2, Wrench
+  MessageCircle, ChevronDown, X, Shield, Award, UserPlus, Building2, Wrench,
+  Star, X as XIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useFavorites } from '@/hooks/useFavorites'
 
-export type AppRoute =
-  | 'dashboard'
-  | 'militia-list'
-  | 'militia-search'
-  | 'user-management'
-  | 'tasks'
-  | 'attendance'
-  | 'leave'
-  | 'sos'
-  | 'gps-tracking'
-  | 'payroll'
-  | 'audit-log'
-  | 'notifications'
-  | 'device-sessions'
-  | 'reports'
-  | 'approvals'
-  | 'timesheet'
-  | 'kpi-dashboard'
-  | 'assignments'
-  | 'official-documents'
-  | 'chat'
-  | 'settings'
-  | 'help'
-  | 'organization'
-  | 'weapons'
-  | 'recruitment'
-  | 'exemptions'
-  | 'training'
-  | 'rewards'
+import type { AppRoute } from '@/types/routes'
+export type { AppRoute }
 
 interface NavItem {
   route: AppRoute
@@ -64,9 +41,20 @@ interface SidebarProps {
 }
 
 export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onClose }: SidebarProps) {
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const { can } = useRbac()
-  const [openMenus, setOpenMenus] = useState<Set<string>>(new Set(['personnel']))
+  const [openMenus, setOpenMenus] = useState<Set<string>>(new Set(['personnel', 'favorites']))
+  const { favorites, isFavorite, toggle, remove } = useFavorites(user?.id != null ? String(user.id) : 'guest')
+
+  const isDqtv = !can.manageMilitia && !can.manageAttendance
+
+  const { data: dqtvStats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => client.get('/dashboard/stats').then(r => r.data),
+    enabled: isDqtv,
+    staleTime: 60_000,
+    refetchInterval: isDqtv ? 60_000 : false,
+  })
 
   const toggleMenu = (groupId: string) => {
     setOpenMenus(prev => {
@@ -170,14 +158,14 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
         data-testid="sidebar"
         aria-label="Navigation"
         className={cn(
-          'fixed left-0 top-20 w-64 h-[calc(100vh-5rem)] bg-[#2E7D32] border-r border-[#1F5F23] overflow-y-auto z-40 flex flex-col transition-transform duration-300 ease-in-out',
+          'fixed left-0 top-20 w-64 h-[calc(100vh-5rem)] bg-[#2E7D32] border-r border-[#1F5F23] overflow-y-auto shadow-lg z-50 flex flex-col transition-transform duration-300 ease-in-out',
           'lg:translate-x-0',
           isOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {/* Mobile close */}
         {onClose && (
-          <div className="lg:hidden sticky top-0 bg-[#2E7D32] border-b border-[#1F5F23] p-3 flex items-center justify-between">
+          <div className="lg:hidden sticky top-0 bg-[#2E7D32] border-b border-[#1F5F23] p-4 flex items-center justify-between">
             <span className="text-sm font-semibold text-white">Menu</span>
             <button
               aria-label="Đóng menu"
@@ -190,7 +178,7 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
         )}
 
         {/* Dashboard standalone */}
-        <nav className="flex-1 py-3 px-3">
+        <nav className="flex-1 p-4">
           <button
             data-testid="nav-dashboard"
             onClick={() => handleNavigate('dashboard')}
@@ -206,6 +194,61 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
             <span className="flex-1 text-left">Tổng quan</span>
           </button>
 
+          {/* Yêu thích group */}
+          {favorites.length > 0 && (() => {
+            const isFavOpen = openMenus.has('favorites')
+            // gather label+icon for each favorited route from groups
+            const favItems = favorites.map(route => {
+              for (const g of groups) {
+                const found = g.items.find(i => i.route === route)
+                if (found) return found
+              }
+              return null
+            }).filter(Boolean) as NavItem[]
+            return (
+              <div className="mb-1">
+                <button
+                  aria-expanded={isFavOpen}
+                  onClick={() => toggleMenu('favorites')}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[#F4F269] hover:bg-[#236127] rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Star size={13} className="fill-[#F4F269] text-[#F4F269]" />
+                    Yêu thích
+                  </span>
+                  <ChevronDown size={14} className={cn('transition-transform text-[#F4F269]', isFavOpen ? 'rotate-180' : '')} />
+                </button>
+                {isFavOpen && (
+                  <div className="ml-2 mt-0.5 space-y-0.5">
+                    {favItems.map((item) => (
+                      <div key={item.route} className="group relative flex items-center">
+                        <button
+                          data-testid={`nav-${item.route}`}
+                          onClick={() => handleNavigate(item.route)}
+                          aria-current={current === item.route ? 'page' : undefined}
+                          className={cn(
+                            'flex-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                            current === item.route ? 'bg-[#F4F269] text-[#C62828]' : 'text-white hover:bg-[#236127]',
+                          )}
+                        >
+                          <span className={current === item.route ? 'text-[#C62828]' : 'text-white'}>{item.icon}</span>
+                          <span className="flex-1 text-left">{item.label}</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); remove(item.route) }}
+                          className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:text-red-300 text-white/60 rounded"
+                          aria-label="Xóa khỏi yêu thích"
+                        >
+                          <XIcon size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Grouped items */}
           {groups.map((group) => {
             const isGroupOpen = openMenus.has(group.id)
@@ -214,7 +257,7 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
                 <button
                   aria-expanded={isGroupOpen}
                   onClick={() => toggleMenu(group.id)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-white hover:bg-[#236127] rounded-lg text-xs font-semibold uppercase tracking-wide transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 text-white hover:bg-[#236127] rounded-lg text-sm font-semibold transition-colors"
                 >
                   <span>{group.label}</span>
                   <ChevronDown
@@ -226,26 +269,37 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
                 {isGroupOpen && (
                   <div className="ml-2 mt-0.5 space-y-0.5">
                     {group.items.map((item) => (
-                      <button
-                        key={item.route}
-                        data-testid={`nav-${item.route}`}
-                        onClick={() => handleNavigate(item.route)}
-                        aria-current={current === item.route ? 'page' : undefined}
-                        className={cn(
-                          'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                          current === item.route
-                            ? 'bg-[#F4F269] text-[#C62828]'
-                            : 'text-white hover:bg-[#236127]',
-                        )}
-                      >
-                        <span className={current === item.route ? 'text-[#C62828]' : 'text-white'}>{item.icon}</span>
-                        <span className="flex-1 text-left">{item.label}</span>
-                        {item.badge && (
-                          <span className="bg-[#C62828] text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center">
-                            {item.badge}
-                          </span>
-                        )}
-                      </button>
+                      <div key={item.route} className="group relative flex items-center">
+                        <button
+                          data-testid={`nav-${item.route}`}
+                          onClick={() => handleNavigate(item.route)}
+                          aria-current={current === item.route ? 'page' : undefined}
+                          className={cn(
+                            'flex-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                            current === item.route
+                              ? 'bg-[#F4F269] text-[#C62828]'
+                              : 'text-white hover:bg-[#236127]',
+                          )}
+                        >
+                          <span className={current === item.route ? 'text-[#C62828]' : 'text-white'}>{item.icon}</span>
+                          <span className="flex-1 text-left">{item.label}</span>
+                          {item.badge && (
+                            <span className="bg-[#C62828] text-white text-xs rounded-full px-1.5 py-0.5 min-w-5 text-center">
+                              {item.badge}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggle(item.route) }}
+                          className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+                          aria-label={isFavorite(item.route) ? 'Bỏ yêu thích' : 'Thêm vào yêu thích'}
+                        >
+                          <Star
+                            size={12}
+                            className={isFavorite(item.route) ? 'fill-[#F4F269] text-[#F4F269]' : 'text-white/50'}
+                          />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -269,8 +323,25 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
           </button>
         </nav>
 
+        {/* DQTV stats widget — shown when user has limited role */}
+        {isDqtv && (
+          <div className="mx-3 mb-3 bg-[#1F5F23] rounded-lg px-3 py-2.5 text-white text-xs space-y-1.5">
+            <p className="font-semibold text-white/90 text-xs">Hôm nay</p>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${dqtvStats ? 'bg-[#69F0AE]' : 'bg-white/40'}`} />
+              <span className="text-white/80">Điểm danh: </span>
+              <span className="font-medium">{dqtvStats ? 'Đã ghi nhận' : 'Chưa chấm'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ClipboardList size={12} className="text-white/70 shrink-0" />
+              <span className="text-white/80">Nhiệm vụ: </span>
+              <span className="font-medium">{dqtvStats ? String(dqtvStats.pendingTasks) : '—'}</span>
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="border-t border-[#1F5F23] px-3 py-3 sticky bottom-0 bg-[#2E7D32]">
+        <div className="border-t border-[#1F5F23] p-4 sticky bottom-0 bg-[#1F5F23]">
           <button
             data-testid="settings-btn"
             onClick={() => handleNavigate('settings')}

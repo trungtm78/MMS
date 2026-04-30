@@ -23,6 +23,9 @@ export class WeaponItem {
   @Column({ type: 'uuid', nullable: true })
   responsiblePersonId: string | null
 
+  @Column({ type: 'varchar', length: 20, default: 'active' })
+  status: 'active' | 'retired' | 'maintenance'
+
   @CreateDateColumn()
   createdAt: Date
 

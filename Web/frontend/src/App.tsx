@@ -17,6 +17,7 @@ import { TaskCreateForm } from '@/components/tasks/TaskCreateForm'
 import { AttendanceForm } from '@/components/attendance/AttendanceForm'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { UserManagementPage } from '@/pages/UserManagementPage'
+import { UserForm } from '@/components/users/UserForm'
 import { TaskListPage } from '@/pages/TaskListPage'
 import { MilitiaSearchPage } from '@/pages/MilitiaSearchPage'
 import { MilitiaList } from '@/components/militia/MilitiaList'
@@ -153,11 +154,13 @@ function AppShell() {
           onMenuToggle={() => setSidebarOpen(o => !o)}
         />
         <main className="flex-1 overflow-y-auto pt-20 flex flex-col">
+          <div className="flex-1 flex flex-col">
           <Routes>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/tasks/list" element={<TaskListPage />} />
             <Route path="/tasks/*" element={<div className="p-6"><TaskCreateForm /></div>} />
             <Route path="/attendance/*" element={<div className="p-6"><AttendanceForm /></div>} />
+            <Route path="/users/new" element={<div className="p-6"><UserForm /></div>} />
             <Route path="/users/*" element={<UserManagementPage />} />
             <Route path="/payroll/*" element={<PayrollPage />} />
             <Route path="/militia/search" element={<MilitiaSearchPage />} />
@@ -201,6 +204,7 @@ function AppShell() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          </div>
           <GlobalFooter />
         </main>
       </div>

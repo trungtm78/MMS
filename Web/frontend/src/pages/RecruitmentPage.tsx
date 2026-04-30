@@ -127,6 +127,7 @@ export function RecruitmentPage() {
   const queryClient = useQueryClient()
   const [selectedTab, setSelectedTab] = useState<StatusTab>('all')
   const [showModal, setShowModal] = useState(false)
+  const [selectedApp, setSelectedApp] = useState<Application | null>(null)
 
   if (!can.manageMilitia) return <Navigate to="/forbidden" replace />
 
@@ -166,6 +167,27 @@ export function RecruitmentPage() {
     rejected: applications.filter((a) => a.status === 'rejected').length,
   }
 
+  const exportCSV = () => {
+    const headers = ['Họ tên', 'Tuổi', 'Điện thoại', 'Địa chỉ', 'Quận/Huyện', 'Trạng thái', 'Ngày nộp']
+    const rows = applications.map((a) => [
+      a.name,
+      String(a.age),
+      a.phone,
+      a.address,
+      a.district ?? '',
+      STATUS_LABELS[a.status],
+      a.applyDate,
+    ])
+    const csv = '﻿' + [headers, ...rows].map((r) => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'tuyen-chon-dqtv.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6" data-testid="recruitment-page">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -184,7 +206,7 @@ export function RecruitmentPage() {
               <UserPlus size={16} />
               Tạo đơn đăng ký
             </button>
-            <button className="px-4 py-2 text-sm font-medium text-[#64748B] hover:bg-[#F1F5F9] rounded-lg border border-[#E2E8F0] flex items-center gap-2 transition-colors">
+            <button onClick={exportCSV} className="px-4 py-2 text-sm font-medium text-[#64748B] hover:bg-[#F1F5F9] rounded-lg border border-[#E2E8F0] flex items-center gap-2 transition-colors">
               <Download size={16} />
               Xuất Excel
             </button>
@@ -192,11 +214,11 @@ export function RecruitmentPage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl p-5 border border-[#E2E8F0]">
+        <div className="grid grid-cols-4 gap-6">
+          <div className="bg-white rounded-xl p-6 border border-[#E2E8F0] shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#E3F2FD] rounded-lg flex items-center justify-center">
-                <FileText size={20} className="text-[#1976D2]" />
+              <div className="w-12 h-12 bg-[#E3F2FD] rounded-lg flex items-center justify-center">
+                <FileText size={24} className="text-[#1976D2]" />
               </div>
               <div>
                 <p className="text-xs text-[#64748B]">Tổng đơn</p>
@@ -204,10 +226,10 @@ export function RecruitmentPage() {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border border-[#E2E8F0]">
+          <div className="bg-white rounded-xl p-6 border border-[#E2E8F0] shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#E8F5E9] rounded-lg flex items-center justify-center">
-                <CheckCircle size={20} className="text-[#2E7D32]" />
+              <div className="w-12 h-12 bg-[#E8F5E9] rounded-lg flex items-center justify-center">
+                <CheckCircle size={24} className="text-[#2E7D32]" />
               </div>
               <div>
                 <p className="text-xs text-[#64748B]">Đã duyệt</p>
@@ -215,10 +237,10 @@ export function RecruitmentPage() {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border border-[#E2E8F0]">
+          <div className="bg-white rounded-xl p-6 border border-[#E2E8F0] shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FFF3E0] rounded-lg flex items-center justify-center">
-                <Clock size={20} className="text-[#F57C00]" />
+              <div className="w-12 h-12 bg-[#FFF3E0] rounded-lg flex items-center justify-center">
+                <Clock size={24} className="text-[#F57C00]" />
               </div>
               <div>
                 <p className="text-xs text-[#64748B]">Chờ duyệt</p>
@@ -226,10 +248,10 @@ export function RecruitmentPage() {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border border-[#E2E8F0]">
+          <div className="bg-white rounded-xl p-6 border border-[#E2E8F0] shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#FFEBEE] rounded-lg flex items-center justify-center">
-                <X size={20} className="text-[#C62828]" />
+              <div className="w-12 h-12 bg-[#FFEBEE] rounded-lg flex items-center justify-center">
+                <X size={24} className="text-[#C62828]" />
               </div>
               <div>
                 <p className="text-xs text-[#64748B]">Từ chối</p>
@@ -247,7 +269,7 @@ export function RecruitmentPage() {
               onClick={() => setSelectedTab(tab.id)}
               data-testid={`recruitment-tab-${tab.id}`}
               className={`px-4 py-2.5 text-sm font-medium rounded-lg whitespace-nowrap transition-all ${
-                selectedTab === tab.id ? 'bg-[#C62828] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'
+                selectedTab === tab.id ? 'bg-[#1F3A5F] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'
               }`}
             >
               {tab.label}
@@ -267,7 +289,7 @@ export function RecruitmentPage() {
               <thead className="bg-[#F8FAFC] border-b-2 border-[#E2E8F0]">
                 <tr>
                   {['STT', 'Họ tên', 'Tuổi', 'Địa chỉ', 'Số điện thoại', 'Ngày nộp', 'Trạng thái', 'Thao tác'].map((h) => (
-                    <th key={h} className="px-5 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">{h}</th>
+                    <th key={h} className="px-6 py-4 text-left text-xs font-semibold text-[#64748B] uppercase">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -295,23 +317,23 @@ export function RecruitmentPage() {
                         data-testid={`application-row-${app.id}`}
                         className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC] transition-colors"
                       >
-                        <td className="px-5 py-4 text-sm text-[#64748B]">{index + 1}</td>
-                        <td className="px-5 py-4">
+                        <td className="px-6 py-4 text-sm text-[#64748B]">{index + 1}</td>
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-gradient-to-br from-[#C62828] to-[#2E7D32] rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                            <div className="w-8 h-8 bg-gradient-to-br from-[#1F3A5F] to-[#2E7D32] rounded-full flex items-center justify-center text-white text-xs font-semibold">
                               {app.name.split(' ').filter(Boolean).slice(-1)[0]?.[0] ?? '?'}
                             </div>
                             <span className="text-sm font-semibold text-[#0F172A]">{app.name}</span>
                           </div>
                         </td>
-                        <td className="px-5 py-4 text-sm text-[#0F172A]">{app.age}</td>
-                        <td className="px-5 py-4">
+                        <td className="px-6 py-4 text-sm text-[#0F172A]">{app.age}</td>
+                        <td className="px-6 py-4">
                           <p className="text-sm text-[#0F172A]">{app.address}</p>
                           {app.district && <p className="text-xs text-[#64748B]">{app.district}</p>}
                         </td>
-                        <td className="px-5 py-4 text-sm text-[#0F172A]">{app.phone}</td>
-                        <td className="px-5 py-4 text-sm text-[#64748B]">{app.applyDate}</td>
-                        <td className="px-5 py-4">
+                        <td className="px-6 py-4 text-sm text-[#0F172A]">{app.phone}</td>
+                        <td className="px-6 py-4 text-sm text-[#64748B]">{app.applyDate}</td>
+                        <td className="px-6 py-4">
                           <span
                             className="px-3 py-1.5 text-xs font-semibold rounded-full"
                             style={{ backgroundColor: color.bg, color: color.text }}
@@ -319,9 +341,9 @@ export function RecruitmentPage() {
                             {STATUS_LABELS[app.status]}
                           </span>
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-1">
-                            <button className="w-8 h-8 flex items-center justify-center hover:bg-[#E3F2FD] rounded transition-colors" title="Xem chi tiết">
+                            <button onClick={() => setSelectedApp(app)} className="w-8 h-8 flex items-center justify-center hover:bg-[#E3F2FD] rounded transition-colors" title="Xem chi tiết">
                               <Eye size={15} className="text-[#64748B]" />
                             </button>
                             {app.status === 'new' && (
@@ -370,6 +392,43 @@ export function RecruitmentPage() {
       </div>
 
       {showModal && <CreateModal onClose={() => setShowModal(false)} />}
+
+      {selectedApp && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedApp(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-[#0F172A]">Chi tiết đơn đăng ký</h2>
+              <button onClick={() => setSelectedApp(null)} className="text-[#64748B] hover:text-[#0F172A]">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><p className="text-[#64748B]">Họ tên</p><p className="font-medium text-[#0F172A]">{selectedApp.name}</p></div>
+              <div><p className="text-[#64748B]">Tuổi</p><p className="font-medium text-[#0F172A]">{selectedApp.age}</p></div>
+              <div><p className="text-[#64748B]">Điện thoại</p><p className="font-medium text-[#0F172A]">{selectedApp.phone}</p></div>
+              <div><p className="text-[#64748B]">Địa chỉ</p><p className="font-medium text-[#0F172A] col-span-2">{selectedApp.address}</p></div>
+              {selectedApp.district && <div><p className="text-[#64748B]">Quận/Huyện</p><p className="font-medium text-[#0F172A]">{selectedApp.district}</p></div>}
+              {selectedApp.email && <div><p className="text-[#64748B]">Email</p><p className="font-medium text-[#0F172A]">{selectedApp.email}</p></div>}
+              {selectedApp.idNumber && <div><p className="text-[#64748B]">CCCD/CMND</p><p className="font-medium text-[#0F172A]">{selectedApp.idNumber}</p></div>}
+              <div><p className="text-[#64748B]">Ngày nộp</p><p className="font-medium text-[#0F172A]">{selectedApp.applyDate}</p></div>
+              <div>
+                <p className="text-[#64748B]">Trạng thái</p>
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mt-0.5"
+                  style={{ backgroundColor: STATUS_COLORS[selectedApp.status].bg, color: STATUS_COLORS[selectedApp.status].text }}
+                >
+                  {STATUS_LABELS[selectedApp.status]}
+                </span>
+              </div>
+            </div>
+            <div className="pt-2 flex justify-end gap-3">
+              <button onClick={() => setSelectedApp(null)} className="border border-[#E2E8F0] text-[#64748B] rounded-lg px-4 py-2 text-sm hover:border-[#C62828] transition-colors">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

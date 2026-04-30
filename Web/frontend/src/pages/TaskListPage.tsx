@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { CheckSquare, Clock, Search, ChevronLeft, ChevronRight } from 'lucide-react'
-import { listTasks } from '@/api/tasks'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { CheckSquare, Clock, Search, ChevronLeft, ChevronRight, Pencil, XCircle } from 'lucide-react'
+import { listTasks, tasksApi, TaskItem } from '@/api/tasks'
 
 const STATUS_TABS = [
   { id: 'all', label: 'Tất cả' },
@@ -37,6 +37,18 @@ export function TaskListPage() {
   const [page, setPage] = useState(1)
   const [searchTerm, setSearchTerm] = useState('')
 
+  // Edit modal state
+  const [editTask, setEditTask] = useState<TaskItem | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editPriority, setEditPriority] = useState('')
+  const [editDeadline, setEditDeadline] = useState('')
+
+  // Cancel modal state
+  const [cancelTask, setCancelTask] = useState<TaskItem | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+
+  const queryClient = useQueryClient()
+
   const { data, isLoading } = useQuery({
     queryKey: ['tasks', selectedStatus, page],
     queryFn: () => listTasks({
@@ -45,6 +57,47 @@ export function TaskListPage() {
       limit: 20,
     }),
   })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { title?: string; priority?: string; deadline?: string } }) =>
+      tasksApi.update(id, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setEditTask(null)
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      tasksApi.cancel(id, { reason }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setCancelTask(null)
+      setCancelReason('')
+    },
+  })
+
+  const openEdit = (task: TaskItem) => {
+    setEditTask(task)
+    setEditTitle(task.title)
+    setEditPriority(task.priority)
+    setEditDeadline(task.deadline ? task.deadline.slice(0, 10) : '')
+  }
+
+  const handleEdit = () => {
+    if (!editTask) return
+    const payload: { title?: string; priority?: string; deadline?: string } = {}
+    if (editTitle !== editTask.title) payload.title = editTitle
+    if (editPriority !== editTask.priority) payload.priority = editPriority
+    if (editDeadline !== (editTask.deadline ? editTask.deadline.slice(0, 10) : '')) payload.deadline = editDeadline || undefined
+    if (Object.keys(payload).length === 0) { setEditTask(null); return }
+    updateMutation.mutate({ id: editTask.id, payload })
+  }
+
+  const handleCancel = () => {
+    if (!cancelTask || !cancelReason.trim()) return
+    cancelMutation.mutate({ id: cancelTask.id, reason: cancelReason.trim() })
+  }
 
   const tasks = data?.data ?? []
   const total = data?.total ?? 0
@@ -60,11 +113,14 @@ export function TaskListPage() {
   }
 
   const getPriorityClass = (priority: string) => {
-    if (priority === 'urgent') return 'bg-red-100 text-red-700'
-    if (priority === 'high') return 'bg-red-100 text-red-700'
-    if (priority === 'medium') return 'bg-yellow-100 text-yellow-700'
-    return 'bg-green-100 text-green-700'
+    if (priority === 'urgent') return 'bg-[#FFEBEE] text-[#C62828]'
+    if (priority === 'high')   return 'bg-[#FFF3E0] text-[#F57C00]'
+    if (priority === 'medium') return 'bg-[#FFFDE7] text-[#FBC02D]'
+    return 'bg-[#F5F5F5] text-[#757575]'
   }
+
+  const canEdit = (status: string) => status === 'pending' || status === 'assigned'
+  const canCancel = (status: string) => !['completed', 'cancelled'].includes(status)
 
   return (
     <div className="p-6 space-y-6" data-testid="task-list-page">
@@ -129,12 +185,13 @@ export function TaskListPage() {
                     <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Ưu tiên</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Deadline</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Trạng thái</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center">
+                      <td colSpan={7} className="px-6 py-12 text-center">
                         <CheckSquare size={32} className="text-[#E2E8F0] mx-auto mb-2" />
                         <p className="text-sm text-[#94A3B8]">Chưa có nhiệm vụ</p>
                       </td>
@@ -170,6 +227,30 @@ export function TaskListPage() {
                             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor.text }}></span>
                             {STATUS_LABELS[task.status] ?? task.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            {canEdit(task.status) && (
+                              <button
+                                onClick={() => openEdit(task)}
+                                className="p-1.5 rounded-lg text-[#1976D2] hover:bg-[#E3F2FD] transition-colors"
+                                title="Chỉnh sửa"
+                                data-testid={`edit-task-${task.id}`}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            {canCancel(task.status) && (
+                              <button
+                                onClick={() => { setCancelTask(task); setCancelReason('') }}
+                                className="p-1.5 rounded-lg text-[#C62828] hover:bg-[#FFEBEE] transition-colors"
+                                title="Hủy nhiệm vụ"
+                                data-testid={`cancel-task-${task.id}`}
+                              >
+                                <XCircle size={14} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -208,6 +289,91 @@ export function TaskListPage() {
           </>
         )}
       </div>
+      {/* Edit Task Modal */}
+      {editTask && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="edit-task-modal">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-bold text-[#0F172A]">Chỉnh sửa nhiệm vụ</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1">Tiêu đề</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1">Ưu tiên</label>
+                <select
+                  value={editPriority}
+                  onChange={e => setEditPriority(e.target.value)}
+                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828]"
+                >
+                  <option value="urgent">Khẩn cấp</option>
+                  <option value="high">Cao</option>
+                  <option value="medium">Trung bình</option>
+                  <option value="low">Thấp</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1">Deadline</label>
+                <input
+                  type="date"
+                  value={editDeadline}
+                  onChange={e => setEditDeadline(e.target.value)}
+                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setEditTask(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC]"
+              >Hủy</button>
+              <button
+                onClick={handleEdit}
+                disabled={updateMutation.isPending}
+                className="px-4 py-2 text-sm rounded-lg bg-[#C62828] text-white hover:bg-[#B71C1C] disabled:opacity-50"
+              >{updateMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Task Modal */}
+      {cancelTask && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="cancel-task-modal">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-bold text-[#0F172A]">Hủy nhiệm vụ</h2>
+            <p className="text-sm text-[#64748B]">
+              Bạn sắp hủy nhiệm vụ <span className="font-semibold text-[#0F172A]">{cancelTask.title}</span>. Hành động này không thể hoàn tác.
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-[#374151] mb-1">Lý do hủy <span className="text-[#C62828]">*</span></label>
+              <textarea
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                rows={3}
+                placeholder="Nhập lý do hủy nhiệm vụ..."
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => { setCancelTask(null); setCancelReason('') }}
+                className="px-4 py-2 text-sm rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC]"
+              >Đóng</button>
+              <button
+                onClick={handleCancel}
+                disabled={cancelMutation.isPending || !cancelReason.trim()}
+                className="px-4 py-2 text-sm rounded-lg bg-[#C62828] text-white hover:bg-[#B71C1C] disabled:opacity-50"
+              >{cancelMutation.isPending ? 'Đang hủy...' : 'Xác nhận hủy'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

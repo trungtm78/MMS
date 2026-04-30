@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Calendar, Clock, XCircle, CheckCircle } from 'lucide-react'
+import { Calendar, Clock, XCircle, CheckCircle } from 'lucide-react'
 import client from '@/api/client'
 
 interface AttendanceDay {
@@ -18,8 +18,8 @@ interface TimesheetData {
   summary: { present: number; absent: number; leave: number }
 }
 
-async function getTimesheet(userId: string, weekOffset: number): Promise<TimesheetData> {
-  const res = await client.get('/attendance/timesheet', { params: { userId, weekOffset } })
+async function getTimesheet(userId: string, month: number, year: number): Promise<TimesheetData> {
+  const res = await client.get('/attendance/timesheet', { params: { userId, month, year } })
   return res.data
 }
 
@@ -33,12 +33,14 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; text: string; d
 const DOW = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN']
 
 export function TimesheetPage() {
-  const [weekOffset, setWeekOffset] = useState(0)
+  const now = new Date()
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
   const userId = 'current'
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['timesheet', userId, weekOffset],
-    queryFn: () => getTimesheet(userId, weekOffset),
+    queryKey: ['timesheet', userId, selectedMonth, selectedYear],
+    queryFn: () => getTimesheet(userId, selectedMonth, selectedYear),
     staleTime: 60_000,
   })
 
@@ -48,27 +50,29 @@ export function TimesheetPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#0F172A]">Bảng Chấm Công</h1>
-          <p className="text-sm text-[#64748B] mt-1">Xem lịch sử chấm công theo tuần</p>
+          <p className="text-sm text-[#64748B] mt-1">Tháng {selectedMonth}/{selectedYear}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setWeekOffset((w) => w - 1)}
-            className="p-2 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC] hover:border-[#C62828] transition-colors"
-            data-testid="prev-week"
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            data-testid="month-select"
           >
-            <ChevronLeft size={16} className="text-[#64748B]" />
-          </button>
-          <span className="text-sm font-semibold text-[#0F172A] min-w-[160px] text-center px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg">
-            {data?.weekLabel ?? 'Tuần hiện tại'}
-          </span>
-          <button
-            onClick={() => setWeekOffset((w) => Math.min(0, w + 1))}
-            disabled={weekOffset >= 0}
-            className="p-2 rounded-lg border border-[#E2E8F0] hover:bg-[#F8FAFC] hover:border-[#C62828] disabled:opacity-40 transition-colors"
-            data-testid="next-week"
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>Tháng {m}</option>
+            ))}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
+            data-testid="year-select"
           >
-            <ChevronRight size={16} className="text-[#64748B]" />
-          </button>
+            {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
       </div>
 

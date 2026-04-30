@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Query,
   Param,
@@ -13,6 +14,8 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import {
   IsString,
@@ -113,6 +116,18 @@ export class SubmitReportDto {
   photoIds?: string[];
 }
 
+export class UpdateTaskDto {
+  @IsOptional() @IsString() @Length(1, 255) title?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() @IsIn(['patrol', 'guard', 'inspection', 'support', 'training', 'admin', 'other']) type?: string;
+  @IsOptional() @IsString() @IsIn(['urgent', 'high', 'medium', 'low']) priority?: string;
+  @IsOptional() @IsDateString() deadline?: string;
+}
+
+export class CancelTaskDto {
+  @IsString() @IsNotEmpty() @Length(1, 500) reason: string;
+}
+
 @Controller('tasks')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TasksController {
@@ -182,5 +197,30 @@ export class TasksController {
     @Request() req: { user: { sub: string } },
   ) {
     return this.tasksService.submitReport(id, dto, req.user.sub);
+  }
+
+  // PATCH /tasks/:id — edit task details (pending/assigned only)
+  @Patch(':id')
+  @Roles('system_admin', 'office_staff', 'ca_officer')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async updateTask(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskDto,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.tasksService.updateTask(id, dto, req.user.sub);
+  }
+
+  // DELETE /tasks/:id — cancel task (set status='cancelled')
+  @Delete(':id')
+  @Roles('system_admin', 'ca_officer')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancelTask(
+    @Param('id') id: string,
+    @Body() dto: CancelTaskDto,
+    @Request() req: { user: { sub: string } },
+  ) {
+    await this.tasksService.cancelTask(id, dto.reason, req.user.sub);
   }
 }

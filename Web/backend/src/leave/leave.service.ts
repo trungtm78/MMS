@@ -291,6 +291,26 @@ export class LeaveService {
     );
   }
 
+  async cancelLeaveRequest(user: JwtPayload, requestId: string): Promise<void> {
+    return this.dataSource.transaction(async (mgr) => {
+      const rows = await mgr.query<{ requester_id: string; status: string }[]>(
+        `SELECT requester_id, status FROM leave_requests WHERE id = $1::uuid FOR UPDATE`,
+        [requestId],
+      );
+      if (!rows.length) throw new NotFoundException('leave_request_not_found');
+      const req = rows[0];
+      if (req.requester_id !== user.sub) throw new ForbiddenException('not_your_leave_request');
+      if (req.status !== 'pending') throw new BadRequestException('leave_request_not_pending');
+
+      const result = await mgr.query<{ id: string }[]>(
+        `UPDATE leave_requests SET status = 'cancelled', updated_at = NOW()
+         WHERE id = $1::uuid AND status = 'pending' RETURNING id`,
+        [requestId],
+      );
+      if (!result.length) throw new BadRequestException('leave_request_not_pending');
+    });
+  }
+
   async listApprovals(reviewer: JwtPayload, status?: string): Promise<Approval[]> {
     if (!REVIEWER_ROLES.has(reviewer.role)) {
       throw new ForbiddenException('insufficient_role_to_view_approvals');

@@ -16,13 +16,18 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { IsNumber, IsString, IsOptional, Min, Max } from 'class-validator';
+import { IsNumber, IsString, IsOptional, Min, Max, IsInt } from 'class-validator';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../auth/auth.service';
+
+class CreatePayrollPeriodDto {
+  @IsInt() @Min(2000) @Max(2100) year: number;
+  @IsInt() @Min(1) @Max(12) month: number;
+}
 
 class AdjustKpiDto {
   @IsNumber() @Min(0) @Max(100)
@@ -98,6 +103,26 @@ export class PayrollController {
   @HttpCode(HttpStatus.OK)
   async calculate(@Param('id') id: string) {
     return this.payrollService.calculateAllowances(id);
+  }
+
+  // POST /payroll/periods — create a new payroll period
+  @Post('periods')
+  @Roles('system_admin')
+  @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async createPeriod(@Body() dto: CreatePayrollPeriodDto) {
+    return this.payrollService.createPeriod(dto.year, dto.month);
+  }
+
+  // POST /payroll/periods/:id/reopen — reopen a locked period
+  @Post('periods/:id/reopen')
+  @Roles('system_admin', 'police_ward')
+  @HttpCode(HttpStatus.OK)
+  async reopenPeriod(
+    @Param('id') id: string,
+    @Request() req: { user: JwtPayload },
+  ) {
+    return this.payrollService.reopenPeriod(id, req.user);
   }
 
   // POST /payroll/periods/:id/lock

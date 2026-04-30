@@ -2,7 +2,7 @@ import ncscLogo from '@/assets/01c1e386ac3d00655221fee6db98ffe82cf0338c.png'
 
 export function GlobalFooter() {
   return (
-    <footer className="bg-[#F4F269] border-t-4 border-[#C62828] py-3 px-6 md:px-16 mt-auto">
+    <footer className="bg-[#F4F269] border-t-4 border-[#C62828] py-3 px-6 md:px-16 shrink-0">
       <div className="max-w-[1240px] mx-auto">
         <h3 className="text-[#C62828] text-sm font-bold mb-1.5 leading-tight">
           ỦY BAN NHÂN DÂN PHƯỜNG PHÚ ĐỊNH

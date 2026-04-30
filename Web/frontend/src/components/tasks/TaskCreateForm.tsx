@@ -230,8 +230,8 @@ export function TaskCreateForm({ onSuccess }: TaskCreateFormProps) {
     })
   }
 
-  const onSubmit = handleSubmit((data: FormValues) => {
-    createMutation.mutate(data)
+  const onSubmit = handleSubmit(({ attachmentIds: _a, location: _l, ...taskData }) => {
+    createMutation.mutate(taskData)
   })
 
   return (

@@ -1,20 +1,29 @@
-import { IsString, IsOptional, IsNumber, IsUUID } from 'class-validator'
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsUUID, Length, IsNumber } from 'class-validator'
 
 export class CreateUnitDto {
   @IsString()
-  type: 'tieu_doi' | 'trung_doi' | 'dai_doi'
+  @IsNotEmpty()
+  @Length(1, 200)
+  name: string
 
   @IsString()
-  name: string
+  @IsNotEmpty()
+  @IsIn(['tieu_doi', 'trung_doi', 'dai_doi'])
+  type: 'tieu_doi' | 'trung_doi' | 'dai_doi'
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string
 
   @IsOptional()
   @IsUUID()
   commanderId?: string
 
   @IsOptional()
-  @IsUUID()
-  parentId?: string
-
   @IsNumber()
-  capacity: number
+  capacity?: number
+
+  @IsOptional()
+  @IsString()
+  wardId?: string
 }

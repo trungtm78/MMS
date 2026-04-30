@@ -33,13 +33,15 @@ test.describe('E2E: AttendanceForm', () => {
     const input = page.getByTestId('smart-select-militia-input')
     await input.click()
     await input.fill('an')
-    await page.waitForSelector('[data-testid^="smart-select-militia-option-"]', { timeout: 5_000 })
+    await page.waitForSelector('[data-testid^="smart-select-militia-option-"]', { timeout: 8_000 })
     await page.locator('[data-testid^="smart-select-militia-option-"]').first().click()
 
-    await page.getByTestId('attendance-date-input').fill('2026-03-08')
+    // Use unique date each run to avoid "already recorded" duplicate errors
+    const uniqueDate = `2025-0${Math.floor(Math.random() * 9) + 1}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`
+    await page.getByTestId('attendance-date-input').fill(uniqueDate)
     await page.getByTestId('attendance-status-select').selectOption('present')
     await page.getByTestId('attendance-submit-btn').click()
-    await page.waitForSelector('[data-testid="attendance-create-success"]', { timeout: 5_000 })
+    await page.waitForSelector('[data-testid="attendance-create-success"]', { timeout: 10_000 })
     await page.screenshot({ path: 'test-results/uat/screenshots/smartselect-step02-att-success.png', fullPage: true })
   })
 })

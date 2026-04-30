@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
 
 const mockQuery = jest.fn();
@@ -140,5 +140,71 @@ describe('PayrollService', () => {
     await expect(service.lockPeriod('period-1', actor)).rejects.toThrow(
       new ConflictException('period_already_locked'),
     );
+  });
+
+  // ── createPeriod ─────────────────────────────────────────────────────────
+
+  describe('createPeriod', () => {
+    it('7. should create a new payroll period and return it', async () => {
+      const now = new Date().toISOString();
+      mockQuery.mockResolvedValueOnce([{
+        id: 'p-new', year: 2026, month: 5, status: 'draft', createdAt: now,
+      }]);
+
+      const result = await service.createPeriod(2026, 5);
+
+      expect(result).toBeDefined();
+      expect(result['year']).toBe(2026);
+      expect(result['month']).toBe(5);
+      expect(result['status']).toBe('draft');
+    });
+
+    it('8. should throw ConflictException on duplicate year+month (code 23505)', async () => {
+      mockQuery.mockRejectedValueOnce({ code: '23505' });
+
+      await expect(service.createPeriod(2026, 5)).rejects.toThrow(ConflictException);
+    });
+
+    it('9. should rethrow unknown DB errors', async () => {
+      const dbErr = new Error('connection_lost');
+      mockQuery.mockRejectedValueOnce(dbErr);
+
+      await expect(service.createPeriod(2026, 5)).rejects.toThrow('connection_lost');
+    });
+  });
+
+  // ── reopenPeriod ─────────────────────────────────────────────────────────
+
+  describe('reopenPeriod', () => {
+    it('10. should reopen a locked period and set status to draft', async () => {
+      const now = new Date().toISOString();
+      mockMgrQuery
+        .mockResolvedValueOnce([{ status: 'locked' }])   // SELECT status
+        .mockResolvedValueOnce([{                          // UPDATE RETURNING
+          id: 'period-1', year: 2026, month: 4, status: 'draft', updatedAt: now,
+        }])
+        .mockResolvedValueOnce([]);                        // INSERT audit_log
+
+      const result = await service.reopenPeriod('period-1', actor);
+
+      expect(result['status']).toBe('draft');
+      expect(mockTransaction).toHaveBeenCalled();
+    });
+
+    it('11. should throw BadRequestException if period is not locked', async () => {
+      mockMgrQuery.mockResolvedValueOnce([{ status: 'draft' }]);
+
+      await expect(service.reopenPeriod('period-1', actor)).rejects.toThrow(
+        new BadRequestException('period_not_locked'),
+      );
+    });
+
+    it('12. should throw NotFoundException if period does not exist', async () => {
+      mockMgrQuery.mockResolvedValueOnce([]); // empty → not found
+
+      await expect(service.reopenPeriod('no-such-id', actor)).rejects.toThrow(
+        new NotFoundException('period_not_found'),
+      );
+    });
   });
 });

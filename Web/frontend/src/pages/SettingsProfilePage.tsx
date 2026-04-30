@@ -73,7 +73,7 @@ export function SettingsProfilePage() {
         {!isEditing && (
           <button
             onClick={handleStartEdit}
-            className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+            className="bg-[#1F3A5F] text-white hover:bg-[#2d5380] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
             data-testid="edit-profile-btn"
           >
             Chỉnh sửa
@@ -81,14 +81,14 @@ export function SettingsProfilePage() {
         )}
       </div>
 
-      <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+      <div className="bg-white rounded-lg border border-[#E2E8F0] overflow-hidden">
         {/* Banner */}
-        <div className="h-24 bg-gradient-to-r from-[#C62828] to-[#A91D1D]" />
+        <div className="h-24 bg-gradient-to-r from-[#1F3A5F] to-[#2d5380]" />
 
         <div className="px-6 pb-6">
           <div className="flex items-end gap-4 -mt-12 mb-6">
             {/* Avatar circle with initial */}
-            <div className="w-24 h-24 bg-[#2E7D32] rounded-full border-4 border-white shadow-md flex items-center justify-center flex-shrink-0">
+            <div className="w-24 h-24 bg-gradient-to-br from-[#1F3A5F] to-[#2d5380] rounded-full border-4 border-white shadow-md flex items-center justify-center flex-shrink-0">
               <span className="text-3xl font-bold text-white">{initial}</span>
             </div>
             <div className="pb-2">
@@ -167,7 +167,7 @@ export function SettingsProfilePage() {
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center text-[#C62828] flex-shrink-0 mt-0.5">
+      <div className="w-8 h-8 bg-[#FFF3E0] rounded-lg flex items-center justify-center text-[#C62828] flex-shrink-0 mt-0.5">
         {icon}
       </div>
       <div>
