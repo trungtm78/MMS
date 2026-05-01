@@ -25,4 +25,7 @@ class Routes {
   static const String taskReport = '/tasks/:id/report';
   static const String chat = '/chat';
   static const String chatDetail = '/chat/:conversationId';
+
+  // Training
+  static const String training = '/training';
 }
