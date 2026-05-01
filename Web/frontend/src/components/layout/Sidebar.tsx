@@ -11,7 +11,7 @@ import {
   DollarSign, FileText, Bell, Settings, LogOut, AlertTriangle, ShieldCheck,
   Smartphone, CheckSquare, Target, HelpCircle, GitBranch, BookOpen,
   MessageCircle, ChevronDown, X, Shield, Award, UserPlus, Building2, Wrench,
-  Star, X as XIcon,
+  Star, X as XIcon, Scale, ListChecks, UsersRound, CalendarCheck, Medal,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useFavorites } from '@/hooks/useFavorites'
@@ -114,6 +114,17 @@ export function Sidebar({ current, onNavigate, sosBadge = 0, isOpen = true, onCl
         { route: 'training' as AppRoute, label: 'Lịch huấn luyện', icon: <Target size={16} /> },
       ]
     }] : []),
+    {
+      id: 'compliance-reports',
+      label: 'Báo Cáo Pháp Định',
+      items: [
+        { route: 'compliance-dashboard' as AppRoute, label: 'Tổng quan tuân thủ', icon: <Scale size={16} /> },
+        { route: 'report-training-compliance' as AppRoute, label: 'Tuân thủ huấn luyện', icon: <ListChecks size={16} /> },
+        { route: 'report-roster' as AppRoute, label: 'Danh sách QN (Mẫu 01-BC)', icon: <UsersRound size={16} /> },
+        { route: 'report-attendance-summary' as AppRoute, label: 'Tổng hợp điểm danh', icon: <CalendarCheck size={16} /> },
+        { route: 'report-rewards-discipline' as AppRoute, label: 'Khen thưởng - Kỷ luật', icon: <Medal size={16} /> },
+      ]
+    },
     {
       id: 'reports',
       label: 'Báo Cáo & Thống Kê',

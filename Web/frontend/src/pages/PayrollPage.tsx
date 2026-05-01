@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { DollarSign, Download, CheckCircle, Lock, Edit2, Shield, Heart } from 'lucide-react'
+import { DollarSign, Download, CheckCircle, Lock, Edit2, Shield, Heart, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { payrollApi } from '@/api/payroll'
 import { PayrollKpiFilter } from '@/components/payroll/PayrollKpiFilter'
+import client from '@/api/client'
 import type { PayrollPeriod, KpiScore } from '@/types'
+
+interface ComplianceItem {
+  militiaId: string
+  militiaName: string
+  baseSalary: number
+  net: number
+  minWage: number
+  diff: number
+  compliant: boolean
+}
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Nháp',
@@ -31,7 +42,7 @@ interface AdjustModalState {
   currentScore: number | null
 }
 
-type MainTab = 'kpi' | 'allowance'
+type MainTab = 'kpi' | 'allowance' | 'compliance'
 
 export function PayrollPage() {
   const queryClient = useQueryClient()
@@ -79,6 +90,27 @@ export function PayrollPage() {
     },
     onError: () => toast.error('Không thể lưu điều chỉnh'),
   })
+
+  const { data: complianceData, isLoading: complianceLoading } = useQuery<ComplianceItem[]>({
+    queryKey: ['payroll-compliance', selectedPeriodId],
+    queryFn: () => client.get(`/payroll/compliance-check?periodId=${selectedPeriodId}`).then(r => r.data),
+    enabled: !!selectedPeriodId && activeTab === 'compliance',
+  })
+
+  const handleComplianceExport = async () => {
+    if (!selectedPeriodId) return
+    try {
+      const resp = await client.get(`/payroll/export?periodId=${selectedPeriodId}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(resp.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `BangLuong_${selectedPeriodId}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Không thể xuất bảng lương')
+    }
+  }
 
   const selectedPeriod = periods?.find((p) => p.id === selectedPeriodId)
 
@@ -242,6 +274,16 @@ export function PayrollPage() {
             }`}
           >
             Phụ cấp &amp; Bảo hiểm
+          </button>
+          <button
+            onClick={() => setActiveTab('compliance')}
+            className={`px-6 py-3.5 text-sm font-medium transition-all relative ${
+              activeTab === 'compliance'
+                ? 'text-[#C62828] border-b-2 border-[#C62828] -mb-px'
+                : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F8FAFC]'
+            }`}
+          >
+            Tuân thủ
           </button>
         </div>
 
@@ -428,6 +470,87 @@ export function PayrollPage() {
             <p className="text-xs text-[#94A3B8] bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-4 py-3">
               Thông tin phụ cấp và bảo hiểm mang tính chất tham khảo. Kết nối API đang được triển khai.
             </p>
+          </div>
+        )}
+
+        {/* Tuân thủ lương Tab */}
+        {activeTab === 'compliance' && (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                {complianceData && (
+                  <p className="text-sm text-[#64748B]">
+                    <span className="font-semibold text-[#2E7D32]">
+                      {complianceData.filter(r => r.compliant).length}
+                    </span>
+                    /{complianceData.length} trả đúng lương tối thiểu
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={handleComplianceExport}
+                disabled={!selectedPeriodId}
+                className="flex items-center gap-2 px-4 py-2 border border-[#E2E8F0] text-[#64748B] rounded-lg text-sm hover:border-[#C62828] hover:text-[#C62828] disabled:opacity-50 transition-colors"
+                data-testid="compliance-export-btn"
+              >
+                <Download size={16} />
+                Xuất Excel
+              </button>
+            </div>
+
+            {complianceLoading ? (
+              <div className="p-12 text-center">
+                <div className="inline-block w-8 h-8 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-[#E2E8F0]">
+                <table className="w-full">
+                  <thead className="bg-[#F8FAFC] border-b-2 border-[#E2E8F0]">
+                    <tr>
+                      {['Họ tên', 'Lương CB', 'Thực lĩnh', 'Lương tối thiểu', 'Chênh lệch', 'Trạng thái'].map(h => (
+                        <th key={h} className="px-6 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#F1F5F9]">
+                    {!complianceData || complianceData.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-[#94A3B8] text-sm">
+                          Không có dữ liệu tuân thủ cho kỳ này
+                        </td>
+                      </tr>
+                    ) : (
+                      complianceData.map((item) => (
+                        <tr
+                          key={item.militiaId}
+                          className={`transition-colors ${item.compliant ? 'hover:bg-[#F8FAFC]' : 'bg-red-50 hover:bg-red-100'}`}
+                          data-testid={`compliance-row-${item.militiaId}`}
+                        >
+                          <td className="px-6 py-4 text-sm font-semibold text-[#0F172A]">{item.militiaName}</td>
+                          <td className="px-6 py-4 text-sm text-[#0F172A]">{formatVND(item.baseSalary)}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-[#0F172A]">{formatVND(item.net)}</td>
+                          <td className="px-6 py-4 text-sm text-[#64748B]">{formatVND(item.minWage)}</td>
+                          <td className={`px-6 py-4 text-sm font-bold ${item.diff >= 0 ? 'text-[#2E7D32]' : 'text-[#C62828]'}`}>
+                            {item.diff >= 0 ? '+' : ''}{formatVND(item.diff)}
+                          </td>
+                          <td className="px-6 py-4">
+                            {item.compliant ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-[#2E7D32] text-xs font-semibold rounded-full">
+                                <CheckCircle size={12} /> Đạt
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 text-[#C62828] text-xs font-semibold rounded-full">
+                                <AlertCircle size={12} /> Vi phạm
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

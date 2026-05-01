@@ -10,8 +10,11 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
+import * as ExcelJS from 'exceljs';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { CA_ROLES } from '../common/constants/roles';
+import { ExcelExportService } from '../common/services/excel-export.service';
+import type { JwtPayload } from '../auth/auth.service';
 
 export interface MilitiaSearchItem {
   id: string;
@@ -59,6 +62,7 @@ export class MilitiaService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly assignmentsService: AssignmentsService,
+    private readonly excelExportService: ExcelExportService,
   ) {}
 
   // ── CCCD encryption helpers ────────────────────────────────────────────
@@ -455,6 +459,128 @@ export class MilitiaService {
     };
   }
 
+  // ── exportMilitiaRoster ──────────────────────────────────────────────────
+
+  async exportMilitiaRoster(
+    user: JwtPayload,
+    filters: { unitCode?: string; status?: string },
+  ): Promise<ExcelJS.Workbook> {
+    const effectiveUnit: string | null =
+      user.role === 'system_admin' ? (filters.unitCode ?? null) : (user.unitScope ?? null);
+
+    const rows = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT
+         mp.id,
+         mp.militia_code           AS "militiaCode",
+         mp.full_name              AS "fullName",
+         mp.cccd,
+         mp.phone,
+         mp.rank,
+         mp.status,
+         mp.gender,
+         mp.dob,
+         mp.position,
+         mp.join_date              AS "joinDate",
+         mp.occupation,
+         mp.education_level        AS "educationLevel",
+         mp.health_status          AS "healthStatus",
+         mp.blood_type             AS "bloodType",
+         mp.permanent_address      AS "permanentAddress",
+         mp.judicial_clearance_status AS "judicialClearanceStatus",
+         u.code                    AS "unitCode",
+         u.name                    AS "unitName"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE ($1::text IS NULL OR u.code = $1)
+         AND ($2::text IS NULL OR mp.status = $2)
+       ORDER BY u.code, mp.full_name`,
+      [effectiveUnit, filters.status ?? null],
+    );
+
+    const wb = this.excelExportService.createWorkbook();
+
+    // Sheet 1 — main roster (CCCD masked)
+    const sheet1 = wb.addWorksheet('Danh sách DQTV');
+    const startRow = this.excelExportService.addGovernmentHeader(sheet1, {
+      agency: 'BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: 'DANH SÁCH DÂN QUÂN TỰ VỆ (NĐ 72/2020/NĐ-CP)',
+      reportDate: new Date(),
+    });
+
+    const tableRows = rows.map((r, i) => {
+      const cccd = r['cccd'] as string | null;
+      const maskedCccd = cccd ? `****-****-${cccd.slice(-4)}` : '—';
+      return {
+        stt: i + 1,
+        militiaCode: r['militiaCode'],
+        fullName: r['fullName'],
+        cccd: maskedCccd,
+        phone: r['phone'] ?? '—',
+        rank: r['rank'] ?? '—',
+        status: r['status'],
+        gender: r['gender'],
+        dob: r['dob'] ? new Date(r['dob'] as string) : null,
+        position: r['position'] ?? '—',
+        joinDate: r['joinDate'] ? new Date(r['joinDate'] as string) : null,
+        occupation: r['occupation'] ?? '—',
+        educationLevel: r['educationLevel'] ?? '—',
+        healthStatus: r['healthStatus'] ?? '—',
+        bloodType: r['bloodType'] ?? '—',
+        permanentAddress: r['permanentAddress'] ?? '—',
+        judicialClearanceStatus: r['judicialClearanceStatus'] ?? '—',
+        unitCode: r['unitCode'],
+        unitName: r['unitName'],
+      };
+    });
+
+    this.excelExportService.addStyledTable(sheet1, startRow, [
+      { header: 'STT',            key: 'stt',                    width: 6,  type: 'number' as const },
+      { header: 'Mã DQTV',       key: 'militiaCode',            width: 14 },
+      { header: 'Họ tên',        key: 'fullName',               width: 24 },
+      { header: 'CCCD (ẩn)',     key: 'cccd',                   width: 18 },
+      { header: 'Điện thoại',    key: 'phone',                  width: 16 },
+      { header: 'Cấp bậc',       key: 'rank',                   width: 14 },
+      {
+        header: 'Trạng thái',
+        key: 'status',
+        width: 14,
+        type: 'status' as const,
+        statusColors: { active: 'CCFFCC', inactive: 'FFCCCC', reserve: 'FFF3CD' },
+      },
+      { header: 'Giới tính',     key: 'gender',                 width: 12 },
+      { header: 'Ngày sinh',     key: 'dob',                    width: 14, type: 'date' as const },
+      { header: 'Chức vụ',       key: 'position',               width: 18 },
+      { header: 'Ngày nhập ngũ', key: 'joinDate',               width: 16, type: 'date' as const },
+      { header: 'Nghề nghiệp',   key: 'occupation',             width: 18 },
+      { header: 'Trình độ',      key: 'educationLevel',         width: 16 },
+      { header: 'Sức khỏe',      key: 'healthStatus',           width: 14 },
+      { header: 'Nhóm máu',      key: 'bloodType',              width: 12 },
+      { header: 'Địa chỉ TT',    key: 'permanentAddress',       width: 30 },
+      { header: 'Tư pháp',       key: 'judicialClearanceStatus',width: 18 },
+      { header: 'Mã đơn vị',     key: 'unitCode',               width: 14 },
+      { header: 'Tên đơn vị',    key: 'unitName',               width: 24 },
+    ], tableRows);
+
+    this.excelExportService.addDocumentHash(sheet1, `militia-roster-${effectiveUnit ?? 'all'}-${rows.length}`);
+    this.excelExportService.addSignatureBlock(sheet1, startRow + rows.length + 2, {
+      position: 'Chỉ huy trưởng',
+    });
+
+    // Sheet 2 — summary stats
+    const sheet2 = wb.addWorksheet('Thống kê');
+    const activeCount = rows.filter((r) => r['status'] === 'active').length;
+    const inactiveCount = rows.filter((r) => r['status'] === 'inactive').length;
+
+    this.excelExportService.addSummaryStatsTable(sheet2, 0, 'Thống kê danh sách DQTV', [
+      { label: 'Tổng số', value: rows.length },
+      { label: 'Đang hoạt động', value: activeCount },
+      { label: 'Không hoạt động', value: inactiveCount },
+      { label: 'Đơn vị', value: effectiveUnit ?? 'Toàn bộ' },
+    ]);
+
+    return wb;
+  }
+
   // NĐ 13/2023: Data correction request — logs to audit trail
   async requestDataCorrection(
     userId: string,
@@ -579,5 +705,113 @@ export class MilitiaService {
       permanentAddress: (row['permanentAddress'] as string | null) ?? null,
       judicialClearanceStatus: (row['judicialClearanceStatus'] as string | null) ?? null,
     };
+  }
+
+  // Sprint 3: GET /militia/rewards-report?from=&to=&type=&unitCode=
+  async getRewardsReport(params: {
+    from?: string;
+    to?: string;
+    type?: string;
+    unitCode?: string;
+  }): Promise<unknown[]> {
+    const conditions: string[] = ['1=1'];
+    const qParams: unknown[] = [];
+
+    if (params.from) {
+      qParams.push(params.from);
+      conditions.push(`mr.issued_date >= $${qParams.length}::date`);
+    }
+    if (params.to) {
+      qParams.push(params.to);
+      conditions.push(`mr.issued_date <= $${qParams.length}::date`);
+    }
+    if (params.type && params.type !== 'all') {
+      qParams.push(params.type);
+      conditions.push(`mr.reward_type = $${qParams.length}`);
+    }
+    if (params.unitCode) {
+      qParams.push(params.unitCode);
+      conditions.push(`u.code = $${qParams.length}`);
+    }
+
+    return this.dataSource.query(
+      `SELECT mr.id, mp.full_name AS "fullName", mp.militia_code AS "militiaCode",
+              u.name AS "unitName", mr.reward_type AS "rewardType",
+              mr.title AS "description", mr.description AS "content",
+              mr.issued_by AS "decisionNo", mr.issued_date AS "decisionDate",
+              mr.created_at AS "createdAt"
+       FROM militia_rewards mr
+       JOIN militia_profiles mp ON mp.id = mr.militia_id
+       JOIN units u ON u.id = mp.unit_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY mr.issued_date DESC NULLS LAST`,
+      qParams,
+    );
+  }
+
+  // Sprint 3: GET /militia/rewards-export → xlsx stream (TT 57/2020 reference)
+  async exportRewardsReport(
+    params: { from?: string; to?: string; type?: string; unitCode?: string },
+    res: import('express').Response,
+  ): Promise<void> {
+    const data = await this.getRewardsReport(params);
+    const rewards = (data as Record<string, unknown>[]).filter(r => r['rewardType'] === 'reward');
+    const discipline = (data as Record<string, unknown>[]).filter(r => r['rewardType'] !== 'reward');
+
+    const wb = this.excelExportService.createWorkbook();
+    const reportDate = new Date();
+    const dateRange = `${params.from ?? '...'} đến ${params.to ?? '...'}`;
+
+    const toRows = (items: Record<string, unknown>[]) =>
+      items.map((item, idx) => ({
+        stt: idx + 1,
+        fullName: item['fullName'],
+        militiaCode: item['militiaCode'],
+        unitName: item['unitName'],
+        rewardType: item['rewardType'],
+        content: item['content'],
+        decisionNo: item['decisionNo'],
+        decisionDate: item['decisionDate'] ? new Date(item['decisionDate'] as string) : null,
+      }));
+
+    const cols = [
+      { header: 'STT', key: 'stt', width: 6, type: 'number' as const },
+      { header: 'Họ tên', key: 'fullName', width: 24 },
+      { header: 'Mã DQTV', key: 'militiaCode', width: 14 },
+      { header: 'Đơn vị', key: 'unitName', width: 18 },
+      { header: 'Hình thức', key: 'rewardType', width: 16 },
+      { header: 'Nội dung', key: 'content', width: 30 },
+      { header: 'Số QĐ', key: 'decisionNo', width: 16 },
+      { header: 'Ngày QĐ', key: 'decisionDate', width: 14, type: 'date' as const },
+    ];
+
+    // Sheet 1: Khen thưởng
+    const sheet1 = wb.addWorksheet('Khen thưởng');
+    const start1 = this.excelExportService.addGovernmentHeader(sheet1, {
+      agency: 'UBND PHƯỜNG PHÚ ĐỊNH — BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `DANH SÁCH KHEN THƯỞNG DÂN QUÂN TỰ VỆ (${dateRange})`,
+      reportDate,
+    });
+    this.excelExportService.addStyledTable(sheet1, start1, cols, toRows(rewards));
+    this.excelExportService.addDocumentHash(sheet1, `khen-thuong-${dateRange}`);
+
+    // Sheet 2: Kỷ luật
+    const sheet2 = wb.addWorksheet('Kỷ luật');
+    const start2 = this.excelExportService.addGovernmentHeader(sheet2, {
+      agency: 'UBND PHƯỜNG PHÚ ĐỊNH — BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `DANH SÁCH KỶ LUẬT DÂN QUÂN TỰ VỆ (${dateRange})`,
+      reportDate,
+    });
+    this.excelExportService.addStyledTable(sheet2, start2, cols, toRows(discipline));
+    sheet2.getCell(`A${start2 - 1}`).note = 'Tóm tắt nội bộ — không phải biên bản chính thức. Tham chiếu: TT 57/2020/TT-BQP.';
+    this.excelExportService.addDocumentHash(sheet2, `ky-luat-${dateRange}`);
+
+    this.excelExportService.addLegalReferencesSheet(wb, [
+      'Thông tư 57/2020/TT-BQP về công tác khen thưởng, kỷ luật dân quân tự vệ',
+      'Nghị định 72/2020/NĐ-CP về lực lượng dân quân tự vệ',
+    ]);
+
+    const filename = `KhenThuong_KyLuat_${params.from ?? 'all'}_${params.to ?? 'all'}.xlsx`;
+    await this.excelExportService.streamToResponse(wb, res, filename);
   }
 }

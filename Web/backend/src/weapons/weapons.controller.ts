@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus, UsePipes, ValidationPipe } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Res, UseGuards, HttpCode, HttpStatus, UsePipes, ValidationPipe } from '@nestjs/common'
+import type { Response } from 'express'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { Roles } from '../common/decorators/roles.decorator'
@@ -17,6 +18,18 @@ export class WeaponsController {
   @Get()
   async findAll() {
     return this.weaponsService.findAll()
+  }
+
+  // Sprint 3: GET /weapons/inventory-report
+  @Get('inventory-report')
+  async getInventoryReport() {
+    return this.weaponsService.getInventoryReport()
+  }
+
+  // Sprint 3: GET /weapons/export → xlsx (3 sheets)
+  @Get('export')
+  async exportInventory(@Res() res: Response) {
+    return this.weaponsService.exportInventory(res)
   }
 
   // STATIC ROUTES TRUOC dynamic :id (tranh route shadowing)

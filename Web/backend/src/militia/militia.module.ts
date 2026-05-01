@@ -6,11 +6,12 @@ import { MilitiaService } from './militia.service';
 import { MilitiaController } from './militia.controller';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AssignmentsModule } from '../assignments/assignments.module';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([MilitiaProfile]), AssignmentsModule],
   controllers: [MilitiaController],
-  providers: [MilitiaService, JwtAuthGuard],
+  providers: [MilitiaService, JwtAuthGuard, ExcelExportService],
   exports: [MilitiaService],
 })
 export class MilitiaModule {}

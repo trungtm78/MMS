@@ -7,11 +7,14 @@ import {
   Query,
   UseGuards,
   Request,
+  Res,
   HttpCode,
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   IsString,
   IsNotEmpty,
@@ -27,6 +30,7 @@ import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 export class CreateAttendanceDto {
@@ -77,7 +81,52 @@ export class CheckOutDto {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('system_admin', 'office_staff', 'ca_officer')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly excelExportService: ExcelExportService,
+  ) {}
+
+  // GET /attendance/summary?from=&to=&unitCode= — aggregate summary per militia
+  @Get('summary')
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async getAttendanceSummary(
+    @Request() req: { user: JwtPayload },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    const effectiveFrom = from ?? new Date().toISOString().slice(0, 8) + '01';
+    const effectiveTo = to ?? new Date().toISOString().slice(0, 10);
+    return this.attendanceService.getAttendanceSummary(
+      req.user,
+      effectiveFrom,
+      effectiveTo,
+      unitCode || undefined,
+    );
+  }
+
+  // GET /attendance/export?from=&to=&unitCode= — xlsx export
+  @Get('export')
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async exportAttendanceSummary(
+    @Request() req: { user: JwtPayload },
+    @Res() res: Response,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    const effectiveFrom = from ?? new Date().toISOString().slice(0, 8) + '01';
+    const effectiveTo = to ?? new Date().toISOString().slice(0, 10);
+    const workbook = await this.attendanceService.exportAttendanceSummary(
+      req.user,
+      effectiveFrom,
+      effectiveTo,
+      unitCode || undefined,
+    );
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `DiemDanh_TongHop_${effectiveFrom}_${effectiveTo}_${unitCode ?? 'ToanBo'}_${date}.xlsx`;
+    await this.excelExportService.streamToResponse(workbook, res, filename);
+  }
 
   // GET /attendance?date=&from=&to=&page=&limit= — paginated report
   // date: single date filter; from+to: range filter (used by calendar widget)

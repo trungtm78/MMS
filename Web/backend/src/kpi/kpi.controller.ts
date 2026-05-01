@@ -6,11 +6,13 @@ import {
   Query,
   UseGuards,
   Request,
+  Res,
   HttpCode,
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   IsString,
   IsNotEmpty,
@@ -99,5 +101,28 @@ export class KpiController {
   ) {
     const targetUserId = userId ?? req.user.sub;
     return this.kpiService.getHistory(targetUserId);
+  }
+
+  // GET /kpi/summary-report?periodId=&unitCode=
+  @Get('summary-report')
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async getSummaryReport(
+    @Request() req: { user: { sub: string; role: string } },
+    @Query('periodId') periodId: string,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    return this.kpiService.getSummaryReport(req.user, periodId, unitCode);
+  }
+
+  // GET /kpi/export?periodId=&unitCode= → xlsx
+  @Get('export')
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async exportKpi(
+    @Request() req: { user: { sub: string; role: string } },
+    @Query('periodId') periodId: string,
+    @Query('unitCode') unitCode: string | undefined,
+    @Res() res: Response,
+  ) {
+    return this.kpiService.exportKpi(req.user, periodId, unitCode, res);
   }
 }

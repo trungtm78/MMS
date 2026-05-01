@@ -3,9 +3,17 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { KpiService } from './kpi.service';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 const mockDataSource = { query: jest.fn() };
 const mockAssignmentsService = { getAssignedDqtvIds: jest.fn() };
+const mockExcelService = {
+  createWorkbook: jest.fn(),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addDocumentHash: jest.fn(),
+  streamToResponse: jest.fn(),
+};
 
 const validDto = {
   targetUserId: 'user-target-1',
@@ -27,6 +35,7 @@ describe('KpiService', () => {
         KpiService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: AssignmentsService, useValue: mockAssignmentsService },
+        { provide: ExcelExportService, useValue: mockExcelService },
       ],
     }).compile();
     service = module.get<KpiService>(KpiService);
@@ -161,6 +170,44 @@ describe('KpiService', () => {
       const result = await service.getCurrentScore('user-1', 4, 2026);
       expect(result.change).toBeNull();
       expect(result.rank).toBe(1);
+    });
+  });
+
+  // ── getSummaryReport ──────────────────────────────────────────────────────
+
+  describe('getSummaryReport', () => {
+    const adminUser = { sub: 'admin-1', role: 'system_admin' };
+
+    it('returns empty array when no militia exists', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'period-1', month: 4, year: 2026 }]) // period check
+        .mockResolvedValueOnce([]); // no militia
+
+      const result = await service.getSummaryReport(adminUser, 'period-1');
+      expect(result).toEqual([]);
+    });
+
+    it('classifies xepLoai correctly based on total score', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'period-1', month: 4, year: 2026 }])
+        .mockResolvedValueOnce([
+          { militiaId: 'mp-1', name: 'A', code: 'A01', unit: 'ĐV1', attendanceScore: null, taskScore: null, disciplineScore: null, attitudeScore: null, supervisorScore: '9.5', total: '95.0', rank: '1' },
+          { militiaId: 'mp-2', name: 'B', code: 'B01', unit: 'ĐV1', attendanceScore: null, taskScore: null, disciplineScore: null, attitudeScore: null, supervisorScore: '7.5', total: '78.0', rank: '2' },
+          { militiaId: 'mp-3', name: 'C', code: 'C01', unit: 'ĐV1', attendanceScore: null, taskScore: null, disciplineScore: null, attitudeScore: null, supervisorScore: '6.0', total: '62.0', rank: '3' },
+          { militiaId: 'mp-4', name: 'D', code: 'D01', unit: 'ĐV1', attendanceScore: null, taskScore: null, disciplineScore: null, attitudeScore: null, supervisorScore: '4.0', total: '45.0', rank: '4' },
+        ]);
+
+      const result = await service.getSummaryReport(adminUser, 'period-1');
+      expect(result).toHaveLength(4);
+      expect(result[0].xepLoai).toBe('Xuất sắc');
+      expect(result[1].xepLoai).toBe('Tốt');
+      expect(result[2].xepLoai).toBe('Khá');
+      expect(result[3].xepLoai).toBe('Cần cải thiện');
+    });
+
+    it('throws NotFoundException when period not found', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]); // period not found
+      await expect(service.getSummaryReport(adminUser, 'no-such')).rejects.toThrow(NotFoundException);
     });
   });
 

@@ -7,6 +7,8 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { JwtPayload } from '../auth/auth.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
+import type { Response } from 'express';
 
 export interface PayrollPeriod {
   id: string;
@@ -39,11 +41,22 @@ export interface PaginatedResult<T> {
   limit: number;
 }
 
+export interface ComplianceItem {
+  militiaId: string;
+  militiaName: string;
+  baseSalary: number;
+  net: number;
+  minWage: number;
+  diff: number;
+  compliant: boolean;
+}
+
 @Injectable()
 export class PayrollService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly excelExportService: ExcelExportService,
   ) {}
 
   async listPeriods(
@@ -387,6 +400,145 @@ export class PayrollService {
       const r = rows[0];
       return this.mapPeriod(r);
     });
+  }
+
+  // Sprint 3: GET /payroll/compliance-check?periodId=
+  async getComplianceCheck(periodId: string): Promise<ComplianceItem[]> {
+    const periodRows = await this.dataSource.query<{ month: number; year: number }[]>(
+      `SELECT month, year FROM payroll_periods WHERE id = $1`,
+      [periodId],
+    );
+    if (!periodRows.length) throw new NotFoundException('period_not_found');
+
+    const settingRows = await this.dataSource.query<{ key: string; value: string }[]>(
+      `SELECT key, value FROM system_settings WHERE key = 'min_wage_region_1'`,
+    );
+    const minWage = parseFloat(settingRows[0]?.value ?? '4960000');
+
+    const rows = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT mp.id AS "militiaId", mp.full_name AS "militiaName",
+              COALESCE(pi.base_salary, 0)  AS "baseSalary",
+              COALESCE(pi.net_salary, 0)   AS "net"
+       FROM payroll_items pi
+       JOIN militia_profiles mp ON mp.id = pi.militia_id
+       WHERE pi.payroll_period_id = $1
+       ORDER BY mp.full_name`,
+      [periodId],
+    );
+
+    return rows.map((r) => {
+      const net = parseFloat(String(r['net'] ?? '0'));
+      const baseSalary = parseFloat(String(r['baseSalary'] ?? '0'));
+      const diff = net - minWage;
+      return {
+        militiaId: r['militiaId'] as string,
+        militiaName: r['militiaName'] as string,
+        baseSalary,
+        net,
+        minWage,
+        diff,
+        compliant: net >= minWage,
+      };
+    });
+  }
+
+  // Sprint 3: GET /payroll/export?periodId= → xlsx stream
+  async exportPayroll(periodId: string, res: Response): Promise<void> {
+    const periodRows = await this.dataSource.query<{ month: number; year: number; status: string }[]>(
+      `SELECT month, year, status FROM payroll_periods WHERE id = $1`,
+      [periodId],
+    );
+    if (!periodRows.length) throw new NotFoundException('period_not_found');
+    const { month, year } = periodRows[0];
+
+    const settingRows = await this.dataSource.query<{ key: string; value: string }[]>(
+      `SELECT key, value FROM system_settings WHERE key = 'min_wage_region_1'`,
+    );
+    const minWage = parseFloat(settingRows[0]?.value ?? '4960000');
+
+    const items = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT mp.full_name AS "fullName", mp.militia_code AS "militiaCode",
+              u.name AS "unitName",
+              COALESCE(pi.base_salary, 0)                AS "baseSalary",
+              COALESCE(pi.attendance_allowance, 0)        AS "allowance",
+              COALESCE(pi.kpi_bonus, 0)                   AS "bonus",
+              COALESCE(pi.net_salary - pi.base_salary - pi.attendance_allowance - pi.kpi_bonus, 0) AS "deductions",
+              COALESCE(pi.net_salary, 0)                  AS "netSalary"
+       FROM payroll_items pi
+       JOIN militia_profiles mp ON mp.id = pi.militia_id
+       JOIN units u ON u.id = mp.unit_id
+       WHERE pi.payroll_period_id = $1
+       ORDER BY mp.full_name`,
+      [periodId],
+    );
+
+    const wb = this.excelExportService.createWorkbook();
+
+    // Sheet 1: Bảng lương
+    const sheet1 = wb.addWorksheet('Bảng lương');
+    const startRow = this.excelExportService.addGovernmentHeader(sheet1, {
+      agency: 'UBND PHƯỜNG PHÚ ĐỊNH — BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `BẢNG LƯƠNG DÂN QUÂN TỰ VỆ THÁNG ${month}/${year}`,
+      reportDate: new Date(),
+    });
+
+    const payrollRows = items.map((item, idx) => ({
+      stt: idx + 1,
+      fullName: item['fullName'],
+      militiaCode: item['militiaCode'],
+      unitName: item['unitName'],
+      baseSalary: parseFloat(String(item['baseSalary'] ?? '0')),
+      allowance: parseFloat(String(item['allowance'] ?? '0')),
+      bonus: parseFloat(String(item['bonus'] ?? '0')),
+      deductions: parseFloat(String(item['deductions'] ?? '0')),
+      netSalary: parseFloat(String(item['netSalary'] ?? '0')),
+      minWage,
+      diff: parseFloat(String(item['netSalary'] ?? '0')) - minWage,
+    }));
+
+    this.excelExportService.addStyledTable(sheet1, startRow, [
+      { header: 'STT', key: 'stt', width: 6, type: 'number' },
+      { header: 'Họ tên', key: 'fullName', width: 24 },
+      { header: 'Mã DQTV', key: 'militiaCode', width: 14 },
+      { header: 'Đơn vị', key: 'unitName', width: 18 },
+      { header: 'Lương CB', key: 'baseSalary', width: 16, type: 'currency' },
+      { header: 'Phụ cấp', key: 'allowance', width: 16, type: 'currency' },
+      { header: 'Thưởng', key: 'bonus', width: 14, type: 'currency' },
+      { header: 'Khấu trừ', key: 'deductions', width: 14, type: 'currency' },
+      { header: 'Thực lĩnh', key: 'netSalary', width: 16, type: 'currency' },
+      { header: 'Lương tối thiểu', key: 'minWage', width: 18, type: 'currency' },
+      { header: 'Chênh lệch', key: 'diff', width: 14, type: 'currency' },
+    ], payrollRows);
+
+    this.excelExportService.addSignatureBlock(sheet1, startRow + payrollRows.length + 1, {
+      position: 'Chỉ huy trưởng',
+    });
+    this.excelExportService.addDocumentHash(sheet1, JSON.stringify(payrollRows));
+
+    // Sheet 2: Công thức tính
+    const sheet2 = wb.addWorksheet('Công thức tính');
+    sheet2.getColumn(1).width = 50;
+    sheet2.getColumn(2).width = 40;
+    [
+      ['Công thức tính lương DQTV', ''],
+      ['Lương cơ bản', 'Theo NĐ 72/2020 và quy định hiện hành'],
+      ['Phụ cấp trực chiến', 'Số ngày × Đơn giá ngày × 1.5'],
+      ['Phụ cấp huấn luyện', 'Số ngày huấn luyện × Đơn giá × 0.2'],
+      ['Thưởng KPI', 'Theo điểm đánh giá hàng tháng'],
+      ['Thực lĩnh', 'Lương CB + Phụ cấp + Thưởng − Khấu trừ'],
+      ['Lương tối thiểu (Vùng 1)', `${minWage.toLocaleString('vi-VN')} đ (NĐ 38/2022/NĐ-CP)`],
+    ].forEach(([label, value], i) => {
+      sheet2.getRow(i + 1).getCell(1).value = label;
+      sheet2.getRow(i + 1).getCell(2).value = value;
+    });
+    this.excelExportService.addLegalReferencesSheet(wb, [
+      'Nghị định 72/2020/NĐ-CP về lực lượng dân quân tự vệ',
+      'Nghị định 38/2022/NĐ-CP về mức lương tối thiểu',
+      'Thông tư 144/2014/TT-BQP về chế độ phụ cấp',
+    ]);
+
+    const filename = `BangLuong_DQTV_${month}_${year}.xlsx`;
+    await this.excelExportService.streamToResponse(wb, res, filename);
   }
 
   private mapPeriod(r: Record<string, unknown>): PayrollPeriod {

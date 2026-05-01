@@ -3,9 +3,33 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { MilitiaService } from './militia.service';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 const mockDataSource = { query: jest.fn() };
 const mockAssignmentsService = { getAssignedDqtvIds: jest.fn() };
+const mockExcelExportService = {
+  createWorkbook: jest.fn().mockReturnValue({
+    addWorksheet: jest.fn().mockReturnValue({
+      columnCount: 19,
+      getRow: jest.fn().mockReturnValue({
+        getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+        height: 0,
+      }),
+      getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+      mergeCells: jest.fn(),
+      views: [],
+      autoFilter: null,
+      lastRow: { number: 5 },
+    }),
+    creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+  }),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addSummaryStatsTable: jest.fn(),
+  addSignatureBlock: jest.fn(),
+  addDocumentHash: jest.fn(),
+  streamToResponse: jest.fn(),
+};
 
 const systemAdmin = { role: 'system_admin', unitScope: null };
 const officeStaff = { role: 'office_staff', unitScope: 'UNIT_001' };
@@ -20,10 +44,27 @@ describe('MilitiaService', () => {
         MilitiaService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: AssignmentsService, useValue: mockAssignmentsService },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
       ],
     }).compile();
     service = module.get<MilitiaService>(MilitiaService);
     jest.clearAllMocks();
+    mockExcelExportService.createWorkbook.mockReturnValue({
+      addWorksheet: jest.fn().mockReturnValue({
+        columnCount: 19,
+        getRow: jest.fn().mockReturnValue({
+          getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+          height: 0,
+        }),
+        getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+        mergeCells: jest.fn(),
+        views: [],
+        autoFilter: null,
+        lastRow: { number: 5 },
+      }),
+      creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+    });
+    mockExcelExportService.addGovernmentHeader.mockReturnValue(8);
   });
 
   describe('search (existing)', () => {

@@ -27,3 +27,8 @@ export type AppRoute =
   | 'exemptions'
   | 'training'
   | 'rewards'
+  | 'compliance-dashboard'
+  | 'report-training-compliance'
+  | 'report-roster'
+  | 'report-attendance-summary'
+  | 'report-rewards-discipline'

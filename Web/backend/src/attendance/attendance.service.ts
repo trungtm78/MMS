@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import * as ExcelJS from 'exceljs';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 export interface CheckInDto {
   location?: { lat?: number; lng?: number; accuracy?: number };
@@ -41,6 +43,18 @@ export interface CreateAttendanceDto {
   note?: string;
 }
 
+export interface AttendanceSummaryRow {
+  militiaId: string;
+  militiaName: string;
+  militiaCode: string;
+  unitCode: string;
+  totalDays: number;
+  onTimeDays: number;
+  lateDays: number;
+  absentDays: number;
+  attendancePct: number;
+}
+
 export interface AttendanceRecordView {
   id: string;
   militiaId: string;
@@ -60,6 +74,7 @@ export class AttendanceService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly excelExportService: ExcelExportService,
   ) {}
 
   // US-SS-07 AC-1: Record attendance for militia member
@@ -336,6 +351,144 @@ export class AttendanceService {
       currentMonth,
       currentYear,
     };
+  }
+
+  // ── getAttendanceSummary ─────────────────────────────────────────────────
+
+  async getAttendanceSummary(
+    user: { role: string; unitScope: string | null },
+    from: string,
+    to: string,
+    unitCode?: string,
+  ): Promise<AttendanceSummaryRow[]> {
+    const effectiveUnit: string | null =
+      user.role === 'system_admin' ? (unitCode ?? null) : (user.unitScope ?? null);
+
+    const rows = await this.dataSource.query<
+      {
+        militiaId: string;
+        militiaName: string;
+        militiaCode: string;
+        unitCode: string;
+        totalDays: string;
+        onTimeDays: string;
+        lateDays: string;
+        absentDays: string;
+      }[]
+    >(
+      `SELECT
+         mp.id               AS "militiaId",
+         mp.full_name        AS "militiaName",
+         mp.militia_code     AS "militiaCode",
+         u.code              AS "unitCode",
+         COUNT(*)                                                          AS "totalDays",
+         COUNT(*) FILTER (WHERE ar.status IN ('checked_in', 'present'))   AS "onTimeDays",
+         COUNT(*) FILTER (WHERE ar.status = 'late')                        AS "lateDays",
+         COUNT(*) FILTER (WHERE ar.status = 'absent')                     AS "absentDays"
+       FROM attendance_records ar
+       JOIN militia_profiles mp ON mp.id = ar.militia_id
+       JOIN units u ON u.id = mp.unit_id
+       WHERE ar.work_date BETWEEN $1::date AND $2::date
+         AND ($3::text IS NULL OR u.code = $3)
+       GROUP BY mp.id, mp.full_name, mp.militia_code, u.code
+       ORDER BY
+         (COUNT(*) FILTER (WHERE ar.status IN ('checked_in', 'present')) * 100.0 /
+           NULLIF(COUNT(*), 0)) ASC`,
+      [from, to, effectiveUnit],
+    );
+
+    return rows.map((r) => {
+      const totalDays = parseInt(r.totalDays, 10);
+      const onTimeDays = parseInt(r.onTimeDays, 10);
+      return {
+        militiaId: r.militiaId,
+        militiaName: r.militiaName,
+        militiaCode: r.militiaCode,
+        unitCode: r.unitCode,
+        totalDays,
+        onTimeDays,
+        lateDays: parseInt(r.lateDays, 10),
+        absentDays: parseInt(r.absentDays, 10),
+        attendancePct: totalDays > 0 ? Math.round((onTimeDays / totalDays) * 1000) / 10 : 0,
+      };
+    });
+  }
+
+  // ── exportAttendanceSummary ──────────────────────────────────────────────
+
+  async exportAttendanceSummary(
+    user: { role: string; unitScope: string | null },
+    from: string,
+    to: string,
+    unitCode?: string,
+  ): Promise<ExcelJS.Workbook> {
+    const data = await this.getAttendanceSummary(user, from, to, unitCode);
+    const wb = this.excelExportService.createWorkbook();
+
+    // Sheet 1 — main table
+    const sheet1 = wb.addWorksheet('Điểm danh tổng hợp');
+    const startRow = this.excelExportService.addGovernmentHeader(sheet1, {
+      agency: 'BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `BÁO CÁO TỔNG HỢP ĐIỂM DANH TỪ ${from} ĐẾN ${to}`,
+      reportDate: new Date(),
+    });
+
+    const tableRows = data.map((r, i) => ({ ...r, stt: i + 1 }));
+    this.excelExportService.addStyledTable(
+      sheet1,
+      startRow,
+      [
+        { header: 'STT',         key: 'stt',          width: 6,  type: 'number' as const },
+        { header: 'Họ tên',      key: 'militiaName',  width: 24 },
+        { header: 'Mã DQTV',    key: 'militiaCode',  width: 14 },
+        { header: 'Đơn vị',     key: 'unitCode',     width: 14 },
+        { header: 'Tổng ngày',  key: 'totalDays',    width: 12, type: 'number' as const },
+        { header: 'Đúng giờ',   key: 'onTimeDays',   width: 12, type: 'number' as const },
+        { header: 'Trễ',        key: 'lateDays',     width: 10, type: 'number' as const },
+        { header: 'Vắng',       key: 'absentDays',   width: 10, type: 'number' as const },
+        {
+          header: '% có mặt',
+          key: 'attendancePct',
+          width: 12,
+          type: 'percent' as const,
+        },
+      ],
+      tableRows,
+    );
+
+    // Color the % column based on value — post-process
+    const pctColIdx = 9; // column 9 = attendancePct
+    tableRows.forEach((r, rowIdx) => {
+      const cell = sheet1.getRow(startRow + 1 + rowIdx).getCell(pctColIdx);
+      const pct = r.attendancePct;
+      let argb: string;
+      if (pct >= 80) argb = 'FFCCFFCC'; // green
+      else if (pct >= 60) argb = 'FFFFFF99'; // yellow
+      else argb = 'FFFFCCCC'; // red
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+    });
+
+    this.excelExportService.addDocumentHash(
+      sheet1,
+      `attendance-summary-${from}-${to}-${data.length}`,
+    );
+
+    // Sheet 2 — summary stats
+    const sheet2 = wb.addWorksheet('Chi tiết tham khảo');
+    const avgPct = data.length > 0
+      ? Math.round(data.reduce((s, r) => s + r.attendancePct, 0) / data.length * 10) / 10
+      : 0;
+    const belowThreshold = data.filter((r) => r.attendancePct < 80).length;
+
+    this.excelExportService.addSummaryStatsTable(sheet2, 0, `Thống kê điểm danh ${from} — ${to}`, [
+      { label: 'Tổng số DQTV', value: data.length },
+      { label: 'Tỷ lệ có mặt trung bình', value: `${avgPct}%` },
+      { label: 'DQTV dưới 80% có mặt', value: belowThreshold, highlight: belowThreshold > 0 },
+      { label: 'Từ ngày', value: from },
+      { label: 'Đến ngày', value: to },
+    ]);
+
+    return wb;
   }
 
   private mapStatus(status: string): string {

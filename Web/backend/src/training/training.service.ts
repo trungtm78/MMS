@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import * as ExcelJS from 'exceljs';
 import type { JwtPayload } from '../auth/auth.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 export interface TrainingRecord {
   id: string;
@@ -35,14 +37,32 @@ export interface TrainingReport {
   meetsRequirement: boolean;
 }
 
+export interface TrainingComplianceRow {
+  militiaId: string;
+  militiaName: string;
+  militiaCode: string;
+  unitCode: string;
+  military: number;
+  political: number;
+  fire: number;
+  firstAid: number;
+  other: number;
+  totalDays: number;
+  requiredDays: 15;
+  status: 'ĐẠT' | 'KHÔNG ĐẠT' | 'CẢNH BÁO';
+}
+
 /** Roles that can create / manage training records on behalf of others */
 const MANAGER_ROLES = ['system_admin', 'police_ward', 'police_area'];
+/** Roles that can see across units */
+const WIDE_ROLES = new Set(['system_admin', 'police_ward']);
 
 @Injectable()
 export class TrainingService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly excelExportService: ExcelExportService,
   ) {}
 
   // ── listRecords ─────────────────────────────────────────────────────────
@@ -306,6 +326,159 @@ export class TrainingService {
       `DELETE FROM training_records WHERE id = $1::uuid`,
       [id],
     );
+  }
+
+  // ── getComplianceReport ──────────────────────────────────────────────────
+
+  async getComplianceReport(
+    user: JwtPayload,
+    year: number,
+    unitCode?: string,
+  ): Promise<TrainingComplianceRow[]> {
+    const effectiveUnit: string | null = WIDE_ROLES.has(user.role)
+      ? (unitCode ?? null)
+      : (user.unitScope ?? null);
+
+    const rows = await this.dataSource.query<
+      {
+        militiaId: string;
+        militiaName: string;
+        militiaCode: string;
+        unitCode: string;
+        military: string;
+        political: string;
+        fire: string;
+        firstAid: string;
+        other: string;
+        totalDays: string;
+      }[]
+    >(
+      `SELECT
+         mp.id                     AS "militiaId",
+         mp.full_name              AS "militiaName",
+         mp.militia_code           AS "militiaCode",
+         u.code                    AS "unitCode",
+         COALESCE(SUM(tr.total_days) FILTER (WHERE tr.training_type = 'military'),   0) AS "military",
+         COALESCE(SUM(tr.total_days) FILTER (WHERE tr.training_type = 'political'),  0) AS "political",
+         COALESCE(SUM(tr.total_days) FILTER (WHERE tr.training_type = 'fire'),       0) AS "fire",
+         COALESCE(SUM(tr.total_days) FILTER (WHERE tr.training_type = 'first_aid'),  0) AS "firstAid",
+         COALESCE(SUM(tr.total_days) FILTER (
+           WHERE tr.training_type NOT IN ('military', 'political', 'fire', 'first_aid')
+         ), 0)                                                                           AS "other",
+         COALESCE(SUM(tr.total_days), 0)                                                AS "totalDays"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       LEFT JOIN training_records tr
+         ON tr.militia_id = mp.id
+        AND EXTRACT(YEAR FROM tr.from_date)::int = $1
+       WHERE mp.status = 'active'
+         AND ($2::text IS NULL OR u.code = $2)
+       GROUP BY mp.id, mp.full_name, mp.militia_code, u.code
+       ORDER BY mp.full_name`,
+      [year, effectiveUnit],
+    );
+
+    return rows.map((r) => {
+      const totalDays = parseFloat(r.totalDays);
+      let status: 'ĐẠT' | 'KHÔNG ĐẠT' | 'CẢNH BÁO';
+      if (totalDays >= 15) status = 'ĐẠT';
+      else if (totalDays >= 10) status = 'CẢNH BÁO';
+      else status = 'KHÔNG ĐẠT';
+
+      return {
+        militiaId: r.militiaId,
+        militiaName: r.militiaName,
+        militiaCode: r.militiaCode,
+        unitCode: r.unitCode,
+        military: parseFloat(r.military),
+        political: parseFloat(r.political),
+        fire: parseFloat(r.fire),
+        firstAid: parseFloat(r.firstAid),
+        other: parseFloat(r.other),
+        totalDays,
+        requiredDays: 15 as const,
+        status,
+      };
+    });
+  }
+
+  // ── exportComplianceReport ───────────────────────────────────────────────
+
+  async exportComplianceReport(
+    user: JwtPayload,
+    year: number,
+    unitCode?: string,
+  ): Promise<ExcelJS.Workbook> {
+    const data = await this.getComplianceReport(user, year, unitCode);
+    const wb = this.excelExportService.createWorkbook();
+
+    // Sheet 1 — main compliance table
+    const sheet1 = wb.addWorksheet('Tuân thủ huấn luyện');
+    const startRow = this.excelExportService.addGovernmentHeader(sheet1, {
+      agency: 'BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `BÁO CÁO TUÂN THỦ HUẤN LUYỆN NĂM ${year}`,
+      reportDate: new Date(),
+    });
+
+    const columns = [
+      { header: 'STT',       key: 'stt',         width: 6,  type: 'number' as const },
+      { header: 'Họ tên',    key: 'militiaName',  width: 24 },
+      { header: 'Mã DQTV',  key: 'militiaCode',  width: 14 },
+      { header: 'Đơn vị',   key: 'unitCode',     width: 14 },
+      { header: 'Quân sự',  key: 'military',     width: 10, type: 'number' as const },
+      { header: 'Chính trị',key: 'political',    width: 10, type: 'number' as const },
+      { header: 'PCCC',     key: 'fire',         width: 10, type: 'number' as const },
+      { header: 'Sơ cứu',   key: 'firstAid',     width: 10, type: 'number' as const },
+      { header: 'Khác',     key: 'other',        width: 10, type: 'number' as const },
+      { header: 'Tổng',     key: 'totalDays',    width: 10, type: 'number' as const },
+      { header: 'Yêu cầu',  key: 'requiredDays', width: 10, type: 'number' as const },
+      {
+        header: 'Kết quả',
+        key: 'status',
+        width: 14,
+        type: 'status' as const,
+        statusColors: { 'ĐẠT': 'CCFFCC', 'KHÔNG ĐẠT': 'FFCCCC', 'CẢNH BÁO': 'FFF3CD' },
+      },
+    ];
+
+    const tableRows = data.map((r, i) => ({ ...r, stt: i + 1 }));
+    this.excelExportService.addStyledTable(sheet1, startRow, columns, tableRows);
+
+    const afterData = startRow + data.length;
+    this.excelExportService.addDocumentHash(
+      sheet1,
+      `training-compliance-${year}-${data.length}`,
+    );
+    this.excelExportService.addSignatureBlock(sheet1, afterData + 2, {
+      position: 'Chỉ huy trưởng',
+    });
+
+    // Sheet 2 — unit summary
+    const sheet2 = wb.addWorksheet('Tóm tắt đơn vị');
+    const passCount = data.filter((r) => r.status === 'ĐẠT').length;
+    const warnCount = data.filter((r) => r.status === 'CẢNH BÁO').length;
+    const failCount = data.filter((r) => r.status === 'KHÔNG ĐẠT').length;
+
+    this.excelExportService.addSummaryStatsTable(sheet2, 0, `Tóm tắt tuân thủ huấn luyện năm ${year}`, [
+      { label: 'Tổng số DQTV', value: data.length },
+      { label: 'Đạt yêu cầu (≥15 ngày)', value: passCount, highlight: false },
+      { label: 'Cảnh báo (10-14 ngày)', value: warnCount, highlight: warnCount > 0 },
+      { label: 'Không đạt (<10 ngày)', value: failCount, highlight: failCount > 0 },
+      {
+        label: 'Tỷ lệ tuân thủ',
+        value: data.length > 0 ? `${Math.round((passCount / data.length) * 100)}%` : '0%',
+      },
+    ]);
+
+    // Legal references sheet
+    this.excelExportService.addLegalReferencesSheet(wb, [
+      'TT 69/2020/TT-BQP — Thông tư hướng dẫn công tác dân quân tự vệ',
+      'NĐ 72/2020/NĐ-CP — Quy định chi tiết một số điều của Luật Dân quân tự vệ',
+      'NĐ 30/2020/NĐ-CP — Công tác văn thư',
+      'Luật Dân quân tự vệ 2019 — Điều 22: Huấn luyện quân sự',
+    ]);
+
+    return wb;
   }
 
   // ── getReport ────────────────────────────────────────────────────────────

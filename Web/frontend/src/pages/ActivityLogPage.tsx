@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   FileText, Search, ChevronLeft, ChevronRight,
-  PlusCircle, Edit3, Trash2, LogIn, LogOut, Eye,
+  PlusCircle, Edit3, Trash2, LogIn, LogOut, Eye, Download,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import client from '@/api/client'
+import { useAuth } from '@/contexts/AuthContext'
+import { downloadExcelReport } from '@/utils/export-utils'
 
 interface AuditLogEntry {
   id: string
@@ -52,7 +55,44 @@ const ACTION_COLORS: Record<string, { badge: string; icon: string }> = {
 export function ActivityLogPage() {
   const [page, setPage]     = useState(1)
   const [search, setSearch] = useState('')
+  const [exportFrom, setExportFrom] = useState('')
+  const [exportTo, setExportTo]     = useState('')
+  const [exportAction, setExportAction] = useState('')
+  const [isExporting, setIsExporting]   = useState(false)
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'system_admin'
   const LIMIT = 20
+
+  async function handleExport() {
+    if (!exportFrom || !exportTo) {
+      toast.error('Vui lòng chọn khoảng thời gian trước khi xuất')
+      return
+    }
+    toast.warning('Nhật ký kiểm toán chứa thông tin nhạy cảm. Chỉ xuất khi có yêu cầu chính thức.')
+    await downloadExcelReport(
+      async () => {
+        const res = await client.get('/audit/export', {
+          params: {
+            from: exportFrom,
+            to: exportTo,
+            action: exportAction || undefined,
+            format: 'xlsx',
+          },
+          responseType: 'blob',
+        })
+        return res.data as Blob
+      },
+      `nhat-ky-kiem-toan-${exportFrom}-${exportTo}.xlsx`,
+      () => setIsExporting(true),
+      () => setIsExporting(false),
+    ).catch((err) => {
+      if (err?.response?.status === 400) {
+        toast.error('Khoảng thời gian tối đa là 90 ngày. Vui lòng chọn lại.')
+      } else {
+        toast.error('Xuất nhật ký thất bại.')
+      }
+    })
+  }
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['audit-logs', page, search],
@@ -72,7 +112,63 @@ export function ActivityLogPage() {
           <h1 className="text-2xl font-bold text-[#0F172A]">Nhật Ký Hoạt Động</h1>
           <p className="text-sm text-[#64748B] mt-1">Lịch sử toàn bộ thao tác trong hệ thống</p>
         </div>
+        {isAdmin && (
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            data-testid="export-audit-btn"
+            className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
+          >
+            <Download size={16} />
+            {isExporting ? 'Đang xuất...' : 'Xuất nhật ký'}
+          </button>
+        )}
       </div>
+
+      {/* Export filter (admin only) */}
+      {isAdmin && (
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+          <p className="text-sm font-medium text-[#0F172A] mb-3">Bộ lọc xuất nhật ký</p>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-[#64748B]">Từ:</label>
+              <input
+                type="date"
+                value={exportFrom}
+                onChange={e => setExportFrom(e.target.value)}
+                className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+                data-testid="export-from"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-[#64748B]">Đến:</label>
+              <input
+                type="date"
+                value={exportTo}
+                onChange={e => setExportTo(e.target.value)}
+                className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+                data-testid="export-to"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-[#64748B]">Hành động:</label>
+              <select
+                value={exportAction}
+                onChange={e => setExportAction(e.target.value)}
+                className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+              >
+                <option value="">Tất cả</option>
+                <option value="CREATE">CREATE</option>
+                <option value="UPDATE">UPDATE</option>
+                <option value="DELETE">DELETE</option>
+                <option value="LOGIN">LOGIN</option>
+                <option value="LOGOUT">LOGOUT</option>
+                <option value="VIEW">VIEW</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">

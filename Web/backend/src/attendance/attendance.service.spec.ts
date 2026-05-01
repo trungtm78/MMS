@@ -2,8 +2,32 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 const mockDataSource = { query: jest.fn() };
+
+const mockExcelExportService = {
+  createWorkbook: jest.fn().mockReturnValue({
+    addWorksheet: jest.fn().mockReturnValue({
+      columnCount: 9,
+      getRow: jest.fn().mockReturnValue({
+        getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+        height: 0,
+      }),
+      getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+      mergeCells: jest.fn(),
+      views: [],
+      autoFilter: null,
+      lastRow: { number: 10 },
+    }),
+    creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+  }),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addSummaryStatsTable: jest.fn(),
+  addDocumentHash: jest.fn(),
+  streamToResponse: jest.fn(),
+};
 
 const systemAdmin = { role: 'system_admin', unitScope: null };
 const officeStaff = { role: 'office_staff', unitScope: 'UNIT_001' };
@@ -16,10 +40,27 @@ describe('AttendanceService', () => {
       providers: [
         AttendanceService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
       ],
     }).compile();
     service = module.get<AttendanceService>(AttendanceService);
     jest.clearAllMocks();
+    mockExcelExportService.createWorkbook.mockReturnValue({
+      addWorksheet: jest.fn().mockReturnValue({
+        columnCount: 9,
+        getRow: jest.fn().mockReturnValue({
+          getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+          height: 0,
+        }),
+        getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+        mergeCells: jest.fn(),
+        views: [],
+        autoFilter: null,
+        lastRow: { number: 10 },
+      }),
+      creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+    });
+    mockExcelExportService.addGovernmentHeader.mockReturnValue(8);
   });
 
   describe('record (checkIn)', () => {
@@ -250,6 +291,62 @@ describe('AttendanceService', () => {
     it('throws NotFoundException when no militia profile', async () => {
       mockDataSource.query.mockResolvedValueOnce([]);
       await expect(service.getStats('unknown-user')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── getAttendanceSummary ──────────────────────────────────────────────────
+
+  describe('getAttendanceSummary', () => {
+    const mockSummaryRow = {
+      militiaId: 'militia-1',
+      militiaName: 'Nguyễn Văn A',
+      militiaCode: 'DQ001',
+      unitCode: 'UNIT_001',
+      totalDays: '22',
+      onTimeDays: '18',
+      lateDays: '2',
+      absentDays: '2',
+    };
+
+    it('returns summary with computed attendancePct', async () => {
+      mockDataSource.query.mockResolvedValueOnce([mockSummaryRow]);
+      const result = await service.getAttendanceSummary(systemAdmin, '2026-04-01', '2026-04-30');
+      expect(result).toHaveLength(1);
+      expect(result[0].totalDays).toBe(22);
+      expect(result[0].onTimeDays).toBe(18);
+      expect(result[0].attendancePct).toBeCloseTo(81.8, 1);
+    });
+
+    it('handles zero totalDays without division error', async () => {
+      mockDataSource.query.mockResolvedValueOnce([
+        { ...mockSummaryRow, totalDays: '0', onTimeDays: '0', lateDays: '0', absentDays: '0' },
+      ]);
+      const result = await service.getAttendanceSummary(systemAdmin, '2026-04-01', '2026-04-30');
+      expect(result[0].attendancePct).toBe(0);
+    });
+
+    it('non-admin locked to unitScope', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await service.getAttendanceSummary(officeStaff, '2026-04-01', '2026-04-30');
+      const params = mockDataSource.query.mock.calls[0][1] as unknown[];
+      expect(params[2]).toBe('UNIT_001');
+    });
+
+    it('system_admin can filter by unitCode param', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await service.getAttendanceSummary(systemAdmin, '2026-04-01', '2026-04-30', 'UNIT_002');
+      const params = mockDataSource.query.mock.calls[0][1] as unknown[];
+      expect(params[2]).toBe('UNIT_002');
+    });
+
+    it('sorted ascending by attendance % (lowest first)', async () => {
+      // SQL ORDER BY handles this — just verify query is called
+      mockDataSource.query.mockResolvedValueOnce([mockSummaryRow]);
+      const result = await service.getAttendanceSummary(systemAdmin, '2026-04-01', '2026-04-30');
+      expect(result).toHaveLength(1);
+      const sql = mockDataSource.query.mock.calls[0][0] as string;
+      expect(sql.toUpperCase()).toContain('ORDER BY');
+      expect(sql.toUpperCase()).toContain('ASC');
     });
   });
 });

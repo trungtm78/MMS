@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MilitiaController } from './militia.controller';
 import { MilitiaService } from './militia.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
@@ -17,7 +18,10 @@ const mockMilitiaService = {
   quickCreate: jest.fn(),
   updateMilitia: jest.fn(),
   deleteMilitia: jest.fn(),
+  exportMilitiaRoster: jest.fn(),
 };
+
+const mockExcelExportService = { streamToResponse: jest.fn() };
 
 const sysAdmin = { sub: 'admin-1', username: 'admin', role: 'system_admin', unitScope: null };
 const officeStaff = { sub: 'staff-1', username: 'staff1', role: 'office_staff', unitScope: 'UNIT_001' };
@@ -28,7 +32,10 @@ describe('MilitiaController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MilitiaController],
-      providers: [{ provide: MilitiaService, useValue: mockMilitiaService }],
+      providers: [
+        { provide: MilitiaService, useValue: mockMilitiaService },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })

@@ -1,0 +1,15 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - training
+  - c3
+
+---
+- launchApp
+- waitForAnimationToEnd
+- tapOn: "Huấn luyện"
+- waitForAnimationToEnd
+- takeScreenshot: 12_training_management_screen
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"
+- assertNotVisible: "404"
+- assertNotVisible: "RenderFlex overflowed"

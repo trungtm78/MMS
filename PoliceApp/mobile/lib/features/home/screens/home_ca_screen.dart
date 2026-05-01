@@ -138,6 +138,32 @@ class _HomeCAScreenState extends ConsumerState<HomeCAScreen> {
                         ...(_dashboardData!['alerts'] as List).map((a) => _AlertTile(alert: a as Map<String, dynamic>)),
                         const SizedBox(height: 8),
                       ],
+                      // Quick action row
+                      const Text('TRUY CẬP NHANH', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        _QuickAction(
+                          icon: Icons.verified_user_outlined,
+                          label: 'Tuân thủ\nđơn vị',
+                          color: AppColors.navy,
+                          onTap: () => context.push(Routes.caCompliance),
+                        ),
+                        const SizedBox(width: 8),
+                        _QuickAction(
+                          icon: Icons.military_tech_outlined,
+                          label: 'Quản lý\nhuấn luyện',
+                          color: AppColors.warning,
+                          onTap: () => context.push(Routes.caTrainingMgmt),
+                        ),
+                        const SizedBox(width: 8),
+                        _QuickAction(
+                          icon: Icons.how_to_vote_outlined,
+                          label: 'Phê\nduyệt',
+                          color: AppColors.success,
+                          onTap: () => context.push(Routes.caApprovals),
+                        ),
+                      ]),
+                      const SizedBox(height: 16),
                       // Tasks
                       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                         const Text('NHIỆM VỤ HÔM NAY', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textSecondary)),
@@ -193,6 +219,61 @@ class _AlertTile extends StatelessWidget {
         title: Text(alert['title'] as String? ?? '', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
         subtitle: Text(alert['message'] as String? ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
         trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.divider),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)],
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

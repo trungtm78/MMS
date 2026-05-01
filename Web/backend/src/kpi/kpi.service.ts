@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 export interface CurrentScoreResult {
   score: number | null;
@@ -27,6 +28,7 @@ export interface KpiHistoryItem {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 export interface EvaluateDto {
   targetUserId: string;
@@ -53,12 +55,37 @@ export interface EvaluationResult {
 const VALID_RECOMMENDATIONS = ['reward', 'maintain', 'training', 'warning', 'discipline'];
 const CRITERIA_WEIGHTS = [0.30, 0.25, 0.20, 0.15, 0.10];
 
+export interface KpiSummaryItem {
+  militiaId: string;
+  name: string;
+  code: string;
+  unit: string;
+  attendanceScore: number | null;
+  taskScore: number | null;
+  disciplineScore: number | null;
+  attitudeScore: number | null;
+  supervisorScore: number | null;
+  total: number | null;
+  rank: number;
+  rankInUnit: number;
+  xepLoai: 'Xuất sắc' | 'Tốt' | 'Khá' | 'Cần cải thiện';
+}
+
+function toXepLoai(total: number | null): 'Xuất sắc' | 'Tốt' | 'Khá' | 'Cần cải thiện' {
+  if (total == null) return 'Cần cải thiện';
+  if (total >= 90) return 'Xuất sắc';
+  if (total >= 75) return 'Tốt';
+  if (total >= 60) return 'Khá';
+  return 'Cần cải thiện';
+}
+
 @Injectable()
 export class KpiService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly assignmentsService: AssignmentsService,
+    private readonly excelExportService: ExcelExportService,
   ) {}
 
   async submitEvaluation(
@@ -225,5 +252,142 @@ export class KpiService {
       score: parseFloat(r.score),
       recommendation: r.recommendation,
     }));
+  }
+
+  // Sprint 3: GET /kpi/summary-report?periodId=&unitCode=
+  async getSummaryReport(
+    _user: { sub: string; role: string },
+    periodId: string,
+    unitCode?: string,
+  ): Promise<KpiSummaryItem[]> {
+    const periodCheck = await this.dataSource.query<{ id: string; month: number; year: number }[]>(
+      `SELECT id, month, year FROM payroll_periods WHERE id = $1`,
+      [periodId],
+    );
+    if (!periodCheck.length) throw new NotFoundException('period_not_found');
+    const { month, year } = periodCheck[0];
+
+    const params: unknown[] = [month, year];
+    let unitFilter = '';
+    if (unitCode) {
+      params.push(unitCode);
+      unitFilter = `AND u.code = $${params.length}`;
+    }
+
+    const rows = await this.dataSource.query<Record<string, unknown>[]>(
+      `SELECT mp.id AS "militiaId", mp.full_name AS "name", mp.militia_code AS "code",
+              u.name AS "unit",
+              AVG(ke.weighted_score) FILTER (WHERE ke.criteria[1] IS NOT NULL) AS "attendanceScore",
+              AVG(ke.weighted_score) FILTER (WHERE ke.criteria[2] IS NOT NULL) AS "taskScore",
+              NULL::numeric AS "disciplineScore",
+              NULL::numeric AS "attitudeScore",
+              AVG(ke.weighted_score) AS "supervisorScore",
+              ROUND(AVG(ke.weighted_score)::numeric * 10, 1) AS "total",
+              RANK() OVER (ORDER BY AVG(ke.weighted_score) DESC NULLS LAST) AS "rank"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       LEFT JOIN users usr ON usr.id = mp.user_id
+       LEFT JOIN kpi_evaluations ke
+         ON ke.target_user_id = usr.id
+         AND ke.month = $1 AND ke.year = $2
+       WHERE mp.status = 'active'
+       ${unitFilter}
+       GROUP BY mp.id, mp.full_name, mp.militia_code, u.name, u.code
+       ORDER BY mp.full_name`,
+      params,
+    );
+
+    // rank within unit
+    const unitGroups = new Map<string, number[]>();
+    rows.forEach((r, idx) => {
+      const u = r['unit'] as string;
+      if (!unitGroups.has(u)) unitGroups.set(u, []);
+      unitGroups.get(u)!.push(idx);
+    });
+    const rankInUnit = new Map<number, number>();
+    unitGroups.forEach((indices) => {
+      const sorted = [...indices].sort((a, b) => {
+        const ta = parseFloat(String(rows[a]['total'] ?? '0'));
+        const tb = parseFloat(String(rows[b]['total'] ?? '0'));
+        return tb - ta;
+      });
+      sorted.forEach((origIdx, rank) => rankInUnit.set(origIdx, rank + 1));
+    });
+
+    return rows.map((r, idx) => {
+      const total = r['total'] !== null ? parseFloat(String(r['total'])) : null;
+      return {
+        militiaId: r['militiaId'] as string,
+        name: r['name'] as string,
+        code: r['code'] as string,
+        unit: r['unit'] as string,
+        attendanceScore: r['attendanceScore'] !== null ? parseFloat(String(r['attendanceScore'])) : null,
+        taskScore: r['taskScore'] !== null ? parseFloat(String(r['taskScore'])) : null,
+        disciplineScore: null,
+        attitudeScore: null,
+        supervisorScore: r['supervisorScore'] !== null ? parseFloat(String(r['supervisorScore'])) : null,
+        total,
+        rank: parseInt(String(r['rank'] ?? '0'), 10),
+        rankInUnit: rankInUnit.get(idx) ?? 1,
+        xepLoai: toXepLoai(total),
+      };
+    });
+  }
+
+  // Sprint 3: GET /kpi/export?periodId=&unitCode= → xlsx
+  async exportKpi(
+    user: { sub: string; role: string },
+    periodId: string,
+    unitCode: string | undefined,
+    res: Response,
+  ): Promise<void> {
+    const periodCheck = await this.dataSource.query<{ month: number; year: number }[]>(
+      `SELECT month, year FROM payroll_periods WHERE id = $1`,
+      [periodId],
+    );
+    if (!periodCheck.length) throw new NotFoundException('period_not_found');
+    const { month, year } = periodCheck[0];
+
+    const data = await this.getSummaryReport(user, periodId, unitCode);
+    const wb = this.excelExportService.createWorkbook();
+    const sheet = wb.addWorksheet('Báo cáo KPI');
+
+    const startRow = this.excelExportService.addGovernmentHeader(sheet, {
+      agency: 'UBND PHƯỜNG PHÚ ĐỊNH — BAN CHỈ HUY QUÂN SỰ',
+      reportTitle: `BÁO CÁO KPI THÁNG ${month}/${year}${unitCode ? ` — ĐƠN VỊ ${unitCode}` : ''}`,
+      reportDate: new Date(),
+    });
+
+    const tableRows = data.map((item, idx) => ({
+      stt: idx + 1,
+      name: item.name,
+      code: item.code,
+      unit: item.unit,
+      attendanceScore: item.attendanceScore ?? 0,
+      taskScore: item.taskScore ?? 0,
+      disciplineScore: item.disciplineScore ?? 0,
+      attitudeScore: item.attitudeScore ?? 0,
+      supervisorScore: item.supervisorScore ?? 0,
+      total: item.total ?? 0,
+      xepLoai: item.xepLoai,
+    }));
+
+    this.excelExportService.addStyledTable(sheet, startRow, [
+      { header: 'STT', key: 'stt', width: 6, type: 'number' },
+      { header: 'Họ tên', key: 'name', width: 24 },
+      { header: 'Mã DQTV', key: 'code', width: 14 },
+      { header: 'Đơn vị', key: 'unit', width: 18 },
+      { header: 'Điểm chuyên cần', key: 'attendanceScore', width: 16, type: 'number' },
+      { header: 'Điểm nhiệm vụ', key: 'taskScore', width: 14, type: 'number' },
+      { header: 'Điểm kỷ luật', key: 'disciplineScore', width: 14, type: 'number' },
+      { header: 'Điểm thái độ', key: 'attitudeScore', width: 14, type: 'number' },
+      { header: 'Điểm chỉ huy', key: 'supervisorScore', width: 14, type: 'number' },
+      { header: 'Tổng điểm', key: 'total', width: 12, type: 'number' },
+      { header: 'Xếp loại', key: 'xepLoai', width: 14, type: 'status' },
+    ], tableRows);
+
+    this.excelExportService.addDocumentHash(sheet, JSON.stringify(tableRows));
+    const filename = `BaoCaoKPI_${month}_${year}${unitCode ? `_${unitCode}` : ''}.xlsx`;
+    await this.excelExportService.streamToResponse(wb, res, filename);
   }
 }

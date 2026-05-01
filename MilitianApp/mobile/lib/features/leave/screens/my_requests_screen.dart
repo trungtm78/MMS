@@ -21,6 +21,7 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
   String? _error;
   String _tab = 'pending';
   Map<String, dynamic>? _selected;
+  Map<String, dynamic>? _balance;
 
   @override
   void initState() {
@@ -34,10 +35,23 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
       final res = await dio.get(ApiConstants.leaveHistory);
+      dynamic balanceRes;
+      try {
+        balanceRes = await dio.get('/leave/balance');
+      } catch (_) {}
       final data = (res.data['data'] as List?) ?? [];
       if (mounted) {
         setState(() {
           _requests = data.cast<Map<String, dynamic>>();
+          if (balanceRes != null) {
+            _balance = balanceRes.data['data'] as Map<String, dynamic>?;
+          } else {
+            // Calculate from list: approved days used
+            final usedDays = _requests
+                .where((r) => r['status'] == 'approved')
+                .fold<int>(0, (sum, r) => sum + (r['days'] as int? ?? 0));
+            _balance = {'remaining': 12 - usedDays, 'total': 12, 'used': usedDays};
+          }
           _loading = false;
         });
       }
@@ -87,6 +101,49 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
                   ),
                   const SizedBox(height: 12),
                   // Tabs
+                  // Leave balance banner
+                  if (_balance != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.navy.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.navy.withOpacity(0.15)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.event_available_outlined, size: 16, color: AppColors.navy),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '${_balance!['remaining'] ?? '—'}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                        color: AppColors.navy,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: '/${_balance!['total'] ?? 12} ngày phép còn lại năm ${DateTime.now().year}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -95,6 +152,7 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
                         _TabBtn('Chờ duyệt', 'pending', _tab, _count('pending'), (v) => setState(() => _tab = v)),
                         _TabBtn('Đã duyệt', 'approved', _tab, _count('approved'), (v) => setState(() => _tab = v)),
                         _TabBtn('Bị từ chối', 'rejected', _tab, _count('rejected'), (v) => setState(() => _tab = v)),
+                        _TabBtn('Đã hủy', 'cancelled', _tab, _count('cancelled'), (v) => setState(() => _tab = v)),
                         _TabBtn('Tất cả', 'all', _tab, 0, (v) => setState(() => _tab = v)),
                       ],
                     ),
@@ -574,8 +632,11 @@ _BadgeData _badge(String status) {
       return _BadgeData('Đã duyệt', AppColors.success,
           AppColors.success.withOpacity(0.1), AppColors.success);
     case 'rejected':
-      return _BadgeData('Bị từ chối', AppColors.error,
+      return _BadgeData('Từ chối', AppColors.error,
           AppColors.error.withOpacity(0.1), AppColors.error);
+    case 'cancelled':
+      return _BadgeData('Đã hủy', AppColors.textSecondary,
+          AppColors.divider, AppColors.textMuted);
     default:
       return _BadgeData('Chờ duyệt', AppColors.blue,
           AppColors.blue.withOpacity(0.1), AppColors.blue);

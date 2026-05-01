@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TrainingController } from './training.controller';
 import { TrainingService } from './training.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotFoundException } from '@nestjs/common';
@@ -12,6 +13,13 @@ const mockTrainingService = {
   createRecord: jest.fn(),
   updateRecord: jest.fn(),
   deleteRecord: jest.fn(),
+  getComplianceReport: jest.fn(),
+  exportComplianceReport: jest.fn(),
+};
+
+const mockExcelExportService = {
+  streamToResponse: jest.fn(),
+  createWorkbook: jest.fn(),
 };
 
 const adminUser = { sub: 'admin-1', role: 'system_admin', unitScope: null };
@@ -23,7 +31,10 @@ describe('TrainingController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TrainingController],
-      providers: [{ provide: TrainingService, useValue: mockTrainingService }],
+      providers: [
+        { provide: TrainingService, useValue: mockTrainingService },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
