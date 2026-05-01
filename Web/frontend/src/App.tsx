@@ -21,6 +21,7 @@ import { UserForm } from '@/components/users/UserForm'
 import { TaskListPage } from '@/pages/TaskListPage'
 import { MilitiaSearchPage } from '@/pages/MilitiaSearchPage'
 import { MilitiaList } from '@/components/militia/MilitiaList'
+import { MilitiaCreateForm } from '@/components/militia/MilitiaCreateForm'
 import { SettingsProfilePage } from '@/pages/SettingsProfilePage'
 import { SettingsPasswordPage } from '@/pages/SettingsPasswordPage'
 import { AttendanceReportPage } from '@/pages/AttendanceReportPage'
@@ -164,6 +165,12 @@ function AppShell() {
             <Route path="/users/*" element={<UserManagementPage />} />
             <Route path="/payroll/*" element={<PayrollPage />} />
             <Route path="/militia/search" element={<MilitiaSearchPage />} />
+            {/* /militia/new MUST precede /militia/:id — React Router matches top-to-bottom */}
+            <Route path="/militia/new" element={
+              <ProtectedRoute requiredRoles={['system_admin', 'office_staff', 'ca_officer'] as import('@/types').UserRole[]}>
+                <div className="p-6 space-y-6 bg-[#F8FAFC]"><MilitiaCreateForm /></div>
+              </ProtectedRoute>
+            } />
             <Route path="/militia/:id" element={<MilitiaProfilePage />} />
             <Route path="/militia" element={<MilitiaList />} />
             <Route path="/settings/profile" element={<SettingsProfilePage />} />

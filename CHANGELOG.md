@@ -2,6 +2,19 @@
 
 ---
 
+## [0.2.2.0] — 2026-05-01
+
+### Added
+- **Thêm DQTV flow** — "Thêm DQTV" button on MilitiaList now navigates to `/militia/new`; new `MilitiaCreateForm` component with Zod validation, duplicate-code (409) error handling, role guard (`office_staff`, `ca_officer`, `system_admin` only), and route ordering fix (`/militia/new` declared before `/militia/:id`)
+- **Chỉnh sửa modal** — "Chỉnh sửa" button on MilitiaProfilePage now opens inline `MilitiaEditModal` with 5 editable fields, Escape/backdrop dismiss, unsaved-changes confirmation guard, and query invalidation on save
+- **Xuất Excel (Attendance)** — "Xuất Excel" button on AttendanceReportPage wired to a `limit:1000` export query with `disabled` + loading state; downloads as `diem-danh-YYYY-MM-DD.csv`
+- **csv-export.ts utility** — shared CSV export utility extracted from MilitiaList with email-column bug fix; used by MilitiaList and AttendanceReportPage
+- **Backend test coverage** — 29 new `.spec.ts` files for Web/backend (24 controllers + 5 services); 12 new Vitest spec files for core/backend services; total test count: 858 tests across 98 suites
+
+### Fixed
+- CSV email column was incorrectly populated from the phone field — fixed during csv-export utility extraction
+- Route order: `/militia/new` now declared before `/militia/:id` in App.tsx to prevent React Router matching `"new"` as a profile ID
+
 ## [0.2.1.0] — 2026-04-30
 
 ### Added
