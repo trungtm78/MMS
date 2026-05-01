@@ -218,6 +218,7 @@ class _QuickActionsGrid extends StatelessWidget {
       _QAItem(Icons.assignment,        AppStrings.myTasks,      AppColors.blue,     () => ctx.go(Routes.tasks)),
       _QAItem(Icons.beach_access,      AppStrings.leaveRequest, AppColors.navy,     () => ctx.push(Routes.leaveRequest)),
       _QAItem(Icons.trending_up,       'Chỉ tiêu',              AppColors.success,  () => ctx.push(Routes.kpi)),
+      _QAItem(Icons.military_tech,     'Huấn luyện',            AppColors.warning,  () => ctx.push(Routes.training)),
     ];
     return GridView.count(
       crossAxisCount: 2,
@@ -225,7 +226,7 @@ class _QuickActionsGrid extends StatelessWidget {
       mainAxisSpacing: 12,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 2.4,
+      childAspectRatio: 2.3,
       children: items.map((item) => _buildTile(item)).toList(),
     );
   }

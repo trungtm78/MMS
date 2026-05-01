@@ -1,0 +1,15 @@
+appId: ${POLICE_APP_ID}
+tags:
+  - compliance
+  - c3
+
+---
+- launchApp
+- waitForAnimationToEnd
+- tapOn: "Tuân thủ"
+- waitForAnimationToEnd
+- takeScreenshot: 11_unit_compliance_screen
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"
+- assertNotVisible: "404"
+- assertNotVisible: "RenderFlex overflowed"

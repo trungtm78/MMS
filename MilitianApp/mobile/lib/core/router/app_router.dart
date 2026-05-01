@@ -22,6 +22,7 @@ import '../../features/chat/screens/conversations_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../features/leave/screens/my_requests_screen.dart';
 import '../../features/kpi/screens/kpi_screen.dart';
+import '../../features/training/training_screen.dart';
 import '../../shared/widgets/main_shell.dart';
 import 'routes.dart';
 
@@ -132,6 +133,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.kpi,
         builder: (context, state) => const KpiScreen(),
+      ),
+      GoRoute(
+        path: Routes.training,
+        builder: (context, state) => const TrainingScreen(),
       ),
       GoRoute(path: Routes.sos, builder: (context, state) => const SosScreen()),
       GoRoute(

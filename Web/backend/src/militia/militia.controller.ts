@@ -9,6 +9,7 @@ import {
   Param,
   Query,
   Request,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -17,6 +18,7 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   IsString,
   IsNotEmpty,
@@ -31,6 +33,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { SearchQueryDto } from '../common/dto/search-query.dto';
 import { DataCorrectionDto } from './dto/data-correction.dto';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 export class QuickCreateMilitiaDto implements CreateMilitiaDto {
@@ -94,7 +97,53 @@ export class UpdateMilitiaDto {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('system_admin', 'office_staff', 'ca_officer', 'dqtv_member', 'dqtv')
 export class MilitiaController {
-  constructor(private readonly militiaService: MilitiaService) {}
+  constructor(
+    private readonly militiaService: MilitiaService,
+    private readonly excelExportService: ExcelExportService,
+  ) {}
+
+  // Sprint 3: GET /militia/rewards-report?from=&to=&type=&unitCode=
+  @Get('rewards-report')
+  @Roles('system_admin', 'police_ward', 'office_staff')
+  async getRewardsReport(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('type') type?: string,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    return this.militiaService.getRewardsReport({ from, to, type, unitCode });
+  }
+
+  // Sprint 3: GET /militia/rewards-export?from=&to=&type=&unitCode= → xlsx
+  @Get('rewards-export')
+  @Roles('system_admin', 'police_ward', 'office_staff')
+  async exportRewardsReport(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('type') type: string | undefined,
+    @Query('unitCode') unitCode: string | undefined,
+    @Res() res: Response,
+  ) {
+    return this.militiaService.exportRewardsReport({ from, to, type, unitCode }, res);
+  }
+
+  // GET /militia/export?format=xlsx&unitCode=&status= — export roster (unitScope enforced)
+  @Get('export')
+  @Roles('system_admin', 'police_ward', 'office_staff')
+  async exportMilitiaRoster(
+    @Request() req: { user: JwtPayload },
+    @Res() res: Response,
+    @Query('unitCode') unitCode?: string,
+    @Query('status') status?: string,
+  ) {
+    const workbook = await this.militiaService.exportMilitiaRoster(req.user, {
+      unitCode: unitCode || undefined,
+      status: status || undefined,
+    });
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `DanhSach_DQTV_${unitCode ?? 'ToanBo'}_${date}.xlsx`;
+    await this.excelExportService.streamToResponse(workbook, res, filename);
+  }
 
   // GET /militia?q=&unitCode=&page=&limit=&excludeAssignedTo= — paginated list with unitScope + CA assignment enforcement
   @Get()

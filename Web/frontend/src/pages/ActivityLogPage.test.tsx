@@ -5,6 +5,13 @@ import { ActivityLogPage } from './ActivityLogPage'
 import * as apiClient from '@/api/client'
 
 vi.mock('@/api/client', () => ({ default: { get: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { role: 'system_admin' }, isAuthenticated: true }),
+}))
+vi.mock('@/utils/export-utils', () => ({
+  downloadExcelReport: vi.fn(),
+}))
 
 const mockLogs = {
   data: [
@@ -42,7 +49,7 @@ describe('ActivityLogPage', () => {
     wrap(<ActivityLogPage />)
     await waitFor(() => {
       expect(screen.getAllByText('Nguyễn Văn A').length).toBeGreaterThan(0)
-      expect(screen.getByText('LOGIN')).toBeInTheDocument()
+      expect(screen.getAllByText('LOGIN').length).toBeGreaterThan(0)
     })
   })
 

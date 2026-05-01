@@ -1,16 +1,43 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { AuditController } from './audit.controller';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 const mockQuery = jest.fn();
 const mockDataSource = { query: mockQuery };
 
+const mockExcelExportService = {
+  createWorkbook: jest.fn().mockReturnValue({
+    addWorksheet: jest.fn().mockReturnValue({
+      columnCount: 8,
+      getRow: jest.fn().mockReturnValue({
+        getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+        height: 0,
+      }),
+      getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+      mergeCells: jest.fn(),
+      views: [],
+      autoFilter: null,
+      lastRow: { number: 5 },
+    }),
+    creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+  }),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addSummaryStatsTable: jest.fn(),
+  addDocumentHash: jest.fn(),
+  streamToResponse: jest.fn(),
+};
+
 async function buildController(): Promise<AuditController> {
   const module = await Test.createTestingModule({
     controllers: [AuditController],
-    providers: [{ provide: getDataSourceToken(), useValue: mockDataSource }],
+    providers: [
+      { provide: getDataSourceToken(), useValue: mockDataSource },
+      { provide: ExcelExportService, useValue: mockExcelExportService },
+    ],
   })
     .overrideGuard(JwtAuthGuard)
     .useValue({ canActivate: () => true })

@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 
 const mockQuery = jest.fn();
 const mockMgrQuery = jest.fn();
@@ -9,12 +10,22 @@ const mockTransaction = jest.fn(async (cb: (mgr: { query: typeof mockMgrQuery })
   return cb({ query: mockMgrQuery });
 });
 const mockDataSource = { query: mockQuery, transaction: mockTransaction };
+const mockExcelService = {
+  createWorkbook: jest.fn(),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addSignatureBlock: jest.fn(),
+  addDocumentHash: jest.fn(),
+  addLegalReferencesSheet: jest.fn(),
+  streamToResponse: jest.fn(),
+};
 
 async function buildService(): Promise<PayrollService> {
   const module = await Test.createTestingModule({
     providers: [
       PayrollService,
       { provide: getDataSourceToken(), useValue: mockDataSource },
+      { provide: ExcelExportService, useValue: mockExcelService },
     ],
   }).compile();
   return module.get(PayrollService);
@@ -174,6 +185,34 @@ describe('PayrollService', () => {
   });
 
   // ── reopenPeriod ─────────────────────────────────────────────────────────
+
+  // ── getComplianceCheck ───────────────────────────────────────────────────
+
+  describe('getComplianceCheck', () => {
+    it('13. flags rows where net < minWage as non-compliant', async () => {
+      mockQuery
+        .mockResolvedValueOnce([{ month: 4, year: 2026 }]) // period exists
+        .mockResolvedValueOnce([{ key: 'min_wage_region_1', value: '4960000' }]) // settings
+        .mockResolvedValueOnce([
+          { militiaId: 'mp-1', militiaName: 'Nguyễn Văn A', baseSalary: '3000000', net: '3200000' },
+          { militiaId: 'mp-2', militiaName: 'Trần Thị B', baseSalary: '4000000', net: '5100000' },
+        ]);
+
+      const result = await service.getComplianceCheck('period-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].compliant).toBe(false);
+      expect(result[0].diff).toBeLessThan(0);
+      expect(result[1].compliant).toBe(true);
+      expect(result[1].diff).toBeGreaterThan(0);
+    });
+
+    it('14. throws NotFoundException when period does not exist', async () => {
+      mockQuery.mockResolvedValueOnce([]); // period not found
+
+      await expect(service.getComplianceCheck('no-such')).rejects.toThrow(NotFoundException);
+    });
+  });
 
   describe('reopenPeriod', () => {
     it('10. should reopen a locked period and set status to draft', async () => {

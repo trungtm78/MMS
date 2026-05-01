@@ -9,20 +9,28 @@ import {
   Query,
   UseGuards,
   Request,
+  Res,
   HttpCode,
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { TrainingService } from './training.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 @Controller('training')
 @UseGuards(JwtAuthGuard)
 export class TrainingController {
-  constructor(private readonly trainingService: TrainingService) {}
+  constructor(
+    private readonly trainingService: TrainingService,
+    private readonly excelExportService: ExcelExportService,
+  ) {}
 
   // GET /training — list records (paginated, role-scoped)
   @Get()
@@ -39,6 +47,40 @@ export class TrainingController {
       page,
       limit,
     });
+  }
+
+  // GET /training/compliance-report — per-militia compliance report (MUST be before /:id)
+  @Get('compliance-report')
+  @UseGuards(RolesGuard)
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async getComplianceReport(
+    @Request() req: { user: JwtPayload },
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    const effectiveYear = year > 0 ? year : new Date().getFullYear();
+    return this.trainingService.getComplianceReport(req.user, effectiveYear, unitCode || undefined);
+  }
+
+  // GET /training/export — xlsx export of compliance report (MUST be before /:id)
+  @Get('export')
+  @UseGuards(RolesGuard)
+  @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
+  async exportComplianceReport(
+    @Request() req: { user: JwtPayload },
+    @Res() res: Response,
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
+    @Query('unitCode') unitCode?: string,
+  ) {
+    const effectiveYear = year > 0 ? year : new Date().getFullYear();
+    const workbook = await this.trainingService.exportComplianceReport(
+      req.user,
+      effectiveYear,
+      unitCode || undefined,
+    );
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `HuanLuyen_TuanThu_${effectiveYear}_${unitCode ?? 'ToanBo'}_${date}.xlsx`;
+    await this.excelExportService.streamToResponse(workbook, res, filename);
   }
 
   // GET /training/report — yearly training report (MUST be before /:id)

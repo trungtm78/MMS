@@ -1,0 +1,10 @@
+appId: com.mms.militian_app
+---
+- launchApp
+- waitForAnimationToEnd
+- tapOn: "Huấn luyện"
+- waitForAnimationToEnd
+- takeScreenshot: training_screen
+- assertNotVisible: "Exception:"
+- assertNotVisible: "null"
+- assertNotVisible: "RenderFlex overflowed"

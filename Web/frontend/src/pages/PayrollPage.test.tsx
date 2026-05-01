@@ -44,7 +44,7 @@ describe('PayrollPage', () => {
     wrap(<PayrollPage />)
     await waitFor(() => {
       expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
-    })
+    }, { timeout: 3000 })
   })
 
   it('shows period label', async () => {

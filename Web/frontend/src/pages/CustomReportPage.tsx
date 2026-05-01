@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FileDown, Filter, FileText, BookOpen } from 'lucide-react'
+import { toast } from 'sonner'
 import client from '@/api/client'
 
 type ReportType = 'attendance' | 'tasks' | 'kpi' | 'payroll'
@@ -30,10 +31,20 @@ const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: 'payroll',    label: 'Lương & Phụ cấp' },
 ]
 
+interface Mau03BcData {
+  year: number
+  unitCode: string | null
+  militia: { totalActive: number; totalInactive: number; totalFemale: number }
+  training: { trainedCount: number; totalTrainingDays: number }
+  discipline: { rewardCount: number; disciplineCount: number }
+  budget: { totalSalary: number }
+  generatedAt: string
+}
+
 const PHAP_DINH_BUTTONS = [
-  { label: 'Mẫu 03-BC', icon: FileText, desc: 'Báo cáo tháng dân quân tự vệ' },
-  { label: 'Mẫu huấn luyện', icon: BookOpen, desc: 'Kết quả huấn luyện định kỳ' },
-  { label: 'Mẫu khen thưởng-kỷ luật', icon: FileText, desc: 'Đề nghị khen thưởng / kỷ luật' },
+  { label: 'Mẫu 03-BC', icon: FileText, desc: 'Báo cáo tháng dân quân tự vệ', key: 'mau03bc' },
+  { label: 'Mẫu huấn luyện', icon: BookOpen, desc: 'Kết quả huấn luyện định kỳ', key: 'huan-luyen' },
+  { label: 'Mẫu khen thưởng-kỷ luật', icon: FileText, desc: 'Đề nghị khen thưởng / kỷ luật', key: 'khen-thuong' },
 ]
 
 function todayStr() {
@@ -49,6 +60,37 @@ export function CustomReportPage() {
   const [from, setFrom] = useState(firstDayOfMonthStr())
   const [to, setTo]     = useState(todayStr())
   const [enabled, setEnabled] = useState(false)
+  const [activePhapdinhKey, setActivePhapdinhKey] = useState<string | null>(null)
+  const [mau03BcYear, setMau03BcYear] = useState(String(new Date().getFullYear()))
+  const [mau03BcUnit, setMau03BcUnit] = useState('')
+  const [mau03BcExporting, setMau03BcExporting] = useState(false)
+
+  const { data: mau03BcData, isLoading: mau03BcLoading } = useQuery<Mau03BcData>({
+    queryKey: ['mau-03-bc', mau03BcYear, mau03BcUnit],
+    queryFn: () => client.get('/reports/mau-03-bc', { params: { year: mau03BcYear, unitCode: mau03BcUnit || undefined } }).then(r => r.data),
+    enabled: activePhapdinhKey === 'mau03bc',
+    staleTime: 60_000,
+  })
+
+  const handleMau03BcExport = async () => {
+    setMau03BcExporting(true)
+    try {
+      const resp = await client.get('/reports/mau-03-bc/export', {
+        params: { year: mau03BcYear, unitCode: mau03BcUnit || undefined },
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(resp.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Mau03BC_${mau03BcYear}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Không thể xuất Mẫu 03-BC')
+    } finally {
+      setMau03BcExporting(false)
+    }
+  }
 
   const { data, isFetching, isError } = useQuery({
     queryKey: ['custom-report', reportType, from, to],
@@ -93,21 +135,96 @@ export function CustomReportPage() {
           </span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {PHAP_DINH_BUTTONS.map(({ label, icon: Icon, desc }) => (
+          {PHAP_DINH_BUTTONS.map(({ label, icon: Icon, desc, key }) => (
             <button
-              key={label}
-              className="flex items-start gap-3 p-4 border border-[#E2E8F0] rounded-xl hover:border-[#C62828] hover:bg-red-50 transition-all text-left group"
+              key={key}
+              onClick={() => setActivePhapdinhKey(prev => prev === key ? null : key)}
+              className={`flex items-start gap-3 p-4 border rounded-xl transition-all text-left group ${
+                activePhapdinhKey === key
+                  ? 'border-[#C62828] bg-red-50'
+                  : 'border-[#E2E8F0] hover:border-[#C62828] hover:bg-red-50'
+              }`}
             >
-              <div className="w-9 h-9 bg-red-50 group-hover:bg-[#C62828] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors">
-                <Icon size={16} className="text-[#C62828] group-hover:text-white transition-colors" />
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                activePhapdinhKey === key ? 'bg-[#C62828]' : 'bg-red-50 group-hover:bg-[#C62828]'
+              }`}>
+                <Icon size={16} className={`transition-colors ${activePhapdinhKey === key ? 'text-white' : 'text-[#C62828] group-hover:text-white'}`} />
               </div>
               <div>
-                <p className="text-sm font-medium text-[#0F172A] group-hover:text-[#C62828] transition-colors">{label}</p>
+                <p className={`text-sm font-medium transition-colors ${activePhapdinhKey === key ? 'text-[#C62828]' : 'text-[#0F172A] group-hover:text-[#C62828]'}`}>{label}</p>
                 <p className="text-xs text-[#64748B] mt-0.5">{desc}</p>
               </div>
             </button>
           ))}
         </div>
+
+        {/* Mẫu 03-BC inline panel */}
+        {activePhapdinhKey === 'mau03bc' && (
+          <div className="mt-4 border border-[#E2E8F0] rounded-xl p-5 space-y-4 bg-[#F8FAFC]">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div>
+                <label className="block text-xs font-medium text-[#C62828] mb-1">Năm</label>
+                <input
+                  type="number"
+                  value={mau03BcYear}
+                  onChange={e => setMau03BcYear(e.target.value)}
+                  min={2020}
+                  max={2100}
+                  className="w-24 px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#C62828] mb-1">Mã đơn vị (tuỳ chọn)</label>
+                <input
+                  type="text"
+                  value={mau03BcUnit}
+                  onChange={e => setMau03BcUnit(e.target.value)}
+                  placeholder="VD: DV01"
+                  className="w-32 px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828]"
+                />
+              </div>
+              <div className="flex-1" />
+              <button
+                onClick={handleMau03BcExport}
+                disabled={mau03BcExporting || !mau03BcData}
+                className="flex items-center gap-2 px-4 py-2 border border-[#E2E8F0] text-[#64748B] rounded-lg text-sm hover:border-[#C62828] hover:text-[#C62828] disabled:opacity-50 transition-colors"
+                data-testid="mau03bc-export-btn"
+              >
+                <FileDown size={15} />
+                {mau03BcExporting ? 'Đang xuất...' : 'Xuất Excel'}
+              </button>
+            </div>
+
+            {mau03BcLoading ? (
+              <div className="py-6 text-center">
+                <div className="inline-block w-6 h-6 border-4 border-[#C62828] border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : mau03BcData ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl border border-[#E2E8F0] p-4">
+                  <p className="text-xs font-semibold text-[#C62828] uppercase mb-2">I. Quân số</p>
+                  <p className="text-sm text-[#64748B]">Hiện dịch: <strong className="text-[#0F172A]">{mau03BcData.militia.totalActive}</strong></p>
+                  <p className="text-sm text-[#64748B]">Dự bị: <strong className="text-[#0F172A]">{mau03BcData.militia.totalInactive}</strong></p>
+                  <p className="text-sm text-[#64748B]">Nữ: <strong className="text-[#0F172A]">{mau03BcData.militia.totalFemale}</strong></p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#E2E8F0] p-4">
+                  <p className="text-xs font-semibold text-[#C62828] uppercase mb-2">II. Huấn luyện</p>
+                  <p className="text-sm text-[#64748B]">Lượt: <strong className="text-[#0F172A]">{mau03BcData.training.trainedCount}</strong></p>
+                  <p className="text-sm text-[#64748B]">Ngày: <strong className="text-[#0F172A]">{mau03BcData.training.totalTrainingDays}</strong></p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#E2E8F0] p-4">
+                  <p className="text-xs font-semibold text-[#C62828] uppercase mb-2">III. Kỷ luật</p>
+                  <p className="text-sm text-[#64748B]">Khen thưởng: <strong className="text-[#2E7D32]">{mau03BcData.discipline.rewardCount}</strong></p>
+                  <p className="text-sm text-[#64748B]">Kỷ luật: <strong className="text-[#C62828]">{mau03BcData.discipline.disciplineCount}</strong></p>
+                </div>
+                <div className="bg-white rounded-xl border border-[#E2E8F0] p-4">
+                  <p className="text-xs font-semibold text-[#C62828] uppercase mb-2">IV. Kinh phí</p>
+                  <p className="text-sm text-[#64748B]">Lương: <strong className="text-[#0F172A]">{mau03BcData.budget.totalSalary.toLocaleString('vi-VN')} đ</strong></p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Filter form */}

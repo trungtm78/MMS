@@ -46,6 +46,21 @@ class AdjustKpiDto {
 export class PayrollController {
   constructor(private readonly payrollService: PayrollService) {}
 
+  // GET /payroll/compliance-check?periodId=
+  @Get('compliance-check')
+  async getComplianceCheck(@Query('periodId') periodId: string) {
+    return this.payrollService.getComplianceCheck(periodId);
+  }
+
+  // GET /payroll/export?periodId= → xlsx stream
+  @Get('export')
+  async exportPayroll(
+    @Query('periodId') periodId: string,
+    @Res() res: Response,
+  ) {
+    return this.payrollService.exportPayroll(periodId, res);
+  }
+
   // GET /payroll/periods
   @Get('periods')
   async listPeriods(

@@ -24,6 +24,10 @@ class Routes {
   static const caChat         = '/ca/chat';
   static const caChatDetail   = '/ca/chat/:id';
 
+  // ─── CA Feature routes ────────────────────────────────────────────────────────
+  static const caCompliance       = '/ca/compliance';
+  static const caTrainingMgmt     = '/ca/training';
+
   // ─── DQTV Shell ──────────────────────────────────────────────────────────────
   static const dqtvHome       = '/dqtv/home';
   static const dqtvTasks      = '/dqtv/tasks';

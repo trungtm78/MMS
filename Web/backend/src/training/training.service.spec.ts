@@ -2,10 +2,51 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { TrainingService } from './training.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
 
 const mockDataSource = { query: jest.fn() };
+
+const mockExcelExportService = {
+  createWorkbook: jest.fn().mockReturnValue({
+    addWorksheet: jest.fn().mockReturnValue({
+      columnCount: 12,
+      getRow: jest.fn().mockReturnValue({
+        getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+        height: 0,
+      }),
+      getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+      mergeCells: jest.fn(),
+      views: [],
+      autoFilter: null,
+      lastRow: { number: 10 },
+    }),
+    addWorksheet: jest.fn().mockReturnValue({
+      columnCount: 12,
+      getRow: jest.fn().mockReturnValue({
+        getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+        height: 0,
+      }),
+      getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+      mergeCells: jest.fn(),
+      views: [],
+      autoFilter: null,
+      lastRow: { number: 10 },
+    }),
+    creator: '',
+    lastModifiedBy: '',
+    created: new Date(),
+    modified: new Date(),
+  }),
+  addGovernmentHeader: jest.fn().mockReturnValue(8),
+  addStyledTable: jest.fn(),
+  addSummaryStatsTable: jest.fn(),
+  addSignatureBlock: jest.fn(),
+  addLegalReferencesSheet: jest.fn(),
+  addDocumentHash: jest.fn(),
+  streamToResponse: jest.fn(),
+};
 
 // ── Fixture users ──────────────────────────────────────────────────────────
 
@@ -53,11 +94,28 @@ describe('TrainingService', () => {
       providers: [
         TrainingService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
       ],
     }).compile();
 
     service = module.get<TrainingService>(TrainingService);
     jest.clearAllMocks();
+    mockExcelExportService.createWorkbook.mockReturnValue({
+      addWorksheet: jest.fn().mockReturnValue({
+        columnCount: 12,
+        getRow: jest.fn().mockReturnValue({
+          getCell: jest.fn().mockReturnValue({ value: '', font: {}, fill: {}, alignment: {}, border: {}, note: '' }),
+          height: 0,
+        }),
+        getColumn: jest.fn().mockReturnValue({ key: '', width: 0 }),
+        mergeCells: jest.fn(),
+        views: [],
+        autoFilter: null,
+        lastRow: { number: 10 },
+      }),
+      creator: '', lastModifiedBy: '', created: new Date(), modified: new Date(),
+    });
+    mockExcelExportService.addGovernmentHeader.mockReturnValue(8);
   });
 
   // ── listRecords ──────────────────────────────────────────────────────────
@@ -302,6 +360,72 @@ describe('TrainingService', () => {
       expect(result[0].meetsRequirement).toBe(true);  // 20 >= 15
       expect(result[1].meetsRequirement).toBe(false); // 10 < 15
       expect(result[2].meetsRequirement).toBe(true);  // 15 >= 15
+    });
+  });
+
+  // ── getComplianceReport ───────────────────────────────────────────────────
+
+  describe('getComplianceReport', () => {
+    const complianceRow = {
+      militiaId: 'militia-1',
+      militiaName: 'Nguyễn Văn A',
+      militiaCode: 'DQ001',
+      unitCode: 'UNIT_001',
+      military: '10',
+      political: '3',
+      fire: '0',
+      firstAid: '2',
+      other: '0',
+      totalDays: '15',
+    };
+
+    it('returns ĐẠT status for totalDays >= 15', async () => {
+      mockDataSource.query.mockResolvedValueOnce([complianceRow]);
+      const result = await service.getComplianceReport(systemAdmin, 2026);
+      expect(result[0].status).toBe('ĐẠT');
+      expect(result[0].totalDays).toBe(15);
+    });
+
+    it('returns CẢNH BÁO status for 10 <= totalDays < 15', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ ...complianceRow, totalDays: '12' }]);
+      const result = await service.getComplianceReport(systemAdmin, 2026);
+      expect(result[0].status).toBe('CẢNH BÁO');
+    });
+
+    it('returns KHÔNG ĐẠT status for totalDays < 10', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ ...complianceRow, totalDays: '5' }]);
+      const result = await service.getComplianceReport(systemAdmin, 2026);
+      expect(result[0].status).toBe('KHÔNG ĐẠT');
+    });
+
+    it('single DB round trip (1 query)', async () => {
+      mockDataSource.query.mockResolvedValueOnce([complianceRow]);
+      await service.getComplianceReport(systemAdmin, 2026);
+      expect(mockDataSource.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('police_ward sees all units (no unitScope lock per spec)', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await service.getComplianceReport(policeWard, 2026);
+      const [, params] = mockDataSource.query.mock.calls[0] as [string, unknown[]];
+      // police_ward is in WIDE_ROLES — no unit filter unless unitCode param passed
+      expect(params[1]).toBeNull();
+    });
+
+    it('system_admin can pass explicit unitCode', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]);
+      await service.getComplianceReport(systemAdmin, 2026, 'UNIT_002');
+      const [, params] = mockDataSource.query.mock.calls[0] as [string, unknown[]];
+      expect(params[1]).toBe('UNIT_002');
+    });
+
+    it('includes per-type breakdowns', async () => {
+      mockDataSource.query.mockResolvedValueOnce([complianceRow]);
+      const result = await service.getComplianceReport(systemAdmin, 2026);
+      expect(result[0].military).toBe(10);
+      expect(result[0].political).toBe(3);
+      expect(result[0].firstAid).toBe(2);
+      expect(result[0].requiredDays).toBe(15);
     });
   });
 });

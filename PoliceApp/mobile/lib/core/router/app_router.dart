@@ -20,6 +20,8 @@ import '../../features/reports/screens/report_work_screen.dart';
 import '../../features/reports/screens/team_reports_screen.dart';
 import '../../features/approvals/screens/approvals_screen.dart';
 import '../../features/approvals/screens/chi_tieu_evaluation_screen.dart';
+import '../../features/reports/screens/unit_compliance_screen.dart';
+import '../../features/training/training_management_screen.dart';
 import '../../features/alerts/screens/alerts_screen.dart';
 import '../../features/profile/screens/profile_ca_screen.dart';
 import '../../features/profile/screens/profile_dqtv_screen.dart';
@@ -149,6 +151,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.caNotifications,
         builder: (context, state) => const NotificationsScreen(),
+      ),
+      GoRoute(
+        path: Routes.caCompliance,
+        builder: (context, state) => const UnitComplianceScreen(),
+      ),
+      GoRoute(
+        path: Routes.caTrainingMgmt,
+        builder: (context, state) => const TrainingManagementScreen(),
       ),
 
       // ─── DQTV Shell ──────────────────────────────────────────────────────

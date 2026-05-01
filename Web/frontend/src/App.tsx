@@ -50,6 +50,11 @@ import { RecruitmentPage } from '@/pages/RecruitmentPage'
 import { ExemptionPage } from '@/pages/ExemptionPage'
 import { TrainingPlanPage } from '@/pages/TrainingPlanPage'
 import { RewardsManagePage } from '@/pages/RewardsManagePage'
+import { ComplianceDashboardPage } from '@/pages/ComplianceDashboardPage'
+import { TrainingComplianceReportPage } from '@/pages/TrainingComplianceReportPage'
+import { RosterReportPage } from '@/pages/RosterReportPage'
+import { AttendanceSummaryReportPage } from '@/pages/AttendanceSummaryReportPage'
+import { RewardsDisciplineReportPage } from '@/pages/RewardsDisciplineReportPage'
 import type { AppRoute } from '@/components/layout/Sidebar'
 import { QuickActionsWidget } from '@/components/layout/QuickActionsWidget'
 
@@ -75,6 +80,11 @@ function pathToAppRoute(pathname: string): AppRoute {
   if (pathname.startsWith('/militia')) return 'militia-list'
   if (pathname.startsWith('/approvals')) return 'approvals'
   if (pathname.startsWith('/assignments')) return 'assignments'
+  if (pathname.startsWith('/compliance')) return 'compliance-dashboard'
+  if (pathname === '/reports/training-compliance') return 'report-training-compliance'
+  if (pathname === '/reports/roster') return 'report-roster'
+  if (pathname === '/reports/attendance-summary') return 'report-attendance-summary'
+  if (pathname === '/reports/rewards-discipline') return 'report-rewards-discipline'
   if (pathname.startsWith('/reports') || pathname.startsWith('/kpi') || pathname.startsWith('/audit')) return 'reports'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname.startsWith('/gps')) return 'gps-tracking'
@@ -138,6 +148,11 @@ function AppShell() {
       'exemptions':         '/exemptions',
       'training':           '/training',
       'rewards':            '/rewards',
+      'compliance-dashboard':         '/compliance',
+      'report-training-compliance':   '/reports/training-compliance',
+      'report-roster':                '/reports/roster',
+      'report-attendance-summary':    '/reports/attendance-summary',
+      'report-rewards-discipline':    '/reports/rewards-discipline',
     }
     navigate(routeMap[route] ?? '/dashboard')
   }
@@ -178,6 +193,11 @@ function AppShell() {
             <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
             <Route path="/settings/chitieu" element={<SettingsChiTieuPage />} />
             <Route path="/settings/system" element={<SettingsSystemPage />} />
+            <Route path="/compliance" element={<ComplianceDashboardPage />} />
+            <Route path="/reports/training-compliance" element={<TrainingComplianceReportPage />} />
+            <Route path="/reports/roster" element={<RosterReportPage />} />
+            <Route path="/reports/attendance-summary" element={<AttendanceSummaryReportPage />} />
+            <Route path="/reports/rewards-discipline" element={<RewardsDisciplineReportPage />} />
             <Route path="/reports/attendance" element={<AttendanceReportPage />} />
             <Route path="/reports/tasks" element={<TaskReportPage />} />
             <Route path="/reports/custom" element={<CustomReportPage />} />

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 import { useRbac } from '@/hooks/useRbac'
 import client from '@/api/client'
-import { Shield, Plus, X, CheckSquare } from 'lucide-react'
+import { Shield, Plus, X, CheckSquare, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface WeaponItem {
@@ -243,13 +243,34 @@ function AllocationLogTab() {
   )
 }
 
+interface InventoryReportItem {
+  id: string
+  weaponType: string
+  serialNumber: string
+  condition: string
+  storageLocation: string
+  acquiredAt: string | null
+  status: string
+  responsiblePersonName: string | null
+  currentHolder: string | null
+  issuedAt: string | null
+  returnedAt: string | null
+  overdue: boolean
+}
+
 function InventoryTab() {
   const queryClient = useQueryClient()
   const [notes, setNotes] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const { data: weapons = [] } = useQuery<WeaponItem[]>({
     queryKey: ['weapons'],
     queryFn: () => client.get('/weapons').then((r) => r.data),
+  })
+
+  const { data: inventoryReport = [] } = useQuery<InventoryReportItem[]>({
+    queryKey: ['weapons-inventory-report'],
+    queryFn: () => client.get('/weapons/inventory-report').then((r) => r.data),
   })
 
   const inventoryMutation = useMutation({
@@ -266,10 +287,28 @@ function InventoryTab() {
   const goodCount = weapons.filter((w) => w.condition === 'good').length
   const damagedCount = weapons.filter((w) => w.condition === 'damaged').length
   const maintenanceCount = weapons.filter((w) => w.condition === 'maintenance').length
+  const overdueCount = inventoryReport.filter(r => r.overdue).length
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const resp = await client.get('/weapons/export', { responseType: 'blob' })
+      const url = URL.createObjectURL(resp.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `KiemKe_VuKhi_${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Không thể xuất biên bản kiểm kê')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 text-center">
           <p className="text-3xl font-bold text-[#2E7D32]">{goodCount}</p>
           <p className="text-sm text-[#64748B] mt-1">Tình trạng tốt</p>
@@ -282,9 +321,62 @@ function InventoryTab() {
           <p className="text-3xl font-bold text-[#C62828]">{damagedCount}</p>
           <p className="text-sm text-[#64748B] mt-1">Hỏng</p>
         </div>
+        <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 text-center">
+          <p className={`text-3xl font-bold ${overdueCount > 0 ? 'text-orange-600' : 'text-[#64748B]'}`}>{overdueCount}</p>
+          <p className="text-sm text-[#64748B] mt-1">Quá hạn (&gt;180 ngày)</p>
+        </div>
       </div>
+
+      {/* Inventory table */}
+      {inventoryReport.length > 0 && (
+        <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-[#F8FAFC] border-b-2 border-[#E2E8F0]">
+                <tr>
+                  {['Loại', 'Số hiệu', 'Tình trạng', 'Nơi cất', 'Người chịu TN', 'Đang cấp phát', 'Quá hạn'].map(h => (
+                    <th key={h} className="px-5 py-3 text-left text-xs font-medium text-[#64748B] uppercase">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryReport.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-[#F1F5F9] transition-colors ${item.overdue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-[#F8FAFC]'}`}
+                  >
+                    <td className="px-5 py-3 text-sm text-[#0F172A]">{item.weaponType}</td>
+                    <td className="px-5 py-3 text-sm font-mono text-[#64748B]">{item.serialNumber}</td>
+                    <td className="px-5 py-3 text-sm">{item.condition}</td>
+                    <td className="px-5 py-3 text-sm text-[#64748B]">{item.storageLocation}</td>
+                    <td className="px-5 py-3 text-sm text-[#0F172A]">{item.responsiblePersonName ?? '—'}</td>
+                    <td className="px-5 py-3 text-sm text-[#64748B]">{item.currentHolder ?? '—'}</td>
+                    <td className="px-5 py-3">
+                      {item.overdue && (
+                        <span className="px-2 py-0.5 bg-red-100 text-[#C62828] text-xs font-semibold rounded-full">Quá hạn</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 space-y-4">
-        <h3 className="text-sm font-semibold text-[#0F172A]">Xác nhận kiểm kê</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[#0F172A]">Xác nhận kiểm kê</h3>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            data-testid="export-inventory-btn"
+            className="flex items-center gap-2 border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <Download size={16} />
+            {exporting ? 'Đang xuất...' : 'Biên bản kiểm kê (nội bộ)'}
+          </button>
+        </div>
         <p className="text-sm text-[#64748B]">
           Tổng số vũ khí / trang thiết bị trong hệ thống: <strong className="text-[#0F172A]">{weapons.length}</strong>
         </p>

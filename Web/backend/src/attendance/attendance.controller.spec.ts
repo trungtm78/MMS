@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AttendanceController } from './attendance.controller';
 import { AttendanceService } from './attendance.service';
+import { ExcelExportService } from '../common/services/excel-export.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
@@ -11,7 +12,11 @@ const mockAttendanceService = {
   checkOut: jest.fn(),
   getTodayStatus: jest.fn(),
   getStats: jest.fn(),
+  getAttendanceSummary: jest.fn(),
+  exportAttendanceSummary: jest.fn(),
 };
+
+const mockExcelExportService = { streamToResponse: jest.fn() };
 
 const adminUser = { sub: 'admin-1', username: 'admin', role: 'system_admin', unitScope: null };
 const dqtvUser = { sub: 'dqtv-1', username: 'dqtv1', role: 'dqtv_member', unitScope: 'UNIT_001' };
@@ -22,7 +27,10 @@ describe('AttendanceController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AttendanceController],
-      providers: [{ provide: AttendanceService, useValue: mockAttendanceService }],
+      providers: [
+        { provide: AttendanceService, useValue: mockAttendanceService },
+        { provide: ExcelExportService, useValue: mockExcelExportService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
