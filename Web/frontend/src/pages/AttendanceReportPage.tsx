@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Calendar, ChevronLeft, ChevronRight, Download, TrendingUp } from 'lucide-react'
 import client from '@/api/client'
+import { exportCsv } from '@/utils/csv-export'
 
 interface AttendanceRecord {
   id: string
@@ -49,6 +50,28 @@ export function AttendanceReportPage() {
     queryFn: () => listAttendance({ date, page, limit: 20 }),
   })
 
+  // Separate export query — fetch up to 1000 records, only triggered on demand
+  const { refetch: fetchAllForExport, isFetching: isExporting } = useQuery({
+    queryKey: ['attendance-export', date],
+    queryFn: () => listAttendance({ date, page: 1, limit: 1000 }),
+    enabled: false,
+  })
+
+  async function handleExportCsv() {
+    const result = await fetchAllForExport()
+    const rows = result.data?.data ?? []
+    const headers = ['Mã DQTV', 'Họ và tên', 'Trạng thái', 'Giờ vào', 'Giờ ra', 'Số giờ']
+    const csvRows = rows.map((r) => [
+      r.militiaCode,
+      r.militiaName,
+      STATUS_LABELS[r.status] ?? r.status,
+      r.checkinAt ? new Date(r.checkinAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—',
+      r.checkoutAt ? new Date(r.checkoutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—',
+      r.workHours != null ? `${r.workHours}h` : '—',
+    ])
+    exportCsv(headers, csvRows, `diem-danh-${date}.csv`)
+  }
+
   const records = data?.data ?? []
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / 20)
@@ -67,9 +90,14 @@ export function AttendanceReportPage() {
           <h1 className="text-[28px] font-bold text-[#0F172A]">Báo Cáo Điểm Danh</h1>
           <p className="text-sm text-[#64748B] mt-1">Thống kê điểm danh theo ngày</p>
         </div>
-        <button className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors">
+        <button
+          onClick={handleExportCsv}
+          disabled={isExporting}
+          data-testid="export-btn"
+          className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
+        >
           <Download size={16} />
-          Xuất Excel
+          {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
         </button>
       </div>
 

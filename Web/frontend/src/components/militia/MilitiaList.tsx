@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search, FileDown, Eye, Edit, Filter, ChevronDown, Users, Plus } from 'lucide-react'
 import { searchMilitia, type MilitiaSearchResult } from '@/api/militia'
+import { exportCsv } from '@/utils/csv-export'
 
 // ─── Filter options ───────────────────────────────────────────────────────────
 
@@ -87,27 +88,17 @@ function FilterSelect({
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCsv(items: MilitiaSearchResult[]) {
-  const header = ['Mã DQTV', 'Họ và tên', 'Đơn vị', 'Cấp bậc', 'Điện thoại', 'Email', 'Trạng thái']
+function exportMilitiaCsv(items: MilitiaSearchResult[]) {
+  const headers = ['Mã DQTV', 'Họ và tên', 'Đơn vị', 'Cấp bậc', 'Điện thoại', 'Trạng thái']
   const rows = items.map((m) => [
     m.militiaCode ?? m.id,
     m.fullName,
     m.unitCode,
     m.rank ?? '',
     m.phone ?? '',
-    m.phone ?? '',
     getStatusDisplay(m.status).label,
   ])
-  const csv = [header, ...rows]
-    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `danh-sach-dqtv-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  exportCsv(headers, rows, `danh-sach-dqtv-${new Date().toISOString().slice(0, 10)}.csv`)
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -166,7 +157,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
 
   async function handleExport() {
     const result = await fetchAllForExport()
-    if (result.data?.data) exportCsv(result.data.data)
+    if (result.data?.data) exportMilitiaCsv(result.data.data)
   }
 
   const items      = data?.data ?? []
@@ -207,7 +198,11 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             <FileDown size={16} />
             {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
           </button>
-          <button className="bg-[#2E7D32] text-white hover:bg-[#1B5E20] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
+          <button
+            onClick={() => navigate('/militia/new')}
+            className="bg-[#2E7D32] text-white hover:bg-[#1B5E20] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm"
+            data-testid="add-militia-btn"
+          >
             <Plus size={16} />
             Thêm DQTV
           </button>

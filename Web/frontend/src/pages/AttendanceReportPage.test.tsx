@@ -46,6 +46,12 @@ describe('AttendanceReportPage', () => {
 
   it('renders export button', () => {
     renderWithQuery(<AttendanceReportPage />)
+    expect(screen.getByTestId('export-btn')).toBeInTheDocument()
     expect(screen.getByText('Xuất Excel')).toBeInTheDocument()
+  })
+
+  it('export button is not disabled on initial render', () => {
+    renderWithQuery(<AttendanceReportPage />)
+    expect(screen.getByTestId('export-btn')).not.toBeDisabled()
   })
 })

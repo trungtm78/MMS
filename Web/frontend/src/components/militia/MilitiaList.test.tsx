@@ -5,8 +5,18 @@ import { MemoryRouter } from 'react-router-dom'
 import { MilitiaList } from './MilitiaList'
 import * as militiaApi from '@/api/militia'
 
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => mockNavigate }
+})
+
 vi.mock('@/api/militia', () => ({
   searchMilitia: vi.fn(),
+}))
+
+vi.mock('@/utils/csv-export', () => ({
+  exportCsv: vi.fn(),
 }))
 
 const mockData = {
@@ -126,5 +136,12 @@ describe('MilitiaList', () => {
   it('shows Xuất Excel button', () => {
     renderWithProviders(<MilitiaList />)
     expect(screen.getByText('Xuất Excel')).toBeInTheDocument()
+  })
+
+  it('navigates to /militia/new when Thêm DQTV is clicked', async () => {
+    renderWithProviders(<MilitiaList />)
+    await waitFor(() => expect(screen.getByText('Nguyễn Văn Minh')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('add-militia-btn'))
+    expect(mockNavigate).toHaveBeenCalledWith('/militia/new')
   })
 })

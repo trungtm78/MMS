@@ -58,6 +58,54 @@
 **Description:** `GPSTracking.tsx` not included in this release. NestJS GPS module is empty (no API endpoints). Implement backend GPS endpoints first, then port the frontend.
 **Noticed on:** feat/mms-phase1-phase2-implementation (2026-04-18)
 
+## Stub-Check Findings (2026-05-01)
+
+### P1 — Critical: Inert buttons (no onClick handler)
+
+**Priority:** P1
+**Title:** MilitiaList "Thêm DQTV" button — no onClick
+**Description:** `Web/frontend/src/components/militia/MilitiaList.tsx:210` — green "Thêm DQTV" (Add Militia Member) primary action button renders with no onClick handler. Clicking does nothing. Wire up to open a create-militia modal or navigate to creation form.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
+**Priority:** P1
+**Title:** AttendanceReportPage "Xuất Excel" button — no onClick
+**Description:** `Web/frontend/src/pages/AttendanceReportPage.tsx:70` — "Xuất Excel" (Export Excel) export button has no onClick handler. Wire up to the CSV/Excel export utility (see `ActivityLogPage.tsx` export pattern).
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
+**Priority:** P1
+**Title:** MilitiaProfilePage "Chỉnh sửa" button — no onClick
+**Description:** `Web/frontend/src/pages/MilitiaProfilePage.tsx:260` — red "Chỉnh sửa" (Edit Profile) primary action button has no onClick handler. Wire up to open edit modal or navigate to edit page.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
+### P3 — Medium: Missing backend test specs
+
+**Priority:** P3
+**Title:** Web/backend — 24 controllers missing .spec.ts
+**Description:** All controllers in `Web/backend/src/` have no spec file: admin, assignments, attendance, auth, chat, dashboard, exemption, files, gps, health, kpi, leave, militia, official-documents, organization, payroll, recruitment, sos, tasks, training, users/profile, users/users, weapons, work-reports controllers.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
+**Priority:** P3
+**Title:** Web/backend — 5 services missing .spec.ts
+**Description:** `app.service.ts`, `chat/chat.service.ts`, `exemption/exemption.service.ts`, `files/files.service.ts`, `official-documents/official-documents.service.ts` — all lack spec files.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
+**Priority:** P3
+**Title:** core/backend — 12 services missing .spec.ts
+**Description:** All services in `core/backend/src/services/` lack spec files: alert, attendance, auth, chat, gps, incident, kpi, leave, notification, report, task, user services.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-01)
+
+---
+
 ## Phase 4 (Polish)
 
 **Priority:** P3

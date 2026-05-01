@@ -231,4 +231,21 @@ describe('MilitiaProfilePage', () => {
       expect(screen.getByText('Sạch')).toBeInTheDocument()
     })
   })
+
+  describe('Edit button', () => {
+    it('renders Chỉnh sửa button', async () => {
+      renderWithProviders()
+      await waitFor(() => expect(screen.getByText('Nguyễn Văn Minh')).toBeInTheDocument())
+      expect(screen.getByTestId('edit-btn')).toBeInTheDocument()
+    })
+
+    it('opens edit modal when Chỉnh sửa is clicked', async () => {
+      renderWithProviders()
+      await waitFor(() => expect(screen.getByText('Nguyễn Văn Minh')).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId('edit-btn'))
+      await waitFor(() => {
+        expect(screen.getByTestId('militia-edit-modal')).toBeInTheDocument()
+      })
+    })
+  })
 })

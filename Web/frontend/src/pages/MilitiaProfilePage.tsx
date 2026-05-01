@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { User, Edit, ArrowLeft, Phone, Mail, Calendar, Award, Shield, Briefcase, FileText, Download } from 'lucide-react'
 import { getMilitiaById } from '@/api/militia'
+import { MilitiaEditModal } from '@/components/militia/MilitiaEditModal'
 import { trainingApi } from '@/api/training'
 import client from '@/api/client'
 import type { TrainingRecord } from '@/api/training'
@@ -150,6 +151,7 @@ export function MilitiaProfilePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('personal')
+  const [editOpen, setEditOpen] = useState(false)
 
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ['militia-profile', id],
@@ -233,6 +235,14 @@ export function MilitiaProfilePage() {
 
   return (
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-screen" data-testid="militia-profile-page">
+      {editOpen && (
+        <MilitiaEditModal
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          id={id!}
+          profile={profile}
+        />
+      )}
       {/* Top nav bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -257,7 +267,11 @@ export function MilitiaProfilePage() {
             <Download size={16} />
             Xuất hồ sơ
           </button>
-          <button className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm">
+          <button
+            onClick={() => setEditOpen(true)}
+            className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm"
+            data-testid="edit-btn"
+          >
             <Edit size={16} />
             Chỉnh sửa
           </button>
