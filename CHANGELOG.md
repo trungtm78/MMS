@@ -2,6 +2,32 @@
 
 ---
 
+## [0.3.0.0] — 2026-05-01
+
+### Added
+- **Hệ thống báo cáo pháp định DQTV** — 9 loại báo cáo Excel chuẩn nhà nước: quân số (Mẫu 01-BC), điểm danh tổng hợp, kết quả huấn luyện (TT 69/2020), KPI, khen thưởng-kỷ luật (TT 57/2020), lương phụ cấp (NĐ 72/2020 Điều 41-52), kiểm kê vũ khí, Mẫu 03-BC tổng hợp (TT 144/2014), nhật ký kiểm toán (TT 13/2013)
+- **ExcelExportService** — dịch vụ xuất Excel chuẩn nhà nước: header CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM 5 dòng, SHA-256 document hash (NĐ 30/2020), signature block với cell.note hướng dẫn in, freeze panes, conditional status coloring (ĐẠT/CẢNH BÁO/KHÔNG ĐẠT), currency format ₫, summary stats thay thế chart (tương thích WPS/Office 2010)
+- **ComplianceDashboardPage** — dashboard tổng quan tuân thủ pháp luật: 5 widget cards (quân số, huấn luyện, điểm danh, KPI, miễn giảm), skeleton loader, stale timestamp, NaN guard, ngưỡng cảnh báo từ system_settings
+- **TrainingComplianceReportPage** — báo cáo huấn luyện per TT 69/2020: ĐẠT/CẢNH BÁO/KHÔNG ĐẠT per DQTV, phân loại theo 4 loại huấn luyện
+- **Sidebar "Báo cáo pháp định"** — nhóm collapsible 5 routes trong sidebar (≤14 items tổng)
+- **Compliance alerts scheduler** — cron 8am daily: cảnh báo DQTV < 12 ngày huấn luyện khi còn < 60 ngày cuối năm
+- **MilitianApp TrainingScreen** — màn hình xem đợt huấn luyện: progress bar X/15 ngày, filter chips theo loại, pull-to-refresh, empty/error states
+- **PoliceApp UnitComplianceScreen** — màn hình tuân thủ đơn vị cho CA: 4 summary cards, danh sách DQTV cần chú ý
+- **PoliceApp TrainingManagementScreen** — quản lý huấn luyện trên mobile: danh sách, FAB thêm mới, form type/ngày/địa điểm/kết quả
+
+### Changed
+- **PayrollPage** — thêm tab "Tuân thủ": so sánh lương thực lĩnh vs lương tối thiểu vùng, highlight vi phạm
+- **ChiTieuDashboardPage** — thêm tab "Báo cáo KPI": bảng 5 tiêu chí, xepLoai (Xuất sắc/Tốt/Khá/Cần cải thiện), export
+- **WeaponsPage** — thêm tab "Kiểm kê": tình trạng kho, overdue highlight, biên bản kiểm kê (nội bộ)
+- **CustomReportPage** — hoàn thiện Mẫu 03-BC với dữ liệu thực từ API (4-section: quân số/huấn luyện/kỷ luật/kinh phí)
+- **ActivityLogPage** — thêm export nhật ký kiểm toán (system_admin only, 90-day cap, CSV/Excel)
+
+### Security
+- IDOR fix: tất cả export endpoints enforce `unitScope` từ JWT — CA ward A không xem roster ward B
+- `GET /dashboard/compliance`: thêm `@Roles` guard (dqtv_member không xem unit-wide stats)
+- `GET /audit/export`: restrict to `system_admin` only
+- `GET /militia/me/data-export`: thêm commander approval step (NĐ 13/2023)
+
 ## [0.2.2.0] — 2026-05-01
 
 ### Added
