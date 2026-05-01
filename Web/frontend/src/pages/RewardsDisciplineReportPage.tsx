@@ -85,7 +85,7 @@ export function RewardsDisciplineReportPage() {
       const key = item.decisionDate.slice(0, 7) // YYYY-MM
       if (!map.has(key)) map.set(key, { reward: 0, discipline: 0 })
       const s = map.get(key)!
-      if (item.rewardType === 'reward') s.reward++ else s.discipline++
+      if (item.rewardType === 'reward') { s.reward++ } else { s.discipline++ }
     })
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   })()
