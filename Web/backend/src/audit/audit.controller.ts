@@ -67,8 +67,12 @@ export class AuditController {
     const toDate = to ?? new Date().toISOString().slice(0, 10);
 
     // Hard cap: 90-day max range
-    const diffMs = new Date(toDate).getTime() - new Date(fromDate).getTime();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    const fromTs = new Date(fromDate).getTime();
+    const toTs = new Date(toDate).getTime();
+    if (fromTs > toTs) {
+      throw new BadRequestException('from_must_be_before_to');
+    }
+    const diffDays = (toTs - fromTs) / (1000 * 60 * 60 * 24);
     if (diffDays > 90) {
       throw new BadRequestException('date_range_exceeds_90_days');
     }

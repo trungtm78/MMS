@@ -106,25 +106,27 @@ export class MilitiaController {
   @Get('rewards-report')
   @Roles('system_admin', 'police_ward', 'office_staff')
   async getRewardsReport(
+    @Request() req: { user: JwtPayload },
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('type') type?: string,
     @Query('unitCode') unitCode?: string,
   ) {
-    return this.militiaService.getRewardsReport({ from, to, type, unitCode });
+    return this.militiaService.getRewardsReport(req.user, { from, to, type, unitCode });
   }
 
   // Sprint 3: GET /militia/rewards-export?from=&to=&type=&unitCode= → xlsx
   @Get('rewards-export')
   @Roles('system_admin', 'police_ward', 'office_staff')
   async exportRewardsReport(
+    @Request() req: { user: JwtPayload },
     @Query('from') from: string | undefined,
     @Query('to') to: string | undefined,
     @Query('type') type: string | undefined,
     @Query('unitCode') unitCode: string | undefined,
     @Res() res: Response,
   ) {
-    return this.militiaService.exportRewardsReport({ from, to, type, unitCode }, res);
+    return this.militiaService.exportRewardsReport(req.user, { from, to, type, unitCode }, res);
   }
 
   // GET /militia/export?format=xlsx&unitCode=&status= — export roster (unitScope enforced)

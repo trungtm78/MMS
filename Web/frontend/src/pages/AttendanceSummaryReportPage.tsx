@@ -5,20 +5,15 @@ import client from '@/api/client'
 import { downloadExcelReport } from '@/utils/export-utils'
 
 interface AttendanceSummaryRow {
-  id: string
-  fullName: string
+  militiaId: string
+  militiaName: string
   militiaCode: string
   unitCode: string
   totalDays: number
-  onTime: number
-  late: number
-  absent: number
-  attendanceRate: number // percentage 0-100
-}
-
-interface AttendanceSummaryResponse {
-  data: AttendanceSummaryRow[]
-  total: number
+  onTimeDays: number
+  lateDays: number
+  absentDays: number
+  attendancePct: number // percentage 0-100
 }
 
 function getMonthRange() {
@@ -32,7 +27,7 @@ async function fetchAttendanceSummary(params: {
   from: string
   to: string
   unitCode: string
-}): Promise<AttendanceSummaryResponse> {
+}): Promise<AttendanceSummaryRow[]> {
   const res = await client.get('/attendance/summary', {
     params: {
       from: params.from,
@@ -70,7 +65,7 @@ export function AttendanceSummaryReportPage() {
   })
 
   // Sort ascending by attendance rate — lowest first ("cần chú ý" at top)
-  const rows = [...(data?.data ?? [])].sort((a, b) => a.attendanceRate - b.attendanceRate)
+  const rows = [...(data ?? [])].sort((a, b) => a.attendancePct - b.attendancePct)
 
   async function handleExport() {
     await downloadExcelReport(
@@ -177,28 +172,28 @@ export function AttendanceSummaryReportPage() {
                     </td>
                   </tr>
                 ) : rows.map((row, idx) => (
-                  <tr key={row.id} className="hover:bg-[#F8FAFC] transition-colors">
+                  <tr key={row.militiaId} className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="px-4 py-3 text-sm text-[#64748B]">{idx + 1}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{row.fullName}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{row.militiaName}</td>
                     <td className="px-4 py-3 text-sm font-mono text-[#1F3A5F]">{row.militiaCode}</td>
                     <td className="px-4 py-3 text-sm text-[#64748B]">{row.unitCode}</td>
                     <td className="px-4 py-3 text-sm text-[#64748B] text-center">{row.totalDays}</td>
-                    <td className="px-4 py-3 text-sm text-[#2E7D32] text-center">{row.onTime}</td>
-                    <td className="px-4 py-3 text-sm text-yellow-600 text-center">{row.late}</td>
-                    <td className="px-4 py-3 text-sm text-[#C62828] text-center">{row.absent}</td>
+                    <td className="px-4 py-3 text-sm text-[#2E7D32] text-center">{row.onTimeDays}</td>
+                    <td className="px-4 py-3 text-sm text-yellow-600 text-center">{row.lateDays}</td>
+                    <td className="px-4 py-3 text-sm text-[#C62828] text-center">{row.absentDays}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-16 h-1.5 bg-[#E2E8F0] rounded-full overflow-hidden">
                           <div
-                            className={`h-1.5 rounded-full ${pctBg(row.attendanceRate)}`}
-                            style={{ width: `${Math.min(100, row.attendanceRate)}%` }}
+                            className={`h-1.5 rounded-full ${pctBg(row.attendancePct)}`}
+                            style={{ width: `${Math.min(100, row.attendancePct)}%` }}
                           />
                         </div>
                         <span
-                          className={`text-sm font-semibold ${pctColor(row.attendanceRate)}`}
+                          className={`text-sm font-semibold ${pctColor(row.attendancePct)}`}
                           data-testid={`pct-${row.militiaCode}`}
                         >
-                          {row.attendanceRate}%
+                          {row.attendancePct}%
                         </span>
                       </div>
                     </td>

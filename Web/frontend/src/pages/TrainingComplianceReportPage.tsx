@@ -6,49 +6,32 @@ import client from '@/api/client'
 import { downloadExcelReport } from '@/utils/export-utils'
 
 interface TrainingComplianceRow {
-  id: string
-  fullName: string
+  militiaId: string
+  militiaName: string
   militiaCode: string
   unitCode: string
-  militaryScore: number | null
-  politicalScore: number | null
-  fireSafetyScore: number | null
-  firstAidScore: number | null
-  otherScore: number | null
-  totalScore: number | null
-  result: 'ĐẠT' | 'KHÔNG ĐẠT' | 'CẢNH BÁO'
+  military: number | null
+  political: number | null
+  fire: number | null
+  firstAid: number | null
+  other: number | null
+  totalDays: number | null
+  status: 'ĐẠT' | 'KHÔNG ĐẠT' | 'CẢNH BÁO'
 }
 
-interface TrainingComplianceResponse {
-  data: TrainingComplianceRow[]
-  summary: {
-    total: number
-    passed: number
-    warning: number
-    failed: number
-  }
-  byType: {
-    military: number
-    political: number
-    fireSafety: number
-    firstAid: number
-    other: number
-  }
-}
-
-async function fetchTrainingCompliance(year: number, unitCode: string): Promise<TrainingComplianceResponse> {
+async function fetchTrainingCompliance(year: number, unitCode: string): Promise<TrainingComplianceRow[]> {
   const res = await client.get('/training/compliance-report', {
     params: { year, unitCode: unitCode || undefined },
   })
   return res.data
 }
 
-const RESULT_ROW_COLORS: Record<string, string> = {
+const STATUS_ROW_COLORS: Record<string, string> = {
   'ĐẠT': 'bg-green-50',
   'CẢNH BÁO': 'bg-yellow-50',
   'KHÔNG ĐẠT': 'bg-red-50',
 }
-const RESULT_BADGE_COLORS: Record<string, string> = {
+const STATUS_BADGE_COLORS: Record<string, string> = {
   'ĐẠT': 'bg-green-100 text-[#2E7D32]',
   'CẢNH BÁO': 'bg-yellow-100 text-yellow-700',
   'KHÔNG ĐẠT': 'bg-red-100 text-[#C62828]',
@@ -72,9 +55,7 @@ export function TrainingComplianceReportPage() {
     staleTime: 60_000,
   })
 
-  const rows = data?.data ?? []
-  const summary = data?.summary
-  const byType = data?.byType
+  const rows = data ?? []
 
   async function handleExport() {
     if (rows.length === 0) {
@@ -152,42 +133,48 @@ export function TrainingComplianceReportPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      {summary && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Users size={16} className="text-[#1F3A5F]" />
-              <p className="text-sm text-[#64748B]">Tổng DQTV</p>
+      {/* Summary cards — computed client-side from rows */}
+      {rows.length > 0 && (() => {
+        const total = rows.length
+        const passed = rows.filter(r => r.status === 'ĐẠT').length
+        const warning = rows.filter(r => r.status === 'CẢNH BÁO').length
+        const failed = rows.filter(r => r.status === 'KHÔNG ĐẠT').length
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <Users size={16} className="text-[#1F3A5F]" />
+                <p className="text-sm text-[#64748B]">Tổng DQTV</p>
+              </div>
+              <p className="text-3xl font-bold text-[#0F172A]">{total}</p>
             </div>
-            <p className="text-3xl font-bold text-[#0F172A]">{summary.total}</p>
-          </div>
-          <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle size={16} className="text-[#2E7D32]" />
-              <p className="text-sm text-[#64748B]">Đạt</p>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle size={16} className="text-[#2E7D32]" />
+                <p className="text-sm text-[#64748B]">Đạt</p>
+              </div>
+              <p className="text-3xl font-bold text-[#2E7D32]">
+                {total > 0 ? `${Math.round((passed / total) * 100)}%` : '—'}
+              </p>
+              <p className="text-xs text-[#64748B] mt-1">{passed} người</p>
             </div>
-            <p className="text-3xl font-bold text-[#2E7D32]">
-              {summary.total > 0 ? `${Math.round((summary.passed / summary.total) * 100)}%` : '—'}
-            </p>
-            <p className="text-xs text-[#64748B] mt-1">{summary.passed} người</p>
-          </div>
-          <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle size={16} className="text-yellow-600" />
-              <p className="text-sm text-[#64748B]">Cảnh báo</p>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle size={16} className="text-yellow-600" />
+                <p className="text-sm text-[#64748B]">Cảnh báo</p>
+              </div>
+              <p className="text-3xl font-bold text-yellow-600">{warning}</p>
             </div>
-            <p className="text-3xl font-bold text-yellow-600">{summary.warning}</p>
-          </div>
-          <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <XCircle size={16} className="text-[#C62828]" />
-              <p className="text-sm text-[#64748B]">Không đạt</p>
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <XCircle size={16} className="text-[#C62828]" />
+                <p className="text-sm text-[#64748B]">Không đạt</p>
+              </div>
+              <p className="text-3xl font-bold text-[#C62828]">{failed}</p>
             </div>
-            <p className="text-3xl font-bold text-[#C62828]">{summary.failed}</p>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
@@ -217,20 +204,20 @@ export function TrainingComplianceReportPage() {
                     </td>
                   </tr>
                 ) : rows.map((row, idx) => (
-                  <tr key={row.id} className={`transition-colors ${RESULT_ROW_COLORS[row.result] ?? ''}`}>
+                  <tr key={row.militiaId} className={`transition-colors ${STATUS_ROW_COLORS[row.status] ?? ''}`}>
                     <td className="px-4 py-3 text-sm text-[#64748B]">{idx + 1}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{row.fullName}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">{row.militiaName}</td>
                     <td className="px-4 py-3 text-sm font-mono text-[#1F3A5F]">{row.militiaCode}</td>
                     <td className="px-4 py-3 text-sm text-[#64748B]">{row.unitCode}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.militaryScore)}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.politicalScore)}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.fireSafetyScore)}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.firstAidScore)}</td>
-                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.otherScore)}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-[#0F172A] text-center">{fmt(row.totalScore)}</td>
+                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.military)}</td>
+                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.political)}</td>
+                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.fire)}</td>
+                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.firstAid)}</td>
+                    <td className="px-4 py-3 text-sm text-[#64748B] text-center">{fmt(row.other)}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-[#0F172A] text-center">{fmt(row.totalDays)}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${RESULT_BADGE_COLORS[row.result] ?? 'bg-gray-100 text-[#64748B]'}`}>
-                        {row.result}
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE_COLORS[row.status] ?? 'bg-gray-100 text-[#64748B]'}`}>
+                        {row.status}
                       </span>
                     </td>
                   </tr>
@@ -241,17 +228,17 @@ export function TrainingComplianceReportPage() {
         )}
       </div>
 
-      {/* Summary stats by type */}
-      {byType && (
+      {/* Summary stats by type — total days per training category */}
+      {rows.length > 0 && (
         <div className="bg-white rounded-xl border border-[#E2E8F0] p-5">
-          <h2 className="text-base font-semibold text-[#0F172A] mb-4">Thống kê theo loại huấn luyện</h2>
+          <h2 className="text-base font-semibold text-[#0F172A] mb-4">Thống kê theo loại huấn luyện (tổng ngày)</h2>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             {[
-              { label: 'Quân sự', value: byType.military },
-              { label: 'Chính trị', value: byType.political },
-              { label: 'PCCC', value: byType.fireSafety },
-              { label: 'Sơ cứu', value: byType.firstAid },
-              { label: 'Khác', value: byType.other },
+              { label: 'Quân sự', value: rows.reduce((s, r) => s + (r.military ?? 0), 0) },
+              { label: 'Chính trị', value: rows.reduce((s, r) => s + (r.political ?? 0), 0) },
+              { label: 'PCCC', value: rows.reduce((s, r) => s + (r.fire ?? 0), 0) },
+              { label: 'Sơ cứu', value: rows.reduce((s, r) => s + (r.firstAid ?? 0), 0) },
+              { label: 'Khác', value: rows.reduce((s, r) => s + (r.other ?? 0), 0) },
             ].map(item => (
               <div key={item.label} className="text-center">
                 <p className="text-2xl font-bold text-[#1F3A5F]">{item.value}</p>

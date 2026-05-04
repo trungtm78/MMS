@@ -3,8 +3,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search, FileDown, Eye, Edit, Filter, ChevronDown, Users, Plus } from 'lucide-react'
-import { searchMilitia, type MilitiaSearchResult } from '@/api/militia'
+import { searchMilitia, getMilitiaById, type MilitiaSearchResult, type MilitiaListItem } from '@/api/militia'
 import { exportCsv } from '@/utils/csv-export'
+import { MilitiaEditModal } from '@/components/militia/MilitiaEditModal'
 
 // ─── Filter options ───────────────────────────────────────────────────────────
 
@@ -116,6 +117,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
   const [debouncedQ, setDebouncedQ]   = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [unitFilter, setUnitFilter]     = useState('')
+  const [editTarget, setEditTarget]     = useState<MilitiaListItem | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -182,6 +184,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
   }
 
   return (
+    <>
     <div className="space-y-6" data-testid="militia-list">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -316,6 +319,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                             <Eye size={16} />
                           </button>
                           <button
+                            onClick={() => getMilitiaById(militia.id).then(setEditTarget)}
                             className="p-2 hover:bg-red-50 text-[#64748B] hover:text-[#C62828] rounded-lg transition-colors"
                             title="Chỉnh sửa"
                           >
@@ -379,5 +383,15 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
         </div>
       </div>
     </div>
+
+    {editTarget && (
+      <MilitiaEditModal
+        open
+        id={editTarget.id}
+        profile={editTarget}
+        onClose={() => setEditTarget(null)}
+      />
+    )}
+    </>
   )
 }
