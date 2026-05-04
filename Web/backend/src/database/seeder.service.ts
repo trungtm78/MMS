@@ -68,6 +68,28 @@ export class SeederService implements OnApplicationBootstrap {
         code_hash TEXT NOT NULL,
         used_at   TIMESTAMPTZ
       );
+
+      CREATE TABLE IF NOT EXISTS gps_points (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        militia_id  UUID NOT NULL,
+        lat         DOUBLE PRECISION NOT NULL,
+        lng         DOUBLE PRECISION NOT NULL,
+        accuracy    DOUBLE PRECISION,
+        captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS gps_latest (
+        militia_id   UUID PRIMARY KEY,
+        lat          DOUBLE PRECISION NOT NULL,
+        lng          DOUBLE PRECISION NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        status       VARCHAR(20) NOT NULL DEFAULT 'online'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_gps_points_militia  ON gps_points(militia_id);
+      CREATE INDEX IF NOT EXISTS idx_gps_points_captured ON gps_points(captured_at);
+      CREATE INDEX IF NOT EXISTS idx_gps_latest_status   ON gps_latest(status);
+      CREATE INDEX IF NOT EXISTS idx_gps_latest_seen     ON gps_latest(last_seen_at);
     `);
   }
 
