@@ -176,7 +176,7 @@ describe('KpiService', () => {
   // ── getSummaryReport ──────────────────────────────────────────────────────
 
   describe('getSummaryReport', () => {
-    const adminUser = { sub: 'admin-1', role: 'system_admin' };
+    const adminUser = { sub: 'admin-1', username: 'admin', role: 'system_admin', unitScope: null };
 
     it('returns empty array when no militia exists', async () => {
       mockDataSource.query
