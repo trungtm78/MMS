@@ -18,11 +18,15 @@ async function bootstrap() {
       port: config.get<number>('REDIS_PORT', 6379),
       password: config.get<string>('REDIS_PASSWORD') || undefined,
       connectTimeout: 2000,
-      maxRetriesPerRequest: 1,
+      maxRetriesPerRequest: 0,
       lazyConnect: true,
+      retryStrategy: () => null, // disable auto-reconnect
     });
+    // Suppress unhandled error events from ioredis reconnection attempts
+    pubClient.on('error', () => undefined);
     await pubClient.connect();
     const subClient = pubClient.duplicate();
+    subClient.on('error', () => undefined);
     const redisAdapter = createAdapter(pubClient, subClient);
 
     class RedisIoAdapter extends IoAdapter {

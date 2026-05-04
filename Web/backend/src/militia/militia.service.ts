@@ -708,12 +708,18 @@ export class MilitiaService {
   }
 
   // Sprint 3: GET /militia/rewards-report?from=&to=&type=&unitCode=
-  async getRewardsReport(params: {
-    from?: string;
-    to?: string;
-    type?: string;
-    unitCode?: string;
-  }): Promise<unknown[]> {
+  async getRewardsReport(
+    user: JwtPayload,
+    params: {
+      from?: string;
+      to?: string;
+      type?: string;
+      unitCode?: string;
+    },
+  ): Promise<unknown[]> {
+    const WIDE_ROLES = new Set(['system_admin', 'police_ward']);
+    const effectiveUnit = WIDE_ROLES.has(user.role) ? (params.unitCode ?? null) : (user.unitScope ?? null);
+
     const conditions: string[] = ['1=1'];
     const qParams: unknown[] = [];
 
@@ -729,8 +735,8 @@ export class MilitiaService {
       qParams.push(params.type);
       conditions.push(`mr.reward_type = $${qParams.length}`);
     }
-    if (params.unitCode) {
-      qParams.push(params.unitCode);
+    if (effectiveUnit) {
+      qParams.push(effectiveUnit);
       conditions.push(`u.code = $${qParams.length}`);
     }
 
@@ -738,7 +744,7 @@ export class MilitiaService {
       `SELECT mr.id, mp.full_name AS "fullName", mp.militia_code AS "militiaCode",
               u.name AS "unitName", mr.reward_type AS "rewardType",
               mr.title AS "description", mr.description AS "content",
-              mr.issued_by AS "decisionNo", mr.issued_date AS "decisionDate",
+              mr.issued_by AS "issuedBy", mr.issued_date AS "decisionDate",
               mr.created_at AS "createdAt"
        FROM militia_rewards mr
        JOIN militia_profiles mp ON mp.id = mr.militia_id
@@ -751,10 +757,11 @@ export class MilitiaService {
 
   // Sprint 3: GET /militia/rewards-export → xlsx stream (TT 57/2020 reference)
   async exportRewardsReport(
+    user: JwtPayload,
     params: { from?: string; to?: string; type?: string; unitCode?: string },
     res: import('express').Response,
   ): Promise<void> {
-    const data = await this.getRewardsReport(params);
+    const data = await this.getRewardsReport(user, params);
     const rewards = (data as Record<string, unknown>[]).filter(r => r['rewardType'] === 'reward');
     const discipline = (data as Record<string, unknown>[]).filter(r => r['rewardType'] !== 'reward');
 
@@ -770,7 +777,7 @@ export class MilitiaService {
         unitName: item['unitName'],
         rewardType: item['rewardType'],
         content: item['content'],
-        decisionNo: item['decisionNo'],
+        issuedBy: item['issuedBy'],
         decisionDate: item['decisionDate'] ? new Date(item['decisionDate'] as string) : null,
       }));
 
@@ -781,7 +788,7 @@ export class MilitiaService {
       { header: 'Đơn vị', key: 'unitName', width: 18 },
       { header: 'Hình thức', key: 'rewardType', width: 16 },
       { header: 'Nội dung', key: 'content', width: 30 },
-      { header: 'Số QĐ', key: 'decisionNo', width: 16 },
+      { header: 'Người ký', key: 'issuedBy', width: 16 },
       { header: 'Ngày QĐ', key: 'decisionDate', width: 14, type: 'date' as const },
     ];
 

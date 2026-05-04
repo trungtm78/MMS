@@ -29,6 +29,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { ExcelExportService } from '../common/services/excel-export.service';
+import type { JwtPayload } from '../auth/auth.service';
 
 export interface EvaluateDto {
   targetUserId: string;
@@ -256,10 +257,13 @@ export class KpiService {
 
   // Sprint 3: GET /kpi/summary-report?periodId=&unitCode=
   async getSummaryReport(
-    _user: { sub: string; role: string },
+    user: JwtPayload,
     periodId: string,
     unitCode?: string,
   ): Promise<KpiSummaryItem[]> {
+    const WIDE_ROLES = new Set(['system_admin', 'police_ward']);
+    const effectiveUnit = WIDE_ROLES.has(user.role) ? (unitCode ?? null) : (user.unitScope ?? null);
+
     const periodCheck = await this.dataSource.query<{ id: string; month: number; year: number }[]>(
       `SELECT id, month, year FROM payroll_periods WHERE id = $1`,
       [periodId],
@@ -269,19 +273,19 @@ export class KpiService {
 
     const params: unknown[] = [month, year];
     let unitFilter = '';
-    if (unitCode) {
-      params.push(unitCode);
+    if (effectiveUnit) {
+      params.push(effectiveUnit);
       unitFilter = `AND u.code = $${params.length}`;
     }
 
     const rows = await this.dataSource.query<Record<string, unknown>[]>(
       `SELECT mp.id AS "militiaId", mp.full_name AS "name", mp.militia_code AS "code",
               u.name AS "unit",
-              AVG(ke.weighted_score) FILTER (WHERE ke.criteria[1] IS NOT NULL) AS "attendanceScore",
-              AVG(ke.weighted_score) FILTER (WHERE ke.criteria[2] IS NOT NULL) AS "taskScore",
-              NULL::numeric AS "disciplineScore",
-              NULL::numeric AS "attitudeScore",
-              AVG(ke.weighted_score) AS "supervisorScore",
+              ROUND(AVG((ke.scores->0)::numeric), 1) AS "attendanceScore",
+              ROUND(AVG((ke.scores->1)::numeric), 1) AS "taskScore",
+              ROUND(AVG((ke.scores->2)::numeric), 1) AS "disciplineScore",
+              ROUND(AVG((ke.scores->3)::numeric), 1) AS "attitudeScore",
+              ROUND(AVG((ke.scores->4)::numeric), 1) AS "supervisorScore",
               ROUND(AVG(ke.weighted_score)::numeric * 10, 1) AS "total",
               RANK() OVER (ORDER BY AVG(ke.weighted_score) DESC NULLS LAST) AS "rank"
        FROM militia_profiles mp
@@ -323,8 +327,8 @@ export class KpiService {
         unit: r['unit'] as string,
         attendanceScore: r['attendanceScore'] !== null ? parseFloat(String(r['attendanceScore'])) : null,
         taskScore: r['taskScore'] !== null ? parseFloat(String(r['taskScore'])) : null,
-        disciplineScore: null,
-        attitudeScore: null,
+        disciplineScore: r['disciplineScore'] !== null ? parseFloat(String(r['disciplineScore'])) : null,
+        attitudeScore: r['attitudeScore'] !== null ? parseFloat(String(r['attitudeScore'])) : null,
         supervisorScore: r['supervisorScore'] !== null ? parseFloat(String(r['supervisorScore'])) : null,
         total,
         rank: parseInt(String(r['rank'] ?? '0'), 10),

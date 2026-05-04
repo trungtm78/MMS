@@ -14,7 +14,7 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { IsNumber, IsOptional, IsString, Min, Max } from 'class-validator';
+import { IsNumber, IsOptional, IsISO8601, Min, Max } from 'class-validator';
 import { GpsService } from './gps.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -35,7 +35,7 @@ class RecordGpsDto {
   accuracy?: number;
 
   @IsOptional()
-  @IsString()
+  @IsISO8601()
   capturedAt?: string;
 }
 

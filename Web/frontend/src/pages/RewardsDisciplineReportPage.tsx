@@ -211,7 +211,7 @@ export function RewardsDisciplineReportPage() {
             <table className="w-full">
               <thead className="bg-[#F8FAFC] border-b-2 border-[#E2E8F0]">
                 <tr>
-                  {['STT', 'Họ tên', 'Mã DQTV', 'Đơn vị', 'Hình thức', 'Nội dung', 'Số QĐ', 'Ngày QĐ'].map(h => (
+                  {['STT', 'Họ tên', 'Mã DQTV', 'Đơn vị', 'Hình thức', 'Nội dung', 'Người ký', 'Ngày QĐ'].map(h => (
                     <th key={h} className="px-5 py-4 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -232,7 +232,7 @@ export function RewardsDisciplineReportPage() {
                       <td className="px-5 py-4 text-sm text-[#64748B]">{item.unitName}</td>
                       <td className="px-5 py-4 text-sm text-[#0F172A]">{item.rewardType}</td>
                       <td className="px-5 py-4 text-sm text-[#64748B] max-w-xs truncate">{item.content || item.description || '—'}</td>
-                      <td className="px-5 py-4 text-sm text-[#0F172A]">{item.decisionNo || '—'}</td>
+                      <td className="px-5 py-4 text-sm text-[#0F172A]">{item.issuedBy || '—'}</td>
                       <td className="px-5 py-4 text-sm text-[#64748B]">{formatDate(item.decisionDate)}</td>
                     </tr>
                   ))

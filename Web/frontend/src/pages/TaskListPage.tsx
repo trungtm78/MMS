@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckSquare, Clock, Search, ChevronLeft, ChevronRight, Pencil, XCircle } from 'lucide-react'
-import { listTasks, tasksApi, TaskItem } from '@/api/tasks'
+import { listTasks, tasksApi } from '@/api/tasks'
+import type { TaskItem } from '@/api/tasks'
 
 const STATUS_TABS = [
   { id: 'all', label: 'Tất cả' },

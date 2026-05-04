@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -9,14 +9,22 @@ export interface GpsPointDto {
   capturedAt?: string;
 }
 
-export interface GpsLatest {
-  militiaId: string;
-  fullName: string;
+export interface GpsLiveDto {
+  id: string;            // militia_profiles.id
+  militiaId: string;     // backward-compat alias for PoliceApp /gps/team
+  userId: string | null; // users.id — null if profile has no linked user
+  name: string;
+  fullName: string;      // backward-compat alias
   lat: number;
   lng: number;
-  lastSeenAt: string;
+  accuracy: number | null;
+  lastUpdate: string;
+  lastSeenAt: string;    // backward-compat alias
   status: string;
 }
+
+/** @deprecated Use GpsLiveDto */
+export type GpsLatest = GpsLiveDto;
 
 @Injectable()
 export class GpsService {
@@ -25,29 +33,44 @@ export class GpsService {
     private readonly ds: DataSource,
   ) {}
 
-  async recordLocation(militiaId: string, dto: GpsPointDto): Promise<void> {
+  async recordLocation(userId: string, dto: GpsPointDto): Promise<void> {
+    const rows = await this.ds.query<{ id: string }[]>(
+      `SELECT id FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!rows.length) throw new NotFoundException('militia_profile_not_found');
+
+    const militiaId = rows[0].id;
     const capturedAt = dto.capturedAt ?? new Date().toISOString();
-    await Promise.all([
-      this.ds.query(
-        `INSERT INTO gps_points(militia_id, lat, lng, accuracy, captured_at)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [militiaId, dto.lat, dto.lng, dto.accuracy ?? null, capturedAt],
-      ),
-      this.ds.query(
-        `INSERT INTO gps_latest(militia_id, lat, lng, last_seen_at, status)
-         VALUES ($1, $2, $3, $4, 'online')
-         ON CONFLICT (militia_id) DO UPDATE
-           SET lat = EXCLUDED.lat, lng = EXCLUDED.lng,
-               last_seen_at = EXCLUDED.last_seen_at, status = 'online'`,
-        [militiaId, dto.lat, dto.lng, capturedAt],
-      ),
-    ]);
+
+    // Atomic: gps_points insert + gps_latest upsert in one statement
+    await this.ds.query(
+      `WITH ins AS (
+         INSERT INTO gps_points(militia_id, lat, lng, accuracy, captured_at)
+         VALUES ($1, $2, $3, $4, $5)
+       )
+       INSERT INTO gps_latest(militia_id, lat, lng, last_seen_at, status)
+       VALUES ($1, $2, $3, $5, 'online')
+       ON CONFLICT (militia_id) DO UPDATE
+         SET lat = EXCLUDED.lat, lng = EXCLUDED.lng,
+             last_seen_at = EXCLUDED.last_seen_at, status = 'online'`,
+      [militiaId, dto.lat, dto.lng, dto.accuracy ?? null, capturedAt],
+    );
   }
 
-  async getLive(): Promise<GpsLatest[]> {
-    return this.ds.query<GpsLatest[]>(
-      `SELECT gl.militia_id AS "militiaId", mp.full_name AS "fullName",
-              gl.lat, gl.lng, gl.last_seen_at AS "lastSeenAt", gl.status
+  async getLive(): Promise<GpsLiveDto[]> {
+    return this.ds.query(
+      `SELECT gl.militia_id     AS "id",
+              gl.militia_id     AS "militiaId",
+              mp.user_id        AS "userId",
+              mp.full_name      AS "name",
+              mp.full_name      AS "fullName",
+              gl.lat,
+              gl.lng,
+              gl.accuracy,
+              gl.last_seen_at   AS "lastUpdate",
+              gl.last_seen_at   AS "lastSeenAt",
+              gl.status
        FROM gps_latest gl
        JOIN militia_profiles mp ON mp.id = gl.militia_id
        ORDER BY gl.last_seen_at DESC`,

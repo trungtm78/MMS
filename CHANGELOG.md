@@ -2,6 +2,20 @@
 
 ---
 
+## [0.3.1.0] — 2026-05-04
+
+### Fixed
+- **GPS Tracking** — trang `/gps` không hiển thị bản đồ và danh sách DQTV do 3 lỗi đồng thời:
+  - `getLive()` trả sai tên field (`militiaId`/`fullName`/`lastSeenAt` → `id`/`name`/`lastUpdate`); giữ alias backward-compat cho PoliceApp `/gps/team`
+  - `gps_points` và `gps_latest` không tồn tại trong DB dev; SeederService tự tạo khi khởi động
+  - `recordLocation` ghi sai ID (`users.id` thay vì `militia_profiles.id`); thêm lookup + CTE atomic insert; throw 404 thay vì silent drop khi profile chưa liên kết
+- **MilitiaList Edit button** — nút "Chỉnh sửa" trong danh sách DQTV không có `onClick`; giờ fetch full profile và mở `MilitiaEditModal`
+- **Frontend crash khi khởi động** — `TaskListPage` import `TaskItem` interface như runtime value gây Vite crash toàn bộ app; fix thành `import type`
+- **Favicon và tab title** — đổi tên tab từ "vite-project" thành "Hệ thống quản lý DQTV"; favicon thay bằng khiên xanh + ngôi sao vàng
+
+### Changed
+- `capturedAt` trong GPS record API: validate `@IsISO8601()` thay vì `@IsString()` để tránh PostgreSQL runtime error
+
 ## [0.3.0.0] — 2026-05-01
 
 ### Added

@@ -115,7 +115,7 @@ export class WeaponsService {
               w.condition, w.storage_location AS "storageLocation",
               w.acquired_at AS "acquiredAt", w.status,
               mp.full_name AS "responsiblePersonName",
-              wa.allocated_to AS "currentHolder",
+              holder.full_name AS "currentHolder",
               wa.issued_at AS "issuedAt",
               wa.returned_at AS "returnedAt",
               CASE
@@ -127,6 +127,7 @@ export class WeaponsService {
        LEFT JOIN militia_profiles mp ON mp.id = w.responsible_person_id
        LEFT JOIN weapon_allocations wa
          ON wa.weapon_id = w.id AND wa.returned_at IS NULL
+       LEFT JOIN militia_profiles holder ON holder.id = wa.recipient_id
        WHERE w.status = 'active'
        ORDER BY w.type, w.serial_number`,
     )

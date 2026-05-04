@@ -11,7 +11,7 @@ const _trainingTypes = [
   ('military', 'Quân sự', '⚔️'),
   ('political', 'Chính trị', '📋'),
   ('fire', 'PCCC', '🔥'),
-  ('firstaid', 'Sơ cứu', '➕'),
+  ('first_aid', 'Sơ cứu', '➕'),
 ];
 
 const _filterOptions = [
@@ -19,7 +19,7 @@ const _filterOptions = [
   ('military', 'Quân sự'),
   ('political', 'Chính trị'),
   ('fire', 'PCCC'),
-  ('firstaid', 'Sơ cứu'),
+  ('first_aid', 'Sơ cứu'),
   ('passed', 'Đã đạt'),
   ('failed', 'Chưa đạt'),
 ];
@@ -89,7 +89,7 @@ class _TrainingManagementScreenState
         case 'military': return type.contains('quân sự') || type.contains('military');
         case 'political': return type.contains('chính trị') || type.contains('political');
         case 'fire': return type.contains('pccc') || type.contains('fire');
-        case 'firstaid': return type.contains('sơ cứu') || type.contains('firstaid');
+        case 'first_aid': return type.contains('sơ cứu') || type.contains('first_aid') || type.contains('firstaid');
         default: return true;
       }
     }).toList();
@@ -488,6 +488,8 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
   final _instructorController = TextEditingController();
   bool _passed = true;
   bool _saving = false;
+  String? _selectedMilitiaId;
+  String _selectedMilitiaName = '';
 
   @override
   void dispose() {
@@ -539,29 +541,31 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
       );
       return;
     }
+    if (_selectedMilitiaId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng chọn dân quân tự vệ')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final dio = ref.read(dioProvider);
-      final typeLabel = _trainingTypes
-          .firstWhere((t) => t.$1 == _selectedType, orElse: () => _trainingTypes[0])
-          .$2;
-
       await dio.post('/training', data: {
-        'trainingType': typeLabel,
-        'fromDate': _fmt(_fromDate!),
-        'toDate': _fmt(_toDate!),
+        'militiaId': _selectedMilitiaId,
+        'trainingType': _selectedType,
+        'fromDate': _isoDate(_fromDate!),
+        'toDate': _isoDate(_toDate!),
         'totalDays': int.tryParse(_daysController.text) ?? 0,
         'location': _locationController.text.trim(),
         'instructor': _instructorController.text.trim(),
-        'result': _passed ? 'Đạt' : 'Không đạt',
-        'passed': _passed,
+        'result': _passed ? 'pass' : 'fail',
       });
       if (mounted) widget.onSaved();
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Lỗi lưu dữ liệu. Vui lòng thử lại.'),
+          SnackBar(
+            content: Text('Lỗi lưu dữ liệu: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -570,8 +574,101 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
     }
   }
 
+  String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
   String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  Future<void> _pickMilitia() async {
+    final dio = ref.read(dioProvider);
+    String query = '';
+    List<Map<String, dynamic>> results = [];
+    bool searching = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          Future<void> search(String q) async {
+            if (q.length < 2) {
+              setDialogState(() { results = []; searching = false; });
+              return;
+            }
+            setDialogState(() => searching = true);
+            try {
+              final res = await dio.get('/militia', queryParameters: {'q': q, 'limit': '10'});
+              final data = (res.data['data'] as List?) ?? [];
+              setDialogState(() {
+                results = data.cast<Map<String, dynamic>>();
+                searching = false;
+              });
+            } catch (_) {
+              setDialogState(() => searching = false);
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Chọn DQTV'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Tìm theo tên hoặc mã...',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      query = v;
+                      search(v);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  if (searching)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 240),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: results.length,
+                        itemBuilder: (_, i) {
+                          final m = results[i];
+                          return ListTile(
+                            title: Text(m['fullName'] as String? ?? ''),
+                            subtitle: Text('${m['militiaCode'] ?? ''} — ${m['unitName'] ?? ''}'),
+                            onTap: () {
+                              setState(() {
+                                _selectedMilitiaId = m['id'] as String?;
+                                _selectedMilitiaName = m['fullName'] as String? ?? '';
+                              });
+                              Navigator.of(ctx).pop();
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Đóng'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -610,6 +707,39 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                 ),
               ),
               const SizedBox(height: 20),
+
+              // Militia picker
+              const _Label('Dân quân tự vệ *'),
+              const SizedBox(height: 6),
+              GestureDetector(
+                onTap: _pickMilitia,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _selectedMilitiaId == null ? AppColors.divider : AppColors.navy,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _selectedMilitiaId == null ? 'Chọn DQTV...' : _selectedMilitiaName,
+                          style: TextStyle(
+                            color: _selectedMilitiaId == null
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.search, size: 18, color: AppColors.navy),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
 
               // Training type
               const _Label('Loại huấn luyện *'),

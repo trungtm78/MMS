@@ -6,7 +6,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TerminusModule } from '@nestjs/terminus';
-import { redisStore } from 'cache-manager-ioredis-yet';
+import Redis from 'ioredis';
+import { redisInsStore } from 'cache-manager-ioredis-yet';
 import configuration from './config/configuration';
 import { User } from './database/entities/user.entity';
 import { Session } from './database/entities/refresh-token.entity';
@@ -46,6 +47,7 @@ import { MilitiaProfile } from './militia/militia.entity';
 import { Task } from './tasks/task.entity';
 import { TaskAssignment } from './tasks/task-assignment.entity';
 import { AttendanceRecord } from './attendance/attendance.entity';
+import { SeederService } from './database/seeder.service';
 
 @Module({
   imports: [
@@ -59,20 +61,23 @@ import { AttendanceRecord } from './attendance/attendance.entity';
       isGlobal: true,
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
-        // Fall back to in-memory store when Redis is unavailable (dev without Docker)
-        const redisHost = configService.get('REDIS_HOST', 'localhost');
-        const redisPort = configService.get<number>('REDIS_PORT', 6379);
+        // Create client manually so we control error handling; falls back to in-memory
+        const client = new Redis({
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get<number>('REDIS_PORT', 6379),
+          password: configService.get('REDIS_PASSWORD') || undefined,
+          connectTimeout: 2000,
+          maxRetriesPerRequest: 0,
+          lazyConnect: true,
+          retryStrategy: () => null,
+        });
+        client.on('error', () => undefined);
         try {
-          const store = await redisStore({
-            host: redisHost,
-            port: redisPort,
-            password: configService.get('REDIS_PASSWORD') || undefined,
-            connectTimeout: 2000,
-            maxRetriesPerRequest: 1,
-          });
-          return { store, ttl: 300_000 };
+          await client.connect();
+          return { store: redisInsStore(client), ttl: 300_000 };
         } catch {
-          return { ttl: 300_000 }; // in-memory fallback
+          client.disconnect();
+          return { ttl: 300_000 };
         }
       },
       inject: [ConfigService],
@@ -144,6 +149,7 @@ import { AttendanceRecord } from './attendance/attendance.entity';
     AuthService,
     JwtAuthGuard,
     RolesGuard,
+    SeederService,
   ],
   exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
 })
