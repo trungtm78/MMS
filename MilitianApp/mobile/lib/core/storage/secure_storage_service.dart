@@ -7,8 +7,11 @@ class SecureStorageService {
   SecureStorageService()
       : _storage = const FlutterSecureStorage(
           aOptions: AndroidOptions(encryptedSharedPreferences: true),
-          iOptions:
-              IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+          // SECURITY: tighter than first_unlock — token is unreadable when device
+          // is locked AND not transferable to another device on backup restore.
+          iOptions: IOSOptions(
+            accessibility: KeychainAccessibility.first_unlock_this_device,
+          ),
         );
 
   // Access token

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -5,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../shared/utils/string_utils.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -30,6 +32,8 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
   @override
   void dispose() {
     _socket?.disconnect();
+    _socket?.dispose(); // release listeners + buffers
+    _socket = null;
     super.dispose();
   }
 
@@ -64,7 +68,12 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
 
     _socket!.on('gps:update', (data) {
       if (!mounted) return;
-      final update = data as Map<String, dynamic>;
+      // Guard against malformed events — one bad payload should not crash the screen
+      if (data is! Map<String, dynamic>) {
+        debugPrint('[GPS] Ignored malformed gps:update payload: $data');
+        return;
+      }
+      final update = data;
       setState(() {
         final idx = _members.indexWhere((m) => m['userId'] == update['userId']);
         if (idx >= 0) {
@@ -95,7 +104,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
             CircleAvatar(
               backgroundColor: _markerColor(member['status'] as String? ?? 'offline'),
               child: Text(
-                (member['fullName'] as String? ?? 'X').substring(0, 1),
+                initials(member['fullName'] as String?),
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
             ),
@@ -166,7 +175,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
                                       radius: 14,
                                       backgroundColor: _markerColor(m['status'] as String? ?? 'offline'),
                                       child: Text(
-                                        (m['fullName'] as String? ?? 'X').substring(0, 1),
+                                        initials(m['fullName'] as String?),
                                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
                                       ),
                                     ),
@@ -174,7 +183,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
                                       child: Text(
-                                        (m['fullName'] as String? ?? '').split(' ').last,
+                                        lastWord(m['fullName'] as String?),
                                         style: const TextStyle(fontSize: 9),
                                       ),
                                     ),
@@ -211,7 +220,7 @@ class _GpsTrackingScreenState extends ConsumerState<GpsTrackingScreen> {
                             radius: 16,
                             backgroundColor: _markerColor(status),
                             child: Text(
-                              (m['fullName'] as String? ?? 'X').substring(0, 1),
+                              initials(m['fullName'] as String?),
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
                             ),
                           ),
