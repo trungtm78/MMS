@@ -47,7 +47,15 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ứng dụng cần truy cập vị trí để điểm danh GPS.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Ứng dụng cần truy cập vị trí để điểm danh GPS.</string>
+	<string>Ứng dụng cần truy cập vị trí khi đang trực để gửi báo cáo vị trí.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Ứng dụng cần truy cập vị trí khi đang trực để gửi báo cáo vị trí.</string>
+	<!-- Background modes — required for background GPS tracking during duty -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
 	<!-- Biometric -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>Ứng dụng dùng Face ID để đăng nhập nhanh.</string>

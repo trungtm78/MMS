@@ -48,13 +48,15 @@ class WebSocketService {
       return;
     }
 
+    // SECURITY: token in Socket.IO `auth` payload + Authorization header only.
+    // Never in query string — leaks to proxies, server access logs, crash reports.
     _socket = io.io(
       ApiConstants.wsUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
           .setExtraHeaders({'Authorization': 'Bearer $token'})
-          .setQuery({'token': token})
+          .setAuth({'token': token})
           .enableReconnection()
           .setReconnectionAttempts(5)
           .setReconnectionDelay(2000)

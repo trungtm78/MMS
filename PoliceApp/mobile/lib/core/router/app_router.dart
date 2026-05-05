@@ -7,6 +7,7 @@ import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/mfa_setup_screen.dart';
+import '../../features/auth/screens/recovery_codes_screen.dart';
 import '../../features/home/screens/home_ca_screen.dart';
 import '../../features/dqtv_home/screens/dqtv_home_screen.dart';
 import '../../features/dqtv/screens/dqtv_list_screen.dart';
@@ -77,7 +78,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.recoveryCodes,
-        builder: (context, state) => const _PlaceholderScreen(title: 'Recovery Codes'),
+        builder: (context, state) {
+          final codes = (state.extra is List<String>)
+              ? state.extra as List<String>
+              : const <String>[];
+          return RecoveryCodesScreen(codes: codes);
+        },
       ),
       GoRoute(
         path: Routes.forgotPassword,

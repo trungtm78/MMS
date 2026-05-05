@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class ApiConstants {
   ApiConstants._();
 
@@ -10,6 +12,24 @@ class ApiConstants {
     'WS_URL',
     defaultValue: 'ws://10.0.2.2:3000',
   );
+
+  /// Fail fast in release builds if API_BASE_URL/WS_URL are cleartext.
+  /// Dev/emulator defaults stay http for 10.0.2.2 convenience.
+  /// Call from main() before runApp().
+  static void assertSecureSchemeInRelease() {
+    if (kReleaseMode) {
+      if (!baseUrl.startsWith('https://')) {
+        throw StateError(
+          'SECURITY: API_BASE_URL must use https:// in release. Got: $baseUrl',
+        );
+      }
+      if (!wsUrl.startsWith('wss://')) {
+        throw StateError(
+          'SECURITY: WS_URL must use wss:// in release. Got: $wsUrl',
+        );
+      }
+    }
+  }
 
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 30);

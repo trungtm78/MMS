@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../shared/utils/string_utils.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -86,7 +87,7 @@ class _DqtvDetailScreenState extends ConsumerState<DqtvDetailScreen> {
                             radius: 36,
                             backgroundColor: AppColors.navy.withOpacity(0.1),
                             child: Text(
-                              (_user?['fullName'] as String? ?? '?').substring(0, 1).toUpperCase(),
+                              initials(_user?['fullName'] as String?),
                               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.navy),
                             ),
                           ),

@@ -33,19 +33,33 @@ class PushNotificationService {
     await _localNotifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // iOS: request alert + badge + sound at init so user sees the system prompt.
+        // Without this, getToken/show silently fails on first launch.
         iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
         ),
       ),
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
 
+    // Android 13+ POST_NOTIFICATIONS runtime permission
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
     await _localNotifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
+
+    // Explicit iOS permission request (idempotent if user already granted)
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
 
     debugPrint('[Push] Initialized (WebSocket mode — no Firebase)');
   }

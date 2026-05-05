@@ -340,7 +340,7 @@ export class KpiService {
 
   // Sprint 3: GET /kpi/export?periodId=&unitCode= → xlsx
   async exportKpi(
-    user: { sub: string; role: string },
+    user: JwtPayload,
     periodId: string,
     unitCode: string | undefined,
     res: Response,

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../shared/utils/jwt_utils.dart';
 import '../models/auth_models.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────────────
@@ -60,10 +61,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _checkAuth() async {
     final token = await _storage.getAccessToken();
-    final role = await _storage.getUserRole();
-    if (token != null) {
-      state = state.copyWith(isAuthenticated: true, role: role ?? '');
+    if (token == null) return;
+
+    // Reject expired tokens client-side; server is still source of truth.
+    if (isJwtExpired(token)) {
+      final refresh = await _storage.getRefreshToken();
+      if (refresh == null) {
+        await _storage.clearTokens();
+        return;
+      }
     }
+
+    final role = await _storage.getUserRole();
+    state = state.copyWith(isAuthenticated: true, role: role ?? '');
   }
 
   /// Returns null on success; returns LoginResponse when MFA needed

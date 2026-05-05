@@ -10,8 +10,8 @@ const mockKpiService = {
   getHistory: jest.fn(),
 };
 
-const caReq = { user: { sub: 'ca-1', role: 'ca_officer' } };
-const dqtvReq = { user: { sub: 'dqtv-1', role: 'dqtv_member' } };
+const caReq = { user: { sub: 'ca-1', username: 'ca_user', role: 'ca_officer', unitScope: null } };
+const dqtvReq = { user: { sub: 'dqtv-1', username: 'dqtv_user', role: 'dqtv_member', unitScope: null } };
 
 describe('KpiController', () => {
   let controller: KpiController;

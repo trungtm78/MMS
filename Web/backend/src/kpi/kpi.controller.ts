@@ -30,6 +30,7 @@ import { KpiService } from './kpi.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import type { JwtPayload } from '../auth/auth.service';
 
 export class EvaluateDto {
   @IsUUID()
@@ -70,7 +71,7 @@ export class KpiController {
   @HttpCode(HttpStatus.CREATED)
   async evaluate(
     @Body() dto: EvaluateDto,
-    @Request() req: { user: { sub: string; role: string } },
+    @Request() req: { user: JwtPayload },
   ) {
     return this.kpiService.submitEvaluation(dto, { sub: req.user.sub, role: req.user.role });
   }
@@ -107,7 +108,7 @@ export class KpiController {
   @Get('summary-report')
   @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
   async getSummaryReport(
-    @Request() req: { user: { sub: string; role: string } },
+    @Request() req: { user: JwtPayload },
     @Query('periodId') periodId: string,
     @Query('unitCode') unitCode?: string,
   ) {
@@ -118,7 +119,7 @@ export class KpiController {
   @Get('export')
   @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
   async exportKpi(
-    @Request() req: { user: { sub: string; role: string } },
+    @Request() req: { user: JwtPayload },
     @Query('periodId') periodId: string,
     @Query('unitCode') unitCode: string | undefined,
     @Res() res: Response,

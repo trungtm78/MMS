@@ -1,4 +1,3 @@
-import 'leaflet/dist/leaflet.css'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 import { useRbac } from '@/hooks/useRbac'
@@ -135,7 +134,7 @@ export function GPSTrackingPage() {
             <MapContainer
               center={PHU_DINH_CENTER}
               zoom={15}
-              style={{ height: '100%', width: '100%' }}
+              style={{ height: '100%', width: '100%', position: 'relative' }}
               scrollWheelZoom={false}
             >
               <TileLayer

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/secure_storage_service.dart';
+import '../../../shared/utils/jwt_utils.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
 import '../repositories/auth_repository.dart';
@@ -56,9 +57,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _checkAuth() async {
     final token = await _storage.getAccessToken();
-    if (token != null) {
-      state = state.copyWith(isAuthenticated: true);
+    if (token == null) return;
+
+    // Reject expired tokens client-side; server is still source of truth
+    // but this prevents users from landing on protected screens with a dead token.
+    if (isJwtExpired(token)) {
+      // If we have a refresh token, the AuthInterceptor will refresh on first 401.
+      // If not, force re-login by clearing.
+      final refresh = await _storage.getRefreshToken();
+      if (refresh == null) {
+        await _storage.clearAll();
+        return;
+      }
     }
+
+    state = state.copyWith(isAuthenticated: true);
   }
 
   Future<void> refreshAuthState() => _checkAuth();

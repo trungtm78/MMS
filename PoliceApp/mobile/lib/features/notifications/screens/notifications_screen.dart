@@ -26,11 +26,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() { _loading = true; _error = null; });
     try {
       final dio = ref.read(dioProvider);
       final resp = await dio.get(ApiConstants.notifications);
       final data = resp.data['data'];
+      if (!mounted) return;
       setState(() {
         if (data is List) {
           _notifications = List<Map<String, dynamic>>.from(data);
@@ -40,6 +42,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() { _error = 'Lỗi tải thông báo'; _loading = false; });
     }
   }
@@ -48,6 +51,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     try {
       final dio = ref.read(dioProvider);
       await dio.post(ApiConstants.notificationReadAll);
+      if (!mounted) return;
       await _load();
     } catch (_) {}
   }
@@ -57,6 +61,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       final dio = ref.read(dioProvider);
       final url = ApiConstants.notificationRead.replaceFirst('{id}', id);
       await dio.post(url);
+      if (!mounted) return;
       setState(() {
         final idx = _notifications.indexWhere((n) => n['id'] == id);
         if (idx != -1) _notifications[idx] = {..._notifications[idx], 'isRead': true};

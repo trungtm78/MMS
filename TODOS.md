@@ -2,6 +2,190 @@
 
 ## Flutter / Mobile
 
+> Source: `/codex` review of mobile system (2026-05-05) — 20 findings across MilitianApp + PoliceApp Flutter apps.
+
+---
+
+**Priority:** P0
+**Title:** MOBILE-01 — Cleartext HTTP/WS defaults trong api_constants
+**Description:** Release defaults là plain `http://` và `ws://`. Nếu env vars miss, auth, refresh tokens, GPS, chat, police live tracking sẽ chạy cleartext.
+**Files:** `MilitianApp/mobile/lib/core/constants/api_constants.dart:6,11`, `PoliceApp/mobile/lib/core/constants/api_constants.dart:6,11`
+**Fix:** Force `https://` / `wss://` scheme as default. Hard-fail nếu env vars missing thay vì silent fallback.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P0
+**Title:** MOBILE-02 — Dio LogInterceptor logs request/response bodies (passwords + tokens)
+**Description:** `LogInterceptor` log toàn bộ request và response bodies. Login passwords, access tokens, refresh tokens lộ vào device logs (logcat/Console).
+**Files:** `MilitianApp/mobile/lib/core/network/dio_client.dart:29-32`, `PoliceApp/mobile/lib/core/network/dio_client.dart:33-36`
+**Fix:** Disable `requestBody`/`responseBody` logging trong release builds. Use `kDebugMode` guard hoặc strip interceptor production.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P0
+**Title:** MOBILE-03 — PoliceApp Android thiếu INTERNET, ACCESS_FINE_LOCATION permissions
+**Description:** AndroidManifest không khai báo `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` trong khi app dùng Dio/WebSocket/GPS. Tất cả network và GPS sẽ fail trên Android.
+**Files:** `PoliceApp/mobile/android/app/src/main/AndroidManifest.xml:1-45`, dùng tại `PoliceApp/mobile/lib/features/attendance/screens/checkin_screen.dart:64-75`, `PoliceApp/mobile/lib/features/gps/screens/gps_tracking_screen.dart:39-61`
+**Fix:** Thêm `<uses-permission>` cho INTERNET, ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P0
+**Title:** MOBILE-04 — WebSocket token leak qua query string
+**Description:** Access token gửi qua WebSocket query string (`setQuery({'token': token})`). Token leak qua proxies, server access logs, crash reports.
+**Files:** `MilitianApp/mobile/lib/shared/services/websocket_service.dart:56-57`
+**Fix:** Move token vào WebSocket Authorization header (Socket.IO `auth` field), KHÔNG đặt vào URL.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-05 — Refresh token race condition
+**Description:** Refresh logic race-prone. Khi `_isRefreshing=true`, các 401 khác skip refresh và fail. Refresh dùng cùng intercepted dio nên có thể reattach Authorization cũ.
+**Files:** `MilitianApp/mobile/lib/core/network/auth_interceptor.dart:26-58`, `PoliceApp/mobile/lib/core/network/auth_interceptor.dart:23-55`
+**Fix:** Queue concurrent 401 requests, await refresh completion, retry với token mới. Dùng raw Dio (no interceptors) cho refresh call.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-06 — Auth bypass (chỉ check token tồn tại, không validate)
+**Description:** App treat any stored access token as authenticated. Không check JWT expiry, profile validation, role validation, revoked-token. User với token expired vẫn vào protected screens.
+**Files:** `MilitianApp/mobile/lib/features/auth/providers/auth_provider.dart:57-61`, `PoliceApp/mobile/lib/features/auth/providers/auth_provider.dart:61-66`
+**Fix:** Decode JWT exp claim → check expiry. Call `/auth/me` on app start để validate token + load fresh role.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-07 — GPS fake tracking + silent data loss
+**Description:** GPS upload services post `lat:null, lng:null`, swallow failures, no durable queue. Đây là fake tracking + silent data loss.
+**Files:** `MilitianApp/mobile/lib/features/home/services/gps_background_service.dart:29-35`, `PoliceApp/mobile/lib/features/gps/services/gps_upload_service.dart:22-28`
+**Fix:** Validate lat/lng trước khi upload (skip nếu null). Add SQLite/Hive offline queue. Retry on next reconnect. Log failures via Crashlytics/Sentry.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-08 — Background GPS không thật (thiếu Android service + iOS UIBackgroundModes)
+**Description:** App khai báo "Always" location text nhưng không có Android background/foreground service permission, không có iOS `UIBackgroundModes`. GPS sẽ không chạy khi app background.
+**Files:** `MilitianApp/mobile/android/app/src/main/AndroidManifest.xml:5-17`, `MilitianApp/mobile/ios/Runner/Info.plist:47-50`
+**Fix:** Add `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION` (Android), `UIBackgroundModes: [location]` (iOS). Implement foreground service với persistent notification.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-09 — Push notifications không production-grade
+**Description:** Militian: không request iOS notification permission, `getToken()` luôn null. Police: hoàn toàn không có push notification service. Background/terminated notifications miss.
+**Files:** `MilitianApp/mobile/lib/shared/services/push_notification_service.dart:33-40,85-86`, PoliceApp missing entire service
+**Fix:** Request iOS permission via `firebase_messaging` `requestPermission()`. Implement push service trong PoliceApp. Test background/terminated states trên iOS + Android.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-10 — Firebase config dead (Android declares service, Dart đã remove)
+**Description:** Firebase đã "removed" trong Dart nhưng Android Manifest vẫn declare `FirebaseMessagingService`. Dead platform config, có thể gây broken startup/build.
+**Files:** `MilitianApp/mobile/android/app/src/main/AndroidManifest.xml:41-48`, `MilitianApp/mobile/lib/core/constants/api_constants.dart:66`, `MilitianApp/mobile/lib/shared/services/push_notification_service.dart:19-20`
+**Fix:** Decide: (a) Setup Firebase fully (Sender ID, google-services.json, etc.) hoặc (b) Xoá `FirebaseMessagingService` declaration khỏi Manifest.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-11 — WebSocket payload blind cast crash
+**Description:** `data as Map<String, dynamic>` blind cast WebSocket payload. 1 malformed event crash entire screen.
+**Files:** `PoliceApp/mobile/lib/features/gps/screens/gps_tracking_screen.dart:67`
+**Fix:** Use `if (data is Map<String, dynamic>) { ... }` guard. Log + skip malformed events.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P1
+**Title:** MOBILE-12 — substring/split crashes trên empty strings
+**Description:** `.substring(0, 1)` và `.split(' ').last` crash khi nullable/empty names. 4-5 vị trí.
+**Files:** `PoliceApp/mobile/lib/features/gps/screens/gps_tracking_screen.dart:98,169,177,214`, `PoliceApp/mobile/lib/features/dqtv/screens/dqtv_detail_screen.dart:89`
+**Fix:** Helper `String initials(String? name)` trả 'DQTV' nếu null/empty, else lấy first char safely.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P2
+**Title:** MOBILE-13 — CreateTaskScreen có hardcoded assignees + fake success
+**Description:** Member app task creation là placeholder với hardcoded assignees và fake success response. KHÔNG được ship.
+**Files:** `MilitianApp/mobile/lib/features/tasks/screens/create_task_screen.dart:5-7,41-47,68-71`
+**Fix:** Decide: (a) Implement real API call hoặc (b) Hide screen sau RBAC check (DQTV thường không tạo task).
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P2
+**Title:** MOBILE-14 — Auth response force-unwrap crash
+**Description:** Force unwrap auth response fields. Backend partial/error-shaped success response sẽ crash thay vì produce controlled auth error.
+**Files:** `MilitianApp/mobile/lib/features/auth/repositories/auth_repository_impl.dart:30-32,50-53,70-73,100-103`
+**Fix:** Replace `!` với null-safe parsing + throw `AuthException` với clear message.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P2
+**Title:** MOBILE-15 — Missing mounted check sau await trong notification screen
+**Description:** Calls `setState` sau awaits không có `mounted` check. Dispose during network call sẽ throw.
+**Files:** `PoliceApp/mobile/lib/features/notifications/screens/notifications_screen.dart:34-43,60-64`
+**Fix:** Wrap setState với `if (!mounted) return;` sau mỗi await.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P2
+**Title:** MOBILE-16 — GPS/network errors expose raw exception, no retry, no offline queue
+**Description:** GPS/network errors flatten hoặc expose raw exception text. Không có retry strategy, không có offline queue, không có permission-settings recovery path.
+**Files:** `MilitianApp/mobile/lib/features/attendance/screens/checkin_screen.dart:34-59,65-94`, `PoliceApp/mobile/lib/features/attendance/screens/checkin_screen.dart:62-80,86-128`
+**Fix:** Map exceptions sang user-friendly Vietnamese messages. Add retry button. Open settings nếu permission denied.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P2
+**Title:** MOBILE-17 — Socket chỉ disconnect, không dispose
+**Description:** Socket được disconnect nhưng không dispose. Reopening screen có thể leave listeners/resources around.
+**Files:** `PoliceApp/mobile/lib/features/gps/screens/gps_tracking_screen.dart:31-33`
+**Fix:** Replace `socket.disconnect()` với `socket.dispose()` trong `dispose()` method.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P3
+**Title:** MOBILE-18 — iOS keychain accessibility quá permissive (first_unlock)
+**Description:** iOS token storage dùng `first_unlock`, cho phép token access sau lần unlock đầu tiên dù device đang locked. Quá permissive cho policing/GPS data.
+**Files:** `MilitianApp/mobile/lib/core/storage/secure_storage_service.dart:11`, `PoliceApp/mobile/lib/core/storage/secure_storage_service.dart:10`
+**Fix:** Change accessibility sang `first_unlock_this_device` hoặc `passcode` cho data nhạy cảm.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P3
+**Title:** MOBILE-19 — Code duplication core/ giữa MilitianApp và PoliceApp với behavioral drift
+**Description:** Networking/storage/constants/auth-interceptor code duplicate giữa 2 apps với drift: Militian clears all storage on refresh failure, Police clears tokens only. Sẽ tiếp tục produce inconsistent security bugs.
+**Files:** `MilitianApp/mobile/lib/core/*`, `PoliceApp/mobile/lib/core/*`
+**Fix:** Extract shared package `mms_mobile_core` (path dep trong pubspec). Migrate dần từng module.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
+**Priority:** P3
+**Title:** MOBILE-20 — Recovery codes route là placeholder (MFA dead screen)
+**Description:** Recovery codes route placeholder. MFA setup có thể navigate user vào dead screen sau enrollment.
+**Files:** `PoliceApp/mobile/lib/core/router/app_router.dart:79-80,206-218`
+**Fix:** Implement RecoveryCodesScreen displaying 10 codes from `/auth/mfa/setup` response. Add "Save to Files" button.
+**Noticed on:** feat/mms-phase1-phase2-implementation (2026-05-05)
+
+---
+
 ## Web / Backend
 
 **Priority:** P1

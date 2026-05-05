@@ -2,6 +2,41 @@
 
 ---
 
+## [0.3.2.0] — 2026-05-05
+
+### Fixed
+- **GPS map đè header** — Leaflet 1.9.4 CSS bundle thiếu `position: relative` trên `.leaflet-container` khiến map tiles render lên top viewport (đè banner). Inline `position: relative` trên React MapContainer + override trong `index.css`. Map giờ nằm gọn trong container 420px.
+- **Backend KPI TS errors** — `kpi.controller.ts` và `kpi.service.ts` dùng inline type `{ sub, role }` thay vì `JwtPayload`; thiếu `username` + `unitScope`. Align cả controller, service và spec mocks về `JwtPayload`.
+
+### Mobile hardening (MilitianApp + PoliceApp) — 18 findings từ /codex review
+
+**Security ship-blockers:**
+- Release builds fail-fast nếu `API_BASE_URL`/`WS_URL` không phải `https://`/`wss://`
+- Dio `LogInterceptor` chỉ chạy trong `kDebugMode` (release không log password/token)
+- PoliceApp Android Manifest thêm `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_NETWORK_STATE`
+- WebSocket token chuyển từ query string sang Socket.IO `auth` payload (token không leak qua proxies/server logs)
+
+**Auth + GPS + Push:**
+- Refresh token interceptor dùng `Completer` queue + raw Dio (không race, không stale Authorization)
+- App start reject expired JWT bằng `jwt_utils.isJwtExpired()`
+- GPS upload services skip post khi `lat`/`lng` null hoặc out of range (dừng fake telemetry)
+- Background GPS: Android `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION`, iOS `UIBackgroundModes: [location, fetch]` + `NSLocationAlwaysAndWhenInUseUsageDescription`
+- Push notification service request iOS + Android 13 permissions on init
+- Remove dead `com.google.firebase.messaging.FirebaseMessagingService` Android entry
+- WebSocket `gps:update` payload guard với `if (data is! Map<...>)` (1 malformed event không crash screen)
+- Helper `initials(name)` / `lastWord(name)` an toàn null/empty (4 substring crash points)
+- `gps_tracking_screen.dispose()` gọi `_socket.dispose()` (release listeners + buffers)
+
+**Code quality:**
+- `CreateTaskScreen` MilitianApp thay bằng "forbidden" placeholder (DQTV không tạo task; old screen có hardcoded fake assignees)
+- `_persistTokens()` reject partial auth response với `AuthResponseException` thay vì force-unwrap crash
+- `notifications_screen` thêm `if (!mounted) return;` guard sau mỗi `await`
+- `userFriendlyError(e)` map Dio + location plugin exceptions sang Vietnamese SnackBar text
+
+**Polish:**
+- iOS keychain accessibility tightened sang `first_unlock_this_device`
+- `RecoveryCodesScreen` PoliceApp hiển thị 10 mã MFA recovery với copy-all + xác nhận đã lưu
+
 ## [0.3.1.0] — 2026-05-04
 
 ### Fixed
