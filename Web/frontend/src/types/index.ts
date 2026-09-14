@@ -235,6 +235,7 @@ export interface SmartSelectOption {
 // US-SS-01: Militia search result from BE /militia/search
 export interface MilitiaSearchItem {
   id: string
+  userId: string | null
   militiaCode: string
   fullName: string
   phone: string | null

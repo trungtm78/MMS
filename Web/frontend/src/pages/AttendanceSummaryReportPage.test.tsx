@@ -8,44 +8,43 @@ vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.f
 
 import * as apiClient from '@/api/client'
 
-const mockData = {
-  data: [
-    {
-      id: '1',
-      fullName: 'Nguyễn Văn A',
-      militiaCode: 'DQTV-001',
-      unitCode: 'KP1',
-      totalDays: 20,
-      onTime: 18,
-      late: 2,
-      absent: 0,
-      attendanceRate: 90,
-    },
-    {
-      id: '2',
-      fullName: 'Trần Thị B',
-      militiaCode: 'DQTV-002',
-      unitCode: 'KP2',
-      totalDays: 20,
-      onTime: 12,
-      late: 1,
-      absent: 7,
-      attendanceRate: 65,
-    },
-    {
-      id: '3',
-      fullName: 'Lê Văn C',
-      militiaCode: 'DQTV-003',
-      unitCode: 'KP1',
-      totalDays: 20,
-      onTime: 8,
-      late: 2,
-      absent: 10,
-      attendanceRate: 50,
-    },
-  ],
-  total: 3,
-}
+// Shape returned by GET /attendance/summary (AttendanceService.getAttendanceSummary):
+// a plain array. Deliberately not in rate order so the page's own sort is exercised.
+const mockData = [
+  {
+    militiaId: '1',
+    militiaName: 'Nguyễn Văn A',
+    militiaCode: 'DQTV-001',
+    unitCode: 'KP1',
+    totalDays: 20,
+    onTimeDays: 18,
+    lateDays: 2,
+    absentDays: 0,
+    attendancePct: 90,
+  },
+  {
+    militiaId: '2',
+    militiaName: 'Trần Thị B',
+    militiaCode: 'DQTV-002',
+    unitCode: 'KP2',
+    totalDays: 20,
+    onTimeDays: 13,
+    lateDays: 1,
+    absentDays: 6,
+    attendancePct: 65,
+  },
+  {
+    militiaId: '3',
+    militiaName: 'Lê Văn C',
+    militiaCode: 'DQTV-003',
+    unitCode: 'KP1',
+    totalDays: 20,
+    onTimeDays: 10,
+    lateDays: 0,
+    absentDays: 10,
+    attendancePct: 50,
+  },
+]
 
 function wrap(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

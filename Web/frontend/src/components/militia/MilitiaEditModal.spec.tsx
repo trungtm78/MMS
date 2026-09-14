@@ -105,8 +105,12 @@ describe('MilitiaEditModal', () => {
     it('calls update and closes modal on success', async () => {
       const { toast } = await import('sonner')
       vi.mocked(militiaApiModule.militiaApi.update).mockResolvedValueOnce({
-        ...mockProfile, phone: '0909000000',
-      } as ReturnType<typeof militiaApiModule.militiaApi.update> extends Promise<infer T> ? T : never)
+        id: mockProfile.id,
+        fullName: mockProfile.fullName,
+        phone: '0909000000',
+        status: mockProfile.status,
+        updatedAt: '2026-09-14T00:00:00.000Z',
+      })
 
       renderModal()
       await userEvent.click(screen.getByTestId('save-btn'))

@@ -88,6 +88,15 @@ export interface UpdateMilitiaDto {
   avatarUrl?: string | null
 }
 
+// Shape returned by PATCH /militia/:id (UPDATE ... RETURNING)
+export interface MilitiaUpdateResult {
+  id: string
+  fullName: string
+  phone: string | null
+  status: string
+  updatedAt: string
+}
+
 export const militiaApi = {
   // US-W003 AC-1: List with optional search — backend applies unit scope
   list: async (params?: { search?: string; unitScope?: string; page?: number; limit?: number }): Promise<PaginatedResponse<MilitiaProfile>> => {
@@ -102,8 +111,8 @@ export const militiaApi = {
   },
 
   // US-W003: Update profile (admin/CA only)
-  update: async (id: string, dto: UpdateMilitiaDto): Promise<MilitiaProfile> => {
-    const response = await client.patch<MilitiaProfile>(`/militia/${id}`, dto)
+  update: async (id: string, dto: UpdateMilitiaDto): Promise<MilitiaUpdateResult> => {
+    const response = await client.patch<MilitiaUpdateResult>(`/militia/${id}`, dto)
     return response.data
   },
 

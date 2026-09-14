@@ -1,18 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Download, Clock, AlertCircle } from 'lucide-react'
-import { toast } from 'sonner'
 import client from '@/api/client'
 import { downloadExcelReport } from '@/utils/export-utils'
-
-interface ComplianceStat {
-  label: string
-  value: number
-  total: number
-  unit?: string
-  criticalThreshold: number // red if value/total*100 <= threshold
-  higherIsBetter: boolean   // true: red when below threshold; false: red when above
-}
 
 interface ComplianceDashboardData {
   unitCode: string

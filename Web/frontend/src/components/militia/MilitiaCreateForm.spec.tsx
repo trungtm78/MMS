@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -86,9 +86,9 @@ describe('MilitiaCreateForm', () => {
     it('calls quickCreate and navigates to /militia on success', async () => {
       const { toast } = await import('sonner')
       vi.mocked(militiaApiModule.militiaApi.quickCreate).mockResolvedValueOnce({
-        id: 'new-id', fullName: 'Test', militiaCode: 'TEST-001',
-        unitCode: 'KP1', unitName: null, status: 'active',
-        phone: null, rank: null, avatarUrl: null,
+        id: 'new-id', userId: null, fullName: 'Test', militiaCode: 'TEST-001',
+        unitCode: 'KP1', unitName: 'Khu phố 1', status: 'active',
+        phone: null, rank: null,
       })
 
       renderForm()

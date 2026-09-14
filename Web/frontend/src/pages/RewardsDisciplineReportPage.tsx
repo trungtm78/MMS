@@ -4,7 +4,8 @@ import { Award, Download, Filter } from 'lucide-react'
 import { toast } from 'sonner'
 import client from '@/api/client'
 
-interface RewardItem {
+// Row shape returned by GET /militia/rewards-report
+export interface RewardItem {
   id: string
   fullName: string
   militiaCode: string
@@ -12,7 +13,7 @@ interface RewardItem {
   rewardType: string
   description: string
   content: string
-  decisionNo: string
+  issuedBy: string | null
   decisionDate: string | null
 }
 

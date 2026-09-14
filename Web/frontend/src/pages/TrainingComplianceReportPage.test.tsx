@@ -8,51 +8,52 @@ vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.f
 
 import * as apiClient from '@/api/client'
 
-const mockData = {
-  data: [
-    {
-      id: '1',
-      fullName: 'Nguyễn Văn A',
-      militiaCode: 'DQTV-001',
-      unitCode: 'KP1',
-      militaryScore: 85,
-      politicalScore: 90,
-      fireSafetyScore: 80,
-      firstAidScore: 75,
-      otherScore: null,
-      totalScore: 330,
-      result: 'ĐẠT',
-    },
-    {
-      id: '2',
-      fullName: 'Trần Thị B',
-      militiaCode: 'DQTV-002',
-      unitCode: 'KP2',
-      militaryScore: 50,
-      politicalScore: 55,
-      fireSafetyScore: 45,
-      firstAidScore: 40,
-      otherScore: null,
-      totalScore: 190,
-      result: 'KHÔNG ĐẠT',
-    },
-    {
-      id: '3',
-      fullName: 'Lê Văn C',
-      militiaCode: 'DQTV-003',
-      unitCode: 'KP1',
-      militaryScore: 65,
-      politicalScore: 70,
-      fireSafetyScore: 60,
-      firstAidScore: 65,
-      otherScore: null,
-      totalScore: 260,
-      result: 'CẢNH BÁO',
-    },
-  ],
-  summary: { total: 3, passed: 1, warning: 1, failed: 1 },
-  byType: { military: 3, political: 3, fireSafety: 3, firstAid: 3, other: 0 },
-}
+// Shape returned by GET /training/compliance-report (TrainingService.getComplianceReport):
+// a plain array; status is ĐẠT at >= 15 days, CẢNH BÁO at >= 10, otherwise KHÔNG ĐẠT.
+const mockData = [
+  {
+    militiaId: '1',
+    militiaName: 'Nguyễn Văn A',
+    militiaCode: 'DQTV-001',
+    unitCode: 'KP1',
+    military: 6,
+    political: 4,
+    fire: 3,
+    firstAid: 2,
+    other: 1,
+    totalDays: 16,
+    requiredDays: 15,
+    status: 'ĐẠT',
+  },
+  {
+    militiaId: '2',
+    militiaName: 'Trần Thị B',
+    militiaCode: 'DQTV-002',
+    unitCode: 'KP2',
+    military: 3,
+    political: 2,
+    fire: 1,
+    firstAid: 1,
+    other: 0,
+    totalDays: 7,
+    requiredDays: 15,
+    status: 'KHÔNG ĐẠT',
+  },
+  {
+    militiaId: '3',
+    militiaName: 'Lê Văn C',
+    militiaCode: 'DQTV-003',
+    unitCode: 'KP1',
+    military: 5,
+    political: 3,
+    fire: 2,
+    firstAid: 1,
+    other: 1,
+    totalDays: 12,
+    requiredDays: 15,
+    status: 'CẢNH BÁO',
+  },
+]
 
 function wrap(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -107,9 +108,7 @@ describe('TrainingComplianceReportPage', () => {
   })
 
   it('export button is disabled when no data', async () => {
-    vi.mocked(apiClient.default.get).mockResolvedValue({
-      data: { data: [], summary: { total: 0, passed: 0, warning: 0, failed: 0 }, byType: { military: 0, political: 0, fireSafety: 0, firstAid: 0, other: 0 } },
-    })
+    vi.mocked(apiClient.default.get).mockResolvedValue({ data: [] })
     wrap(<TrainingComplianceReportPage />)
     await waitFor(() => {
       expect(screen.getByTestId('export-btn')).toBeDisabled()
