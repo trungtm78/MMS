@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/secure_storage_service.dart';
-import '../../../shared/utils/jwt_utils.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
 import '../repositories/auth_repository.dart';
@@ -59,16 +58,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = await _storage.getAccessToken();
     if (token == null) return;
 
-    // Reject expired tokens client-side; server is still source of truth
-    // but this prevents users from landing on protected screens with a dead token.
-    if (isJwtExpired(token)) {
-      // If we have a refresh token, the AuthInterceptor will refresh on first 401.
-      // If not, force re-login by clearing.
-      final refresh = await _storage.getRefreshToken();
-      if (refresh == null) {
-        await _storage.clearAll();
-        return;
-      }
+    // A stored session needs both tokens. An expired access token is fine:
+    // the AuthInterceptor renews it on the first 401 using the refresh token.
+    final refresh = await _storage.getRefreshToken();
+    if (token.trim().isEmpty || refresh == null || refresh.trim().isEmpty) {
+      await _storage.clearTokens();
+      return;
+    }
+
+    // Sessions stored without a DQTV role (older builds, other accounts) must log in again
+    if (!UserInfo.hasMilitiaRole(await _storage.getUserRoles())) {
+      await _storage.clearTokens();
+      return;
     }
 
     state = state.copyWith(isAuthenticated: true);
@@ -149,6 +150,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   String _extractError(Object e) {
+    if (e is AuthResponseException) return e.message;
     if (e is Exception) return e.toString().replaceAll('Exception: ', '');
     return e.toString();
   }

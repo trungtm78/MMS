@@ -34,6 +34,16 @@ class SecureStorageService {
   Future<void> saveUserId(String userId) =>
       _storage.write(key: ApiConstants.keyUserId, value: userId);
 
+  // Roles of the signed-in user, checked when a stored session is restored
+  Future<List<String>> getUserRoles() async {
+    final raw = await _storage.read(key: ApiConstants.keyUserRoles);
+    if (raw == null || raw.isEmpty) return const [];
+    return raw.split(',');
+  }
+
+  Future<void> saveUserRoles(List<String> roles) =>
+      _storage.write(key: ApiConstants.keyUserRoles, value: roles.join(','));
+
   // Biometric enabled flag
   Future<bool> isBiometricEnabled() async {
     final val = await _storage.read(key: ApiConstants.keyBiometricEnabled);
@@ -57,10 +67,11 @@ class SecureStorageService {
     await _storage.deleteAll();
   }
 
-  // Clear tokens only (keep biometric pref)
+  // Clear session data only (keep biometric pref and saved username)
   Future<void> clearTokens() async {
     await _storage.delete(key: ApiConstants.keyAccessToken);
     await _storage.delete(key: ApiConstants.keyRefreshToken);
+    await _storage.delete(key: ApiConstants.keyUserRoles);
   }
 
   // Generic key-value helpers (used by services like PushNotificationService)

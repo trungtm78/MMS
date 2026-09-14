@@ -99,4 +99,5 @@ class ApiConstants {
   static const String keyUserId = 'user_id';
   static const String keyBiometricEnabled = 'biometric_enabled';
   static const String keyUsername = 'saved_username';
+  static const String keyUserRoles = 'user_roles';
 }

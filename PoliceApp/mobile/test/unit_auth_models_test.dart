@@ -215,4 +215,196 @@ void main() {
       expect(user.roles, isEmpty);
     });
   });
+
+  // Shapes returned by Web/backend AuthController (POST /auth/login)
+  group('Web backend login contract', () {
+    test('UT-LOGIN-06: reads tokens nested under "tokens"', () {
+      final json = {
+        'user': {
+          'id': 'u1',
+          'username': 'dqtv01',
+          'fullName': 'Nguyễn Văn A',
+          'status': 'active',
+          'role': 'dqtv',
+        },
+        'tokens': {
+          'accessToken': 'tok_access',
+          'refreshToken': 'tok_refresh',
+          'expiresIn': 900,
+        },
+      };
+      final resp = LoginResponse.fromJson(json);
+      expect(resp.accessToken, equals('tok_access'));
+      expect(resp.refreshToken, equals('tok_refresh'));
+      expect(resp.user?.fullName, equals('Nguyễn Văn A'));
+    });
+
+    test('UT-LOGIN-07: mfa_required flag maps to requiresMfa', () {
+      final resp = LoginResponse.fromJson({
+        'mfa_required': true,
+        'tempToken': 'tmp_tok',
+      });
+      expect(resp.requiresMfa, isTrue);
+      expect(resp.tempToken, equals('tmp_tok'));
+      expect(resp.accessToken, isNull);
+    });
+
+    test('UT-USER-06: single "role" string becomes the roles list', () {
+      final user = UserInfo.fromJson({
+        'id': 'u1',
+        'username': 'dqtv01',
+        'fullName': 'Nguyễn Văn A',
+        'status': 'active',
+        'role': 'dqtv',
+      });
+      expect(user.roles, equals(['dqtv']));
+    });
+
+    test('UT-AUTH-07: backend DQTV role codes → appRole = dqtv', () {
+      for (final code in ['dqtv', 'dqtv_member']) {
+        final user = UserInfo(
+          id: '1',
+          username: 'u',
+          fullName: 'U',
+          status: 'active',
+          roles: [code],
+        );
+        expect(user.appRole, equals('dqtv'), reason: code);
+      }
+    });
+
+    test('UT-AUTH-08: backend CA role codes → appRole = ca', () {
+      for (final code in ['ca_officer', 'ca_ward', 'ca_area']) {
+        final user = UserInfo(
+          id: '1',
+          username: 'u',
+          fullName: 'U',
+          status: 'active',
+          roles: [code],
+        );
+        expect(user.appRole, equals('ca'), reason: code);
+      }
+    });
+
+    test('UT-LOGIN-08: mfa_required true wins over requiresMfa false', () {
+      final resp = LoginResponse.fromJson({
+        'requiresMfa': false,
+        'mfa_required': true,
+        'tempToken': 'tmp_tok',
+      });
+      expect(resp.requiresMfa, isTrue);
+    });
+
+    test('UT-LOGIN-09: non-bool MFA flag does not throw', () {
+      expect(
+        () => LoginResponse.fromJson({'mfa_required': 'true', 'tempToken': 't'}),
+        returnsNormally,
+      );
+    });
+
+    test('UT-LOGIN-10: refreshToken outside "tokens" is still read', () {
+      final resp = LoginResponse.fromJson({
+        'tokens': {'accessToken': 'tok_access'},
+        'refreshToken': 'tok_refresh',
+      });
+      expect(resp.accessToken, equals('tok_access'));
+      expect(resp.refreshToken, equals('tok_refresh'));
+    });
+
+    test('UT-USER-07: empty roles list does not hide "role"', () {
+      final user = UserInfo.fromJson({
+        'id': 'u1',
+        'username': 'ca01',
+        'fullName': 'CA',
+        'status': 'active',
+        'roles': <String>[],
+        'role': 'ca_officer',
+      });
+      expect(user.roles, equals(['ca_officer']));
+    });
+
+    test('UT-USER-08: non-string role entries are ignored, not thrown', () {
+      final user = UserInfo.fromJson({
+        'id': 'u1',
+        'username': 'dqtv01',
+        'fullName': 'A',
+        'status': 'active',
+        'roles': ['dqtv', null, {'code': 'x'}],
+      });
+      expect(user.roles, equals(['dqtv']));
+    });
+  });
+
+  group('LoginResponse.sessionRejection', () {
+    Map<String, dynamic> backendLogin({
+      String? role = 'dqtv',
+      bool withUser = true,
+      bool withRefresh = true,
+    }) =>
+        {
+          if (withUser)
+            'user': {
+              'id': 'u1',
+              'username': 'user01',
+              'fullName': 'User',
+              'status': 'active',
+              'role': role,
+            },
+          'tokens': {
+            'accessToken': 'tok_access',
+            if (withRefresh) 'refreshToken': 'tok_refresh',
+          },
+        };
+
+    test('UT-GATE-01: DQTV and CA accounts with both tokens may start a session', () {
+      expect(LoginResponse.fromJson(backendLogin(role: 'dqtv')).sessionRejection, isNull);
+      expect(LoginResponse.fromJson(backendLogin(role: 'ca_officer')).sessionRejection, isNull);
+    });
+
+    test('UT-GATE-02: missing refresh token is rejected', () {
+      expect(
+        LoginResponse.fromJson(backendLogin(withRefresh: false)).sessionRejection,
+        isNotNull,
+      );
+    });
+
+    test('UT-GATE-03: response without user is rejected', () {
+      expect(
+        LoginResponse.fromJson(backendLogin(withUser: false)).sessionRejection,
+        isNotNull,
+      );
+    });
+
+    test('UT-GATE-04: roles outside CA/DQTV are rejected', () {
+      for (final role in ['system_admin', 'office_staff', 'ubnd_leader', null]) {
+        expect(
+          LoginResponse.fromJson(backendLogin(role: role)).sessionRejection,
+          equals('Tài khoản không có quyền dùng ứng dụng này'),
+          reason: '$role',
+        );
+      }
+    });
+
+    test('UT-GATE-05: blank token strings are treated as missing', () {
+      final resp = LoginResponse.fromJson({
+        ...backendLogin(),
+        'tokens': {'accessToken': '', 'refreshToken': '  '},
+      });
+      expect(resp.accessToken, isNull);
+      expect(resp.refreshToken, isNull);
+      expect(resp.sessionRejection, isNotNull);
+    });
+
+    test('UT-GATE-06: non-string tokens do not throw and are rejected', () {
+      final json = {
+        ...backendLogin(),
+        'tokens': {'accessToken': 123, 'refreshToken': true},
+        'tempToken': 42,
+      };
+      expect(() => LoginResponse.fromJson(json), returnsNormally);
+      final resp = LoginResponse.fromJson(json);
+      expect(resp.sessionRejection, isNotNull);
+      expect(resp.tempToken, isNull);
+    });
+  });
 }

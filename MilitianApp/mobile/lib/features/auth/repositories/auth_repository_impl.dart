@@ -20,26 +20,21 @@ class AuthRepositoryImpl implements AuthRepository {
   final Dio _dio;
   final SecureStorageService _storage;
 
-  AuthRepositoryImpl(SecureStorageService storage)
-      : _dio = DioClient.getInstance(storage),
+  AuthRepositoryImpl(SecureStorageService storage, {Dio? dio})
+      : _dio = dio ?? DioClient.getInstance(storage),
         _storage = storage;
 
-  /// Validates that a fully-authenticated response has tokens + user, then persists.
-  /// Throws [AuthResponseException] instead of crashing on null force-unwrap.
+  /// Validates that a fully-authenticated response has tokens + a DQTV user, then persists.
+  /// Throws [AuthResponseException] instead of starting a session the app can't serve.
   Future<void> _persistTokens(LoginResponse r, {String? username}) async {
-    final access = r.accessToken;
-    final refresh = r.refreshToken;
-    final user = r.user;
-    if (access == null || refresh == null) {
-      throw const AuthResponseException(
-        'Server returned success without access/refresh tokens',
-      );
-    }
-    await _storage.saveAccessToken(access);
-    await _storage.saveRefreshToken(refresh);
-    if (user != null) {
-      await _storage.saveUserId(user.id);
-    }
+    final rejection = r.sessionRejection;
+    if (rejection != null) throw AuthResponseException(rejection);
+    // sessionRejection == null guarantees both tokens and user are present
+    final user = r.user!;
+    await _storage.saveAccessToken(r.accessToken!);
+    await _storage.saveRefreshToken(r.refreshToken!);
+    await _storage.saveUserId(user.id);
+    await _storage.saveUserRoles(user.roles);
     if (username != null) {
       await _storage.saveUsername(username);
     }

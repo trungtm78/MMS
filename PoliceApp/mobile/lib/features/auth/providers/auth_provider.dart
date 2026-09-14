@@ -4,7 +4,6 @@ import 'package:dio/dio.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_constants.dart';
-import '../../../shared/utils/jwt_utils.dart';
 import '../models/auth_models.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────────────
@@ -63,17 +62,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = await _storage.getAccessToken();
     if (token == null) return;
 
-    // Reject expired tokens client-side; server is still source of truth.
-    if (isJwtExpired(token)) {
-      final refresh = await _storage.getRefreshToken();
-      if (refresh == null) {
-        await _storage.clearTokens();
-        return;
-      }
+    // A stored session needs both tokens. An expired access token is fine:
+    // the interceptor renews it on the first 401 using the refresh token.
+    final refresh = await _storage.getRefreshToken();
+    if (token.trim().isEmpty || refresh == null || refresh.trim().isEmpty) {
+      await _storage.clearTokens();
+      return;
     }
 
+    // Sessions stored without an app role (e.g. by older builds) must log in again
     final role = await _storage.getUserRole();
-    state = state.copyWith(isAuthenticated: true, role: role ?? '');
+    if (role != 'ca' && role != 'dqtv') {
+      await _storage.clearTokens();
+      return;
+    }
+    state = state.copyWith(isAuthenticated: true, role: role);
   }
 
   /// Returns null on success; returns LoginResponse when MFA needed
@@ -111,8 +114,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data: {'tempToken': tempToken, 'code': otpCode},
       );
       final loginResponse = LoginResponse.fromJson(response.data as Map<String, dynamic>);
-      await _persistAuth(loginResponse);
-      return true;
+      return await _persistAuth(loginResponse);
     } on DioException catch (e) {
       state = state.copyWith(isLoading: false, error: _extractDioError(e));
       return false;
@@ -127,8 +129,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data: {'tempToken': tempToken, 'recoveryCode': recoveryCode},
       );
       final loginResponse = LoginResponse.fromJson(response.data as Map<String, dynamic>);
-      await _persistAuth(loginResponse);
-      return true;
+      return await _persistAuth(loginResponse);
     } on DioException catch (e) {
       state = state.copyWith(isLoading: false, error: _extractDioError(e));
       return false;
@@ -144,24 +145,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthState();
   }
 
-  Future<void> _persistAuth(LoginResponse loginResponse) async {
-    if (loginResponse.accessToken != null) {
-      await _storage.saveAccessToken(loginResponse.accessToken!);
+  /// Starts a session only for complete responses from CA/DQTV accounts.
+  /// Returns false, with [AuthState.error] set, when the response is rejected.
+  Future<bool> _persistAuth(LoginResponse loginResponse) async {
+    final rejection = loginResponse.sessionRejection;
+    if (rejection != null) {
+      await _storage.clearTokens();
+      state = state.copyWith(isAuthenticated: false, isLoading: false, error: rejection);
+      return false;
     }
-    if (loginResponse.refreshToken != null) {
-      await _storage.saveRefreshToken(loginResponse.refreshToken!);
-    }
-    if (loginResponse.user != null) {
-      await _storage.saveUserId(loginResponse.user!.id);
-      await _storage.saveUserRole(loginResponse.user!.appRole);
-      await _storage.saveUsername(loginResponse.user!.username);
-    }
+    // sessionRejection == null guarantees both tokens and user are present
+    final user = loginResponse.user!;
+    await _storage.saveAccessToken(loginResponse.accessToken!);
+    await _storage.saveRefreshToken(loginResponse.refreshToken!);
+    await _storage.saveUserId(user.id);
+    await _storage.saveUserRole(user.appRole);
+    await _storage.saveUsername(user.username);
     state = state.copyWith(
       isAuthenticated: true,
-      user: loginResponse.user,
-      role: loginResponse.user?.appRole ?? '',
+      user: user,
+      role: user.appRole,
       isLoading: false,
     );
+    return true;
   }
 
   String _extractDioError(DioException e) {

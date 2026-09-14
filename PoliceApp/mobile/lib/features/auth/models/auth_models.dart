@@ -39,13 +39,25 @@ class UserInfo {
         phone: json['phone'] as String?,
         avatarUrl: json['avatarUrl'] as String?,
         status: json['status'] as String,
-        roles: List<String>.from(json['roles'] as List? ?? []),
+        roles: _parseRoles(json),
       );
 
-  /// Detect app role: 'ca' or 'dqtv'
+  static List<String> _parseRoles(Map<String, dynamic> json) {
+    final roles = json['roles'];
+    final role = json['role']; // Web backend sends a single role code
+    return {
+      if (roles is List) ...roles.whereType<String>(),
+      if (role is String) role,
+    }.toList();
+  }
+
+  static const _caRoles = {'police_area', 'police_ward', 'ca_officer', 'ca_ward', 'ca_area'};
+  static const _dqtvRoles = {'militia', 'dqtv', 'dqtv_member'};
+
+  /// Detect app role: 'ca' or 'dqtv' (CA takes precedence)
   String get appRole {
-    if (roles.contains('police_area') || roles.contains('police_ward')) return 'ca';
-    if (roles.contains('militia')) return 'dqtv';
+    if (roles.any(_caRoles.contains)) return 'ca';
+    if (roles.any(_dqtvRoles.contains)) return 'dqtv';
     return 'unknown';
   }
 }
@@ -71,16 +83,35 @@ class LoginResponse {
     final rawData = json['data'];
     final data = (rawData is Map ? Map<String, dynamic>.from(rawData) : null) ??
         Map<String, dynamic>.from(json);
+    // Web backend nests the pair under `tokens`; older shape is flat
+    final rawTokens = data['tokens'];
+    final tokens = rawTokens is Map
+        ? Map<String, dynamic>.from(rawTokens)
+        : const <String, dynamic>{};
+    String? nonBlank(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
+    String? token(String key) => nonBlank(tokens[key]) ?? nonBlank(data[key]);
     return LoginResponse(
-      accessToken: data['accessToken'] as String?,
-      refreshToken: data['refreshToken'] as String?,
+      accessToken: token('accessToken'),
+      refreshToken: token('refreshToken'),
       user: data['user'] != null
           ? UserInfo.fromJson(data['user'] as Map<String, dynamic>)
           : null,
-      requiresMfa: data['requiresMfa'] as bool? ?? false,
-      requiresMfaSetup: data['requiresMfaSetup'] as bool? ?? false,
-      tempToken: data['tempToken'] as String?,
+      requiresMfa: data['requiresMfa'] == true || data['mfa_required'] == true,
+      requiresMfaSetup: data['requiresMfaSetup'] == true,
+      tempToken: nonBlank(data['tempToken']),
     );
+  }
+
+  /// Why this response must not start a session, or null when it may.
+  String? get sessionRejection {
+    if (accessToken == null || refreshToken == null) {
+      return 'Máy chủ trả về thiếu token đăng nhập';
+    }
+    final u = user;
+    if (u == null || u.appRole == 'unknown') {
+      return 'Tài khoản không có quyền dùng ứng dụng này';
+    }
+    return null;
   }
 }
 

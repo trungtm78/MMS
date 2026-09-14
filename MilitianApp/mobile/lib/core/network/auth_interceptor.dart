@@ -5,8 +5,10 @@ import '../storage/secure_storage_service.dart';
 
 /// Auth interceptor with queued refresh:
 /// - Concurrent 401s wait for the in-flight refresh and then retry with the new token
+/// - Each request is retried at most once; a second 401 goes back to the caller
+/// - 401s from auth endpoints (bad credentials/OTP) never trigger a refresh
 /// - Refresh uses a SEPARATE Dio with no interceptors so it cannot pick up the stale Authorization
-/// - On refresh failure, all queued retries fail and storage is cleared
+/// - Refresh must return a full token pair; otherwise storage is cleared and queued retries fail
 class AuthInterceptor extends Interceptor {
   final Dio dio;
   final SecureStorageService storage;
@@ -15,17 +17,31 @@ class AuthInterceptor extends Interceptor {
   Completer<String?>? _refreshCompleter;
 
   /// Plain Dio without interceptors, used only for /auth/refresh.
-  late final Dio _refreshDio = Dio(BaseOptions(
-    baseUrl: ApiConstants.baseUrl,
-    connectTimeout: ApiConstants.connectTimeout,
-    receiveTimeout: ApiConstants.receiveTimeout,
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-  ));
+  final Dio _refreshDio;
 
-  AuthInterceptor({required this.dio, required this.storage});
+  AuthInterceptor({required this.dio, required this.storage, Dio? refreshDio})
+      : _refreshDio = refreshDio ?? _plainDio();
+
+  static Dio _plainDio() => Dio(BaseOptions(
+        baseUrl: ApiConstants.baseUrl,
+        connectTimeout: ApiConstants.connectTimeout,
+        receiveTimeout: ApiConstants.receiveTimeout,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ));
+
+  /// Marks a request that was already retried after a refresh.
+  static const _retriedKey = 'auth_retried';
+
+  /// Endpoints whose 401 means bad credentials, not an expired session.
+  static const _noRefreshPaths = [
+    ApiConstants.login,
+    ApiConstants.refreshToken,
+    ApiConstants.verifyMfa,
+    ApiConstants.verifyRecovery,
+  ];
 
   @override
   void onRequest(
@@ -41,13 +57,10 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode != 401) {
-      handler.next(err);
-      return;
-    }
-
-    // Don't loop on the refresh endpoint itself
-    if (err.requestOptions.path.contains(ApiConstants.refreshToken)) {
+    final options = err.requestOptions;
+    if (err.response?.statusCode != 401 ||
+        options.extra[_retriedKey] == true ||
+        _noRefreshPaths.any(options.path.contains)) {
       handler.next(err);
       return;
     }
@@ -59,11 +72,15 @@ class AuthInterceptor extends Interceptor {
         return;
       }
 
-      // Retry original request with the new token
-      final retryOptions = err.requestOptions;
-      retryOptions.headers['Authorization'] = 'Bearer $newToken';
-      final retryResponse = await dio.fetch(retryOptions);
-      handler.resolve(retryResponse);
+      // Retry original request once with the new token
+      options.extra[_retriedKey] = true;
+      options.headers['Authorization'] = 'Bearer $newToken';
+      // A FormData body can only be sent once; retry with a fresh copy
+      final body = options.data;
+      if (body is FormData) options.data = body.clone();
+      handler.resolve(await dio.fetch(options));
+    } on DioException catch (retryErr) {
+      handler.next(retryErr);
     } catch (_) {
       handler.next(err);
     }
@@ -81,7 +98,9 @@ class AuthInterceptor extends Interceptor {
 
     try {
       final refreshToken = await storage.getRefreshToken();
-      if (refreshToken == null) {
+      if (refreshToken == null || refreshToken.trim().isEmpty) {
+        // Nothing usable to refresh with: end the session rather than send a blank token
+        await storage.clearTokens();
         completer.complete(null);
         return null;
       }
@@ -91,18 +110,19 @@ class AuthInterceptor extends Interceptor {
         data: {'refreshToken': refreshToken},
       );
 
-      final newAccessToken = response.data['accessToken'] as String?;
-      final newRefreshToken = response.data['refreshToken'] as String?;
-      if (newAccessToken == null) {
+      String? nonBlank(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
+      final body = response.data;
+      final newAccessToken = body is Map ? nonBlank(body['accessToken']) : null;
+      final newRefreshToken = body is Map ? nonBlank(body['refreshToken']) : null;
+      // Backend rotates the refresh token; keeping the old one would strand the session
+      if (newAccessToken == null || newRefreshToken == null) {
         await storage.clearAll();
         completer.complete(null);
         return null;
       }
 
       await storage.saveAccessToken(newAccessToken);
-      if (newRefreshToken != null) {
-        await storage.saveRefreshToken(newRefreshToken);
-      }
+      await storage.saveRefreshToken(newRefreshToken);
 
       completer.complete(newAccessToken);
       return newAccessToken;
