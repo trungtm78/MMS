@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_client.dart';
 import '../auth/providers/auth_provider.dart';
+import 'training_result.dart';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const _requiredDays = 15;
@@ -379,8 +379,12 @@ class _TrainingCard extends StatelessWidget {
     final type = record['trainingType'] as String? ?? record['type'] as String? ?? '';
     final icon = _typeIcon(type);
     final days = record['totalDays'] as int? ?? record['days'] as int? ?? 0;
-    final result = record['result'] as String? ?? record['passed'] == true ? 'Đạt' : 'Không đạt';
-    final passed = result == 'Đạt' || record['passed'] == true;
+    final outcome = TrainingOutcome.fromRecord(record);
+    final outcomeColor = switch (outcome) {
+      TrainingOutcome.passed => AppColors.success,
+      TrainingOutcome.failed => AppColors.error,
+      TrainingOutcome.notEvaluated => AppColors.textSecondary,
+    };
     final location = record['location'] as String? ?? '';
     final fromDate = record['fromDate'] as String? ?? record['from_date'] as String? ?? '';
     final toDate = record['toDate'] as String? ?? record['to_date'] as String? ?? '';
@@ -394,7 +398,7 @@ class _TrainingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border(
           left: BorderSide(
-            color: passed ? AppColors.success : AppColors.error,
+            color: outcomeColor,
             width: 4,
           ),
         ),
@@ -484,16 +488,16 @@ class _TrainingCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: (passed ? AppColors.success : AppColors.error)
+                  color: (outcomeColor)
                       .withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  passed ? 'Đạt' : 'Không đạt',
+                  outcome.label,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: passed ? AppColors.success : AppColors.error,
+                    color: outcomeColor,
                   ),
                 ),
               ),
