@@ -1,6 +1,13 @@
 -- Migration 037: tenant_id and row-level security on the M0 slice.
--- Every existing row belongs to the first tenant. The column is added with that constant
--- (a metadata-only change) and then defaults to the tenant of the session.
+-- Every existing row belongs to the first tenant. The column is added with that constant as
+-- its default (PostgreSQL keeps a constant default in the catalog, so the table is not
+-- rewritten) and the default then becomes the tenant of the session.
+-- This is NOT an online change. REFERENCES tenants(id) makes each table be scanned to
+-- validate the foreign key, and the foreign key, the tenant_id index and the per-tenant
+-- unique constraints are built under exclusive table locks, all in this one transaction:
+-- users and audit_logs, among others, block readers and writers for as long as that takes.
+-- Measure it on a production-sized copy; M1, which does this to ~60 more tables, must
+-- build online.
 
 DO $$
 DECLARE
