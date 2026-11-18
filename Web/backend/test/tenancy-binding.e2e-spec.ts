@@ -3,6 +3,7 @@
 import type { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Client } from 'pg';
 import { DataSource } from 'typeorm';
 import { bindTenantToConnections } from '../src/database/tenancy/bind-tenant';
 import {
@@ -128,6 +129,67 @@ describe('tenant binding on a real pool (e2e)', () => {
     ).rejects.toThrow('rollback');
     await expect(titles()).resolves.toEqual([]);
   });
+
+  // The store is shared and mutable: code that adopts a tenant while a transaction taken
+  // under "no scope" is open makes the COMMIT, and then the ROLLBACK, mismatch. TypeORM
+  // swallows the failed rollback and releases the client, which must NOT go back to the pool
+  // still inside the transaction: the next tenant would write into it and lose the write.
+  it('destroys the connection of a transaction that met a scope change, so no tenant writes inside it', async () => {
+    const single = new DataSource({
+      type: 'postgres',
+      url: db.appUrl,
+      synchronize: false,
+      installExtensions: false,
+      extra: { min: 1, max: 1 },
+    });
+    bindTenantToConnections(single);
+    await single.initialize();
+    try {
+      await expect(
+        TenantContext.start(() =>
+          single.transaction(async (mgr) => {
+            await mgr.query(`SELECT 1`);
+            TenantContext.adopt({ tenantId: a.id });
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'tenant_scope_mismatch' });
+
+      // The only connection of the pool was the poisoned one: tenant B gets a clean one
+      await TenantContext.runAs({ tenantId: b.id }, () =>
+        single.query(`UPDATE tasks SET title = $1 WHERE id = $2`, [
+          'B wrote this',
+          b.taskId,
+        ]),
+      );
+
+      const committed = await db.admin((c) =>
+        c.query<{ title: string }>(`SELECT title FROM tasks WHERE id = $1`, [
+          b.taskId,
+        ]),
+      );
+      expect(committed.rows[0].title).toBe('B wrote this');
+      await eventually(
+        async () =>
+          (
+            await db.admin((c) =>
+              c.query<{ n: string }>(
+                `SELECT count(*) AS n FROM pg_stat_activity
+                WHERE datname = $1 AND state = 'idle in transaction'`,
+                [db.name],
+              ),
+            )
+          ).rows[0].n === '0',
+        'no connection left idle in a transaction',
+      );
+    } finally {
+      await single.destroy();
+      await db.admin((c) =>
+        c.query(`UPDATE tasks SET title = 'Task CANARY-B' WHERE id = $1`, [
+          b.taskId,
+        ]),
+      );
+    }
+  });
 });
 
 // What the databases and roles of an enforced deployment must look like, checked on real
@@ -185,6 +247,42 @@ describe('boot guards (e2e)', () => {
       await expect(assertNoLegacyTenantDefault(ds)).rejects.toThrow(
         /legacy_tenant_default_present.*app\.tenant_id=a1000000/,
       );
+    });
+
+    // pg_db_role_setting does not list postgresql.conf, ALTER SYSTEM or connection options;
+    // a connection option is the one of these a test can set without touching the cluster
+    it('refuses a default that no catalog row shows, here a connection option', async () => {
+      const db = await database();
+      const ds = await new DataSource({
+        type: 'postgres',
+        url: db.appUrl,
+        installExtensions: false,
+        extra: { options: `-c app.tenant_id=${TENANT_1}` },
+      }).initialize();
+      sources.push(ds);
+
+      await expect(assertNoLegacyTenantDefault(ds)).rejects.toThrow(
+        /legacy_tenant_default_present.*app\.tenant_id=a1000000.*not in pg_db_role_setting/,
+      );
+    });
+
+    it('leaves no transaction open when it passes', async () => {
+      const db = await database();
+      const ds = await connect(db.appUrl);
+
+      await assertNoLegacyTenantDefault(ds);
+
+      const [{ n }] = await db.admin(
+        async (c) =>
+          (
+            await c.query<{ n: string }>(
+              `SELECT count(*) AS n FROM pg_stat_activity
+              WHERE datname = $1 AND state = 'idle in transaction'`,
+              [db.name],
+            )
+          ).rows,
+      );
+      expect(n).toBe('0');
     });
 
     it('ignores defaults that belong to another database', async () => {
@@ -297,7 +395,7 @@ describe('tenantAwareDataSource (e2e)', () => {
     );
   });
 
-  it('leaves legacy mode alone: no binding and no guard', async () => {
+  it('leaves legacy mode alone: no binding, the legacy default is what a session sees', async () => {
     const db = await database({ keepLegacyDefault: true });
     const seeded = await seedTenant(db, 'phu-dinh', 'CANARY-A');
 
@@ -307,6 +405,100 @@ describe('tenantAwareDataSource (e2e)', () => {
     const rows = await ds.query<{ title: string }[]>(`SELECT title FROM tasks`);
     expect(seeded.id).toBe(TENANT_1);
     expect(rows.map((r) => r.title)).toEqual(['Task CANARY-A']);
+  });
+
+  // Legacy mode depends on the database default of migration 037, which pg_dump without
+  // --create does not carry: a database that lost it must not boot
+  it('refuses to start in legacy mode on a database that lost its default tenant, and closes its connections', async () => {
+    const db = await database();
+
+    await expect(withMode(undefined, () => open(db.appUrl))).rejects.toThrow(
+      /legacy_tenant_default_missing/,
+    );
+    await eventually(
+      async () => (await connectionsOf(db, 'mms_app')) === 0,
+      'the refused data source closing its connections',
+    );
+  });
+
+  it('starts in legacy mode on a database that kept its default tenant, as a superuser or as mms_app', async () => {
+    const db = await database({ keepLegacyDefault: true });
+
+    const app = await withMode(undefined, () => open(db.appUrl));
+    const superuser = await withMode(undefined, () => open(db.adminUrl));
+
+    await expect(app.query(`SELECT 1 AS ok`)).resolves.toEqual([{ ok: 1 }]);
+    await expect(superuser.query(`SELECT 1 AS ok`)).resolves.toEqual([
+      { ok: 1 },
+    ]);
+  });
+
+  describe('the role of a legacy deployment', () => {
+    const roles: string[] = [];
+    const password = 'legacy_role_e2e';
+
+    // Roles are cluster-wide: a unique name per test, dropped afterwards
+    const createRole = async (
+      db: TenantDatabase,
+      attributes: string,
+    ): Promise<string> => {
+      const role = `mms_lr_${process.pid}_${Date.now()}_${roles.length}`;
+      roles.push(role);
+      await db.admin((c) =>
+        c.query(
+          `CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER ${attributes}`,
+        ),
+      );
+      return role;
+    };
+    const urlOf = (db: TenantDatabase, role: string): string => {
+      const url = new URL(db.adminUrl);
+      url.username = role;
+      url.password = password;
+      return url.toString();
+    };
+
+    afterEach(async () => {
+      // The sources of the test must be closed before their role can be dropped
+      await Promise.all(sources.splice(0).map((ds) => ds.destroy()));
+      const admin = new URL(process.env.MIGRATION_TEST_ADMIN_URL ?? '');
+      const client = new Client({ connectionString: admin.toString() });
+      await client.connect();
+      try {
+        for (const role of roles.splice(0)) {
+          await client.query(`DROP ROLE IF EXISTS ${role}`);
+        }
+      } finally {
+        await client.end();
+      }
+    });
+
+    it('refuses a plain role: Row-Level Security would show it empty tables', async () => {
+      const db = await database({ keepLegacyDefault: true });
+      const role = await createRole(db, 'NOBYPASSRLS');
+
+      await expect(
+        withMode(undefined, () => open(urlOf(db, role))),
+      ).rejects.toThrow(/legacy_role_blocked_by_rls/);
+      await eventually(
+        async () => (await connectionsOf(db, role)) === 0,
+        'the refused data source closing its connections',
+      );
+    });
+
+    it('accepts a BYPASSRLS role and a member of mms_app', async () => {
+      const db = await database({ keepLegacyDefault: true });
+      const bypass = await createRole(db, 'BYPASSRLS');
+      const member = await createRole(db, 'NOBYPASSRLS IN ROLE mms_app');
+
+      const first = await withMode(undefined, () => open(urlOf(db, bypass)));
+      const second = await withMode(undefined, () => open(urlOf(db, member)));
+
+      await expect(first.query(`SELECT 1 AS ok`)).resolves.toEqual([{ ok: 1 }]);
+      await expect(second.query(`SELECT 1 AS ok`)).resolves.toEqual([
+        { ok: 1 },
+      ]);
+    });
   });
 
   it('fails startup on an unknown TENANCY_MODE', async () => {

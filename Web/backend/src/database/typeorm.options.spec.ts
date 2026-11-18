@@ -3,6 +3,8 @@ import { Logger } from '@nestjs/common';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { bindTenantToConnections } from './tenancy/bind-tenant';
 import {
+  assertLegacyRoleSeesTenantData,
+  assertLegacyTenantDefaultPresent,
   assertNoLegacyTenantDefault,
   assertRuntimeRoleEnforcesRls,
 } from './tenancy/boot-guards';
@@ -64,6 +66,14 @@ describe('tenantAwareDataSource', () => {
       calls.push('roleGuard');
       return Promise.resolve();
     });
+    jest.mocked(assertLegacyTenantDefaultPresent).mockImplementation(() => {
+      calls.push('legacyDefaultPresentGuard');
+      return Promise.resolve();
+    });
+    jest.mocked(assertLegacyRoleSeesTenantData).mockImplementation(() => {
+      calls.push('legacyRoleGuard');
+      return Promise.resolve();
+    });
   });
 
   afterEach(() => {
@@ -76,11 +86,50 @@ describe('tenantAwareDataSource', () => {
       delete process.env.TENANCY_MODE;
     });
 
-    it('opens a plain data source: no binding, no guards', async () => {
+    it('opens a data source with no binding, then checks the legacy database and role', async () => {
       await expect(tenantAwareDataSource(options)).resolves.toBe(fake);
 
       expect(MockedDataSource).toHaveBeenCalledWith(options);
-      expect(calls).toEqual(['initialize']);
+      expect(calls).toEqual([
+        'initialize',
+        'legacyDefaultPresentGuard',
+        'legacyRoleGuard',
+      ]);
+      expect(bindTenantToConnections).not.toHaveBeenCalled();
+      expect(assertLegacyTenantDefaultPresent).toHaveBeenCalledWith(fake);
+      expect(assertLegacyRoleSeesTenantData).toHaveBeenCalledWith(fake);
+      expect(assertNoLegacyTenantDefault).not.toHaveBeenCalled();
+      expect(assertRuntimeRoleEnforcesRls).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        'a database that lost its default tenant',
+        assertLegacyTenantDefaultPresent,
+      ],
+      [
+        'a role that Row-Level Security would lock out',
+        assertLegacyRoleSeesTenantData,
+      ],
+    ])('closes the data source and rethrows for %s', async (_name, guard) => {
+      const refusal = new TenancyConfigError('refused');
+      jest.mocked(guard).mockRejectedValue(refusal);
+
+      await expect(tenantAwareDataSource(options)).rejects.toBe(refusal);
+
+      expect(fake.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not look at the role once the database is already refused', async () => {
+      jest
+        .mocked(assertLegacyTenantDefaultPresent)
+        .mockRejectedValue(new TenancyConfigError('no default'));
+
+      await expect(tenantAwareDataSource(options)).rejects.toBeInstanceOf(
+        TenancyConfigError,
+      );
+
+      expect(assertLegacyRoleSeesTenantData).not.toHaveBeenCalled();
     });
   });
 
@@ -101,6 +150,8 @@ describe('tenantAwareDataSource', () => {
       expect(bindTenantToConnections).toHaveBeenCalledWith(fake);
       expect(assertNoLegacyTenantDefault).toHaveBeenCalledWith(fake);
       expect(assertRuntimeRoleEnforcesRls).toHaveBeenCalledWith(fake);
+      expect(assertLegacyTenantDefaultPresent).not.toHaveBeenCalled();
+      expect(assertLegacyRoleSeesTenantData).not.toHaveBeenCalled();
     });
 
     it.each([

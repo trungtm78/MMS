@@ -6,6 +6,8 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
 import './pg-types';
 import { bindTenantToConnections } from './tenancy/bind-tenant';
 import {
+  assertLegacyRoleSeesTenantData,
+  assertLegacyTenantDefaultPresent,
   assertNoLegacyTenantDefault,
   assertRuntimeRoleEnforcesRls,
 } from './tenancy/boot-guards';
@@ -42,6 +44,10 @@ const logger = new Logger('TenantAwareDataSource');
 // database must be one where that binding is the only thing deciding what a session sees:
 // no legacy single-tenant default (a request without a scope would then see the first tenant
 // instead of nothing) and a runtime role that Row-Level Security applies to.
+// In legacy mode nothing is bound, so the opposite must hold: the database default gives
+// every session the first tenant, and the role is not locked out by the policies. A database
+// restored without its ALTER DATABASE settings, or a plain owner role, would otherwise fail
+// writes (or show empty tables) instead of refusing to start.
 // isTenancyEnforced() is also the boot-time call that makes a bad TENANCY_MODE value fail
 // startup.
 export async function tenantAwareDataSource(
@@ -51,19 +57,22 @@ export async function tenantAwareDataSource(
   const enforced = isTenancyEnforced();
   if (enforced) bindTenantToConnections(dataSource);
   await dataSource.initialize();
-  if (enforced) {
-    try {
+  try {
+    if (enforced) {
       await assertNoLegacyTenantDefault(dataSource);
       await assertRuntimeRoleEnforcesRls(dataSource);
-    } catch (error) {
-      // Whatever closing the pool says must not hide why the application refuses to start
-      await dataSource.destroy().catch((destroyError: unknown) => {
-        logger.warn(
-          `Could not close the data source after a refused start: ${String(destroyError)}`,
-        );
-      });
-      throw error;
+    } else {
+      await assertLegacyTenantDefaultPresent(dataSource);
+      await assertLegacyRoleSeesTenantData(dataSource);
     }
+  } catch (error) {
+    // Whatever closing the pool says must not hide why the application refuses to start
+    await dataSource.destroy().catch((destroyError: unknown) => {
+      logger.warn(
+        `Could not close the data source after a refused start: ${String(destroyError)}`,
+      );
+    });
+    throw error;
   }
   return dataSource;
 }
