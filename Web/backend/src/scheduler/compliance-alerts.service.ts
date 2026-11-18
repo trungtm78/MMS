@@ -4,6 +4,8 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { businessDate } from '../common/time/business-date';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
+import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
 
 @Injectable()
 export class ComplianceAlertsService {
@@ -12,10 +14,17 @@ export class ComplianceAlertsService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly tenantJobs: TenantJobRunner,
   ) {}
 
   @Cron('0 8 * * *') // 8am daily
   async checkComplianceAlerts(): Promise<void> {
+    if (!isTenancyEnforced()) return this.runCheck();
+    await this.tenantJobs.forEachTenant(() => this.runCheck());
+  }
+
+  /** The check for the tenant in scope (the whole ward in legacy mode). */
+  async runCheck(): Promise<void> {
     this.logger.log('Running compliance alerts check...');
 
     try {
@@ -72,7 +81,7 @@ export class ComplianceAlertsService {
         `Compliance alert: ${atRisk.length} DQTV at risk of missing ${year} training requirement`,
       );
 
-      // Broadcast via WebSocket to all connected admin users
+      // Announce over WebSocket to the connected users of the tenant in scope
       const summary = {
         type: 'compliance_alert',
         year,
@@ -82,7 +91,7 @@ export class ComplianceAlertsService {
         checkedAt: new Date().toISOString(),
       };
 
-      this.notificationsGateway.server?.emit('compliance_alert', summary);
+      this.notificationsGateway.emitToTenant('compliance_alert', summary);
 
       // Log to audit trail
       await this.dataSource.query(

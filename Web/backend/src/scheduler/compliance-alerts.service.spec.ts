@@ -2,10 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { useUtcServerClock, VN_NEW_YEAR_0030 } from '../../test/support/clock';
 
 const mockDataSource = { query: jest.fn() };
-const mockGateway = { broadcastNotification: jest.fn() };
+const mockGateway = {
+  broadcastNotification: jest.fn(),
+  emitToTenant: jest.fn(),
+};
+const mockJobs = { forEachTenant: jest.fn() };
 
 describe('ComplianceAlertsService', () => {
   let service: ComplianceAlertsService;
@@ -16,6 +21,7 @@ describe('ComplianceAlertsService', () => {
         ComplianceAlertsService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: NotificationsGateway, useValue: mockGateway },
+        { provide: TenantJobRunner, useValue: mockJobs },
       ],
     }).compile();
 
@@ -113,6 +119,46 @@ describe('ComplianceAlertsService', () => {
 
       await expect(service.checkComplianceAlerts()).resolves.not.toThrow();
       jest.useRealTimers();
+    });
+  });
+
+  describe('tenancy', () => {
+    afterEach(() => delete process.env.TENANCY_MODE);
+
+    it('checks once per tenant in enforced mode', async () => {
+      process.env.TENANCY_MODE = 'enforced';
+      mockJobs.forEachTenant.mockImplementation(
+        (job: (id: string) => Promise<void>) => job('t'),
+      );
+      await service.checkComplianceAlerts();
+      expect(mockJobs.forEachTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks directly in legacy mode', async () => {
+      await service.checkComplianceAlerts();
+      expect(mockJobs.forEachTenant).not.toHaveBeenCalled();
+    });
+
+    describe('in December', () => {
+      useUtcServerClock(new Date('2026-12-20T03:00:00Z'));
+
+      it('announces an alert to the tenant it was computed for', async () => {
+        mockDataSource.query
+          .mockResolvedValueOnce([
+            {
+              militiaId: 'm',
+              militiaName: 'n',
+              unitCode: 'KP1',
+              totalDays: '3',
+            },
+          ])
+          .mockResolvedValueOnce([]);
+        await service.runCheck();
+        expect(mockGateway.emitToTenant).toHaveBeenCalledWith(
+          'compliance_alert',
+          expect.objectContaining({ atRiskCount: 1 }),
+        );
+      });
     });
   });
 });

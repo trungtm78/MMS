@@ -22,6 +22,7 @@ import { LOGIN_FAILURE_LIMIT } from '../src/auth/login-attempts.service';
 import { TenantContext } from '../src/database/tenancy/tenant-context';
 import { FilesService } from '../src/files/files.service';
 import { NotificationsGateway } from '../src/notifications/notifications.gateway';
+import { ComplianceAlertsService } from '../src/scheduler/compliance-alerts.service';
 import {
   ADMIN_PASSWORD,
   createTenantDatabase,
@@ -77,6 +78,32 @@ describe('tenant slice (e2e)', () => {
     username: string,
     password = ADMIN_PASSWORD,
   ) => api().post(url('/auth/login')).send({ tenantCode, username, password });
+
+  // The compliance check reads the calendar: it runs with the date near the end of the
+  // training year (the 20th of December is 11 days away in Vietnam). Only the date is
+  // faked; timers and ticks stay real so the database driver and the sockets are undisturbed.
+  const checkComplianceAtYearEnd = async () => {
+    jest.useFakeTimers({
+      now: new Date('2026-12-20T03:00:00Z'),
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    try {
+      await app.get(ComplianceAlertsService).checkComplianceAlerts();
+    } finally {
+      jest.useRealTimers();
+    }
+  };
 
   // A token signed with the real secret from the claims of an issued one, `change`d
   const forge = (
@@ -961,6 +988,26 @@ describe('tenant slice (e2e)', () => {
       });
     });
 
+    // The job has no request: it announces under the tenant it runs for
+    describe('events emitted by scheduled jobs', () => {
+      it('delivers the compliance alert of a tenant to the sockets of that tenant only', async () => {
+        const [sa, sb] = await Promise.all([open('a'), open('b')]);
+        const gotA = received(sa, 'compliance_alert');
+        const gotB = received(sb, 'compliance_alert');
+
+        await checkComplianceAtYearEnd();
+
+        await Promise.all([drained(sa), drained(sb)]);
+        // One alert each, computed from the rows of its own tenant
+        expect(gotA).toMatchObject([
+          { type: 'compliance_alert', atRiskCount: 1 },
+        ]);
+        expect(gotB).toMatchObject([
+          { type: 'compliance_alert', atRiskCount: 1 },
+        ]);
+      });
+    });
+
     it('refuses a handshake whose token is not valid', async () => {
       const sa = connectClient(baseUrl, {
         path: '/socket.io/',
@@ -976,6 +1023,44 @@ describe('tenant slice (e2e)', () => {
           sa.once('connect_error', (error: Error) => reject(error));
         }),
       ).rejects.toThrow('invalid_token');
+    });
+  });
+
+  describe('scheduled jobs', () => {
+    const complianceRows = () =>
+      db.admin(
+        async (c) =>
+          (
+            await c.query<{
+              id: string;
+              tenant_id: string;
+              at_risk: number;
+            }>(
+              `SELECT id, tenant_id, (after_json->>'atRiskCount')::int AS at_risk
+                 FROM audit_logs WHERE action = 'COMPLIANCE_ALERT'`,
+            )
+          ).rows,
+      );
+
+    it('writes the compliance audit row of each tenant under that tenant', async () => {
+      const known = new Set((await complianceRows()).map((row) => row.id));
+
+      await checkComplianceAtYearEnd();
+
+      const written = (await complianceRows()).filter(
+        (row) => !known.has(row.id),
+      );
+      // One row per tenant, each counting only the rows of its own tenant
+      expect(
+        written
+          .map((row) => ({ tenant: row.tenant_id, atRisk: row.at_risk }))
+          .sort((x, y) => x.tenant.localeCompare(y.tenant)),
+      ).toEqual(
+        [
+          { tenant: a.id, atRisk: 1 },
+          { tenant: b.id, atRisk: 1 },
+        ].sort((x, y) => x.tenant.localeCompare(y.tenant)),
+      );
     });
   });
 });
