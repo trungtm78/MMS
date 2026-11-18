@@ -786,8 +786,8 @@ describe('tenant slice (e2e)', () => {
             [t.id],
           );
           await c.query(
-            `INSERT INTO user_unit_scopes (user_id, unit_id, scope_type) VALUES ($1, $2, 'unit')`,
-            [t.adminId, rows[0].id],
+            `INSERT INTO user_unit_scopes (tenant_id, user_id, unit_id, scope_type) VALUES ($1, $2, $3, 'unit')`,
+            [t.id, t.adminId, rows[0].id],
           );
         }
       });
@@ -924,12 +924,12 @@ describe('tenant slice (e2e)', () => {
       beforeAll(async () => {
         conversationId = await db.admin(async (c) => {
           const { rows } = await c.query<{ id: string }>(
-            `INSERT INTO conversations (type, name, created_by) VALUES ('group', 'Probe', $1) RETURNING id`,
-            [a.adminId],
+            `INSERT INTO conversations (tenant_id, type, name, created_by) VALUES ($1, 'group', 'Probe', $2) RETURNING id`,
+            [a.id, a.adminId],
           );
           await c.query(
-            `INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)`,
-            [rows[0].id, a.adminId],
+            `INSERT INTO conversation_participants (tenant_id, conversation_id, user_id) VALUES ($1, $2, $3)`,
+            [a.id, rows[0].id, a.adminId],
           );
           return rows[0].id;
         });

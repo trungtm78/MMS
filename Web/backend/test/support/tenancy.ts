@@ -182,9 +182,9 @@ export async function seedTenant(
       [id, adminUsername, hash, `Admin ${canary}`],
     );
     await c.query(
-      `INSERT INTO user_roles (user_id, role_id)
-       SELECT $1, r.id FROM roles r WHERE r.code = 'system_admin'`,
-      [adminId],
+      `INSERT INTO user_roles (tenant_id, user_id, role_id)
+       SELECT $1, $2, r.id FROM roles r WHERE r.code = 'system_admin'`,
+      [id, adminId],
     );
     // The member holds an account too, so a task can be assigned through the API
     const memberUserId = await one<string>(
@@ -193,9 +193,9 @@ export async function seedTenant(
       [id, `member-${code}`, hash, `Member user ${canary}`],
     );
     await c.query(
-      `INSERT INTO user_roles (user_id, role_id)
-       SELECT $1, r.id FROM roles r WHERE r.code = 'dqtv'`,
-      [memberUserId],
+      `INSERT INTO user_roles (tenant_id, user_id, role_id)
+       SELECT $1, $2, r.id FROM roles r WHERE r.code = 'dqtv'`,
+      [id, memberUserId],
     );
     const memberId = await one<string>(
       `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date, user_id)
