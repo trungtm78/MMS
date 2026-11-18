@@ -1,5 +1,12 @@
 # PROGRESS
-Updated: 2026-09-14T00:00:00+07:00 | Milestone: M3/7 | Task: T27 (leave types) — web + Flutter agents finishing contract integration
+Updated: 2026-11-18 | Milestone: M3/7 | PR #11 (fix/trial-run-bugs → master): all work committed and pushed; review findings fixed
+
+## 2026-11-18 session — commit, PR #11, review, fixes
+User request: commit everything, push to GitHub, open a PR, review and merge (supersedes the old "never push" constraint for this PR). On review findings + red tests the user chose "fix everything, then merge".
+- Commits a8801f7..8c4bcea: infra/docs, backend, web, PoliceApp, MilitianApp (the previously uncommitted M3 work)
+- Review (/code-review medium) findings fixed test-first: web cross-tab refresh lock + handoff (448de93); mobile refresh keeps session on network/timeout/5xx/408/429, any other 4xx ends it (8a52e7d); MilitianApp RED specs implemented, profile screen real data (080d48a); backend revocation feed (migration 035 pg_notify → gateway closes sockets), transactional refresh reads, MFA disable revokes sessions and answers a new one, half-day single working date, reviewers read own leave, files union grants, eslint 0/0 (12877a4); MFA disable session stored by web (83a04d8) and both apps (ae102da); MemberReach union scope in gps/rewards/discipline/tasks/SOS/files/leave, resolveMemberScope removed, app.e2e health suite (0c659fe)
+- Not a defect: removed chat participant keeps conv_ room (no removal path exists; add socketsLeave if one is ever added)
+- Contract change: POST /auth/mfa/disable → 200 {user, tokens} (was 204)
 
 Original spec (user requests, in order):
 1. Clone https://github.com/trungtm78/MMS into C:\MMS, build and run the whole system (Web backend + frontend, nginx, MilitianApp, PoliceApp).
@@ -149,7 +156,7 @@ Related files: Web/backend/src/common/redis/*, src/common/throttler/{redis-throt
 | KPI xếp loại of an unevaluated member | Lowest band label kept (contract unchanged); web shows "not evaluated" when total is null | Existing clients read xepLoai as a string |
 
 ## Test status
-Full suite (last full run): backend unit PASS 1566/1566; api-contract e2e PASS 89/89; migrations e2e PASS 44/44; web vitest PASS 1196/1196 | Patch coverage: not yet measured (M4) | Failing tests: none known (agents' in-progress RED specs excluded)
+Full suite (2026-11-18, sequential run before merging PR #11): backend tsc 0, eslint 0/0, jest 2404/2404 (142 suites), nest build OK, e2e 12/12 suites 387/387 (MIGRATION_TEST_ADMIN_URL=postgres://mms:<pw>@localhost:5440/postgres, TEST_REDIS_URL=redis://localhost:6379); web tsc -b 0, eslint 0, vitest 2457/2457, vite build OK; PoliceApp test 560/560, analyze 0 errors/warnings (29 infos); MilitianApp test 544/544, analyze 0 errors/warnings (46 infos) | Patch coverage: not measured for the whole PR | Failing tests: none
 
 ## Tech debt / risks
 - Frontend vitest under full-suite load: TaskCreateForm "asks for an assignee again after the chosen one is cleared" (~6 s) and AttendanceForm "records the attendance with POST /attendance" exceed the default timeout; both pass alone — speed up those tests (fewer userEvent steps / fake timers) rather than raising timeouts
@@ -163,3 +170,6 @@ Full suite (last full run): backend unit PASS 1566/1566; api-contract e2e PASS 8
 - A photo removed after upload stays unattached until the hourly purge removes it (no DELETE /files route)
 - PoliceApp legacy dqtv_list_screen.dart (untouched by agents): a fixed delay and 3 analyze infos (P2 report) — in the M4 i18n/legacy sweep
 - PoliceApp: a refused profile-document attach (403 insufficient_role) shows the generic no-permission text; the attach button is shown to CA staff only (P2 decision)
+- MilitianApp profile screen: quick actions "Lịch sử công tác", "Hotline hỗ trợ" and menu items "Về ứng dụng", "Hỗ trợ" do nothing when tapped (pre-existing)
+- Mobile refresh keeps tokens on a receive timeout / 504: if the server already rotated the token, the next refresh is refresh_token_reused and every session of the account ends (trade-off accepted, same as web)
+- Web plain-HTTP deployments lack navigator.locks: refresh uses a localStorage lease (Fischer); residual overlap only if a storage write takes > 100 ms to reach another tab
