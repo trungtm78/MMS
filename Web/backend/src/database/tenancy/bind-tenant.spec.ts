@@ -1,0 +1,156 @@
+import { randomUUID } from 'crypto';
+import type { DataSource } from 'typeorm';
+import { thrownBy } from '../../../test/support/thrown-by';
+import { bindTenantToConnections } from './bind-tenant';
+import { TenantContext } from './tenant-context';
+
+const A = randomUUID();
+const B = randomUUID();
+
+type Call = { text: string; values?: unknown[] };
+
+class FakeClient {
+  calls: Call[] = [];
+  failSetConfig = false;
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }> {
+    this.calls.push({ text, values });
+    if (this.failSetConfig && text.includes('set_config')) {
+      return Promise.reject(new Error('connection lost'));
+    }
+    return Promise.resolve({ rows: [] });
+  }
+  setConfigValues = () =>
+    this.calls
+      .filter((c) => c.text.includes('set_config'))
+      .map((c) => (c.values as string[])[0]);
+}
+
+function fakeDataSource(client: FakeClient, released: unknown[]) {
+  const driver = {
+    isReplicated: false,
+    obtainMasterConnection: () =>
+      Promise.resolve([
+        client,
+        (error?: unknown) => released.push(error ?? 'ok'),
+      ]),
+  };
+  return { driver, dataSource: { driver } as unknown as DataSource };
+}
+
+type Checkout = [FakeClient, (error?: unknown) => void];
+const checkout = (ds: { driver: { obtainMasterConnection: () => unknown } }) =>
+  ds.driver.obtainMasterConnection() as Promise<Checkout>;
+
+describe('bindTenantToConnections', () => {
+  it('writes an empty tenant when there is no scope, so nothing is visible', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    await checkout({ driver });
+    expect(client.setConfigValues()).toEqual(['']);
+  });
+
+  it('writes the tenant of the current scope at checkout', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    await TenantContext.runAs({ tenantId: A }, () => checkout({ driver }));
+    expect(client.setConfigValues()).toEqual([A]);
+    expect(client.calls[0].text).toContain("set_config('app.tenant_id'");
+  });
+
+  it('overwrites the tenant on every checkout of a reused connection', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    const [, releaseA] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    releaseA();
+    await TenantContext.runAs({ tenantId: B }, () => checkout({ driver }));
+    expect(client.setConfigValues()).toEqual([A, B]);
+  });
+
+  it('passes queries through under the scope the connection was taken in', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    await TenantContext.runAs({ tenantId: A }, async () => {
+      const [pg] = await checkout({ driver });
+      await pg.query('SELECT 1', []);
+    });
+    expect(client.calls.map((c) => c.text)).toContain('SELECT 1');
+  });
+
+  it('refuses a query under another scope than the one the connection was taken in', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    const [pg] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    // A transaction opened for A that code later reuses while running as B
+    const error = thrownBy(() =>
+      TenantContext.runAs({ tenantId: B }, () => pg.query('SELECT 1')),
+    );
+    expect(error).toMatchObject({ code: 'tenant_scope_mismatch' });
+    expect(client.calls.map((c) => c.text)).not.toContain('SELECT 1');
+  });
+
+  it('refuses a query that lost its scope on a connection bound to a tenant', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    const [pg] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    expect(thrownBy(() => pg.query('SELECT 1'))).toMatchObject({
+      code: 'tenant_scope_mismatch',
+    });
+    expect(client.calls.map((c) => c.text)).not.toContain('SELECT 1');
+  });
+
+  it('destroys the connection when the scope cannot be written', async () => {
+    const client = new FakeClient();
+    client.failSetConfig = true;
+    const released: unknown[] = [];
+    const { driver, dataSource } = fakeDataSource(client, released);
+    bindTenantToConnections(dataSource);
+    await expect(checkout({ driver })).rejects.toThrow('connection lost');
+    expect(released).toHaveLength(1);
+    expect(released[0]).toBeInstanceOf(Error);
+  });
+
+  it('forgets the binding on release', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    const [pg, release] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    release();
+    await expect(Promise.resolve(pg.query('SELECT 2'))).resolves.toBeDefined();
+  });
+
+  it('wraps a connection once however often it is checked out', async () => {
+    const client = new FakeClient();
+    const { driver, dataSource } = fakeDataSource(client, []);
+    bindTenantToConnections(dataSource);
+    for (let i = 0; i < 3; i++) {
+      const [pg, release] = await checkout({ driver });
+      await pg.query('SELECT 3');
+      release();
+    }
+    expect(client.calls.filter((c) => c.text === 'SELECT 3')).toHaveLength(3);
+  });
+
+  it('refuses replicated drivers, whose slave checkouts it cannot bind', () => {
+    const client = new FakeClient();
+    const { driver } = fakeDataSource(client, []);
+    expect(() =>
+      bindTenantToConnections({
+        driver: { ...driver, isReplicated: true },
+      } as unknown as DataSource),
+    ).toThrow(/replication/);
+  });
+});
