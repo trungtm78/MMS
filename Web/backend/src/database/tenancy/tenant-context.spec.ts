@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { TenantContext, TenantScopeError, scopeKey } from './tenant-context';
+import { thrownBy } from '../../../test/support/thrown-by';
 
 const A = randomUUID();
 const B = randomUUID();
@@ -44,29 +45,31 @@ describe('TenantContext', () => {
     TenantContext.start(() => {
       TenantContext.adopt({ tenantId: A });
       expect(() => TenantContext.adopt({ tenantId: A })).not.toThrow();
-      expect(() => TenantContext.adopt({ tenantId: B })).toThrow(
-        expect.objectContaining({ code: 'scope_already_set' }),
-      );
+      expect(
+        thrownBy(() => TenantContext.adopt({ tenantId: B })),
+      ).toMatchObject({
+        code: 'scope_already_set',
+      });
     });
   });
 
   it('adopt needs a store', () => {
-    expect(() => TenantContext.adopt({ tenantId: A })).toThrow(
-      expect.objectContaining({ code: 'no_scope_store' }),
-    );
+    expect(thrownBy(() => TenantContext.adopt({ tenantId: A }))).toMatchObject({
+      code: 'no_scope_store',
+    });
   });
 
   it('refuses a tenant id that is not a UUID', () => {
-    expect(() => TenantContext.runAs({ tenantId: "x'; --" }, () => 1)).toThrow(
-      TenantScopeError,
-    );
+    expect(
+      thrownBy(() => TenantContext.runAs({ tenantId: "x'; --" }, () => 1)),
+    ).toBeInstanceOf(TenantScopeError);
   });
 
   it('requireTenantId throws without a scope', () => {
     TenantContext.start(() => {
-      expect(() => TenantContext.requireTenantId()).toThrow(
-        expect.objectContaining({ code: 'no_tenant_scope' }),
-      );
+      expect(thrownBy(() => TenantContext.requireTenantId())).toMatchObject({
+        code: 'no_tenant_scope',
+      });
     });
   });
 
