@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:police_app/core/network/session_events.dart';
+import 'package:police_app/core/network/token_refresher.dart';
 import 'package:police_app/features/auth/providers/auth_provider.dart';
 import 'package:police_app/features/chat/chat_socket.dart';
 import 'package:police_app/features/chat/screens/chat_screen.dart';
@@ -89,6 +90,7 @@ Future<_SocketHarness> _pumpSockets(
     {'joined': 'c1'},
   ],
   String? renewedToken = 'tok_renewed',
+  Object? renewFailure,
 }) async {
   final h = _SocketHarness();
   final adapter = FakeAdapter((o) {
@@ -124,6 +126,7 @@ Future<_SocketHarness> _pumpSockets(
       }),
       renewSessionProvider.overrideWithValue(({String? staleAccessToken}) async {
         h.renewals.add(staleAccessToken);
+        if (renewFailure != null) throw renewFailure;
         return renewedToken;
       }),
     ],
@@ -395,6 +398,31 @@ void main() {
 
     expect(h.renewals, hasLength(1));
     expect(h.tokens, ['tok_access']);
+  });
+
+  testWidgets('WT-SOCK-12: a renewal without an answer (offline, 5xx, 429) keeps the session and reconnects later',
+      (tester) async {
+    final h = await _pumpSockets(
+      tester,
+      joinAcks: const [
+        {'error': 'session_expired'},
+        {'joined': 'c1'},
+      ],
+      renewFailure: RefreshUnavailable(DioException(
+        requestOptions: RequestOptions(path: '/auth/refresh'),
+        response: Response<dynamic>(requestOptions: RequestOptions(path: '/auth/refresh'), statusCode: 503),
+        type: DioExceptionType.badResponse,
+      )),
+    );
+    await tester.pump();
+
+    expect(h.renewals, ['tok_access']);
+    expect(h.sockets.first.disposed, isTrue);
+    expect(h.sessionEnds, isEmpty);
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(h.tokens, ['tok_access', 'tok_access']);
+    expect(h.sessionEnds, isEmpty);
   });
 
   testWidgets('WT-SOCK-04: a dropped connection is left to the client reconnect', (tester) async {

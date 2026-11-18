@@ -6,8 +6,8 @@
 //   nothing is retried.
 //   Refresh tokens rotate and a reused one ends every session of the account (auth.service.ts:426-429),
 //   so a caller holding a token older than the stored one gets the stored one instead of a refresh.
-//   Only a refresh that provably never reached the server (connection error / connection timeout)
-//   keeps the session.
+//   Only a definitive refusal (any 4xx but 408/429) ends it. A refresh without one (network failure, timeout,
+//   5xx, 408, 429) keeps the tokens; the original request fails with that cause so the caller can retry.
 // Overlap is made with Completer gates on the fake adapter, never with fixed delays.
 // Run: flutter test test/unit_session_events_test.dart
 
@@ -100,23 +100,26 @@ void main() {
       });
     }
 
-    test('UT-SES-02: a server error, a receive timeout or a body without both tokens ends the session',
-        () async {
-      final refusals = <String, ResponseBody Function(RequestOptions)>{
-        '500': (_) => jsonBody(500, backendError(500, 'Internal server error')),
-        'receive timeout': (o) =>
-            throw DioException(requestOptions: o, type: DioExceptionType.receiveTimeout),
-        'no refresh token': (_) => jsonBody(200, {'accessToken': 'new_access'}),
-      };
-      for (final entry in refusals.entries) {
-        final r = _Rig(refresh: entry.value);
+    test('UT-SES-02: a body without both tokens ends the session', () async {
+      final r = _Rig(refresh: (_) => jsonBody(200, {'accessToken': 'new_access'}));
 
-        expect(await r.statusOf('/tasks'), 401, reason: entry.key);
+      expect(await r.statusOf('/tasks'), 401);
+      await r.settle();
+
+      expect(r.storage.access, isNull);
+      expect(r.storage.refresh, isNull);
+      expect(r.ends.map((e) => e.reason), [SessionEndReason.ended]);
+    });
+
+    test('UT-SES-13: any other 4xx (but 408 and 429) refuses the refresh token, whatever its code', () async {
+      for (final status in [400, 401, 403, 404, 409, 422]) {
+        final r = _Rig(refresh: (_) => jsonBody(status, backendError(status, 'something_new')));
+
+        expect(await r.statusOf('/tasks'), 401, reason: '$status');
         await r.settle();
 
-        expect(r.storage.access, isNull, reason: entry.key);
-        expect(r.storage.refresh, isNull, reason: entry.key);
-        expect(r.ends.map((e) => e.reason), [SessionEndReason.ended], reason: entry.key);
+        expect(r.storage.refresh, isNull, reason: '$status');
+        expect(r.ends.map((e) => e.reason), [SessionEndReason.ended], reason: '$status');
       }
     });
 
@@ -144,17 +147,90 @@ void main() {
     });
   });
 
-  test('UT-SES-04: a refresh that never reached the server keeps the session and ends nothing', () async {
-    for (final type in [DioExceptionType.connectionError, DioExceptionType.connectionTimeout]) {
-      final r = _Rig(refresh: (o) => throw DioException(requestOptions: o, type: type));
+  group('a refresh without a definitive answer keeps the session', () {
+    // The original request fails with what stopped the refresh, never a 401 that reads as a lost session
+    Future<DioException> failureOf(_Rig r) =>
+        r.dio.get('/tasks').then<DioException>((_) => fail('the request should fail'),
+            onError: (Object e) => e as DioException);
 
-      expect(await r.statusOf('/tasks'), 401, reason: '$type');
+    test('UT-SES-04: network failures and timeouts keep the tokens and end nothing', () async {
+      for (final type in [
+        DioExceptionType.connectionError,
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.sendTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.unknown,
+      ]) {
+        final r = _Rig(refresh: (o) => throw DioException(requestOptions: o, type: type));
+
+        final failure = await failureOf(r);
+        await r.settle();
+
+        expect(failure.type, type, reason: '$type');
+        expect(failure.requestOptions.path, '/tasks', reason: '$type');
+        expect(failure.response?.statusCode, isNot(401), reason: '$type');
+        expect(r.storage.access, 'old_access', reason: '$type');
+        expect(r.storage.refresh, 'old_refresh', reason: '$type');
+        expect(r.ends, isEmpty, reason: '$type');
+        expect(r.apiAdapter.requests, hasLength(1), reason: '$type');
+      }
+    });
+
+    test('UT-SES-14: a 5xx (a gateway during a rolling restart) keeps the tokens; the request fails retryably',
+        () async {
+      for (final status in [500, 502, 503, 504]) {
+        final r = _Rig(refresh: (_) => jsonBody(status, backendError(status, 'Service unavailable')));
+
+        final failure = await failureOf(r);
+        await r.settle();
+
+        expect(failure.response?.statusCode, status, reason: '$status');
+        expect(failure.requestOptions.path, '/tasks', reason: '$status');
+        expect(r.storage.access, 'old_access', reason: '$status');
+        expect(r.storage.refresh, 'old_refresh', reason: '$status');
+        expect(r.ends, isEmpty, reason: '$status');
+      }
+    });
+
+    test('UT-SES-15: a 408 or 429 keeps the tokens; the request fails with that status', () async {
+      for (final status in [408, 429]) {
+        final r = _Rig(refresh: (_) => jsonBody(status, backendError(status, 'ThrottlerException: Too Many Requests')));
+
+        final failure = await failureOf(r);
+        await r.settle();
+
+        expect(failure.response?.statusCode, status, reason: '$status');
+        expect(r.storage.access, 'old_access', reason: '$status');
+        expect(r.storage.refresh, 'old_refresh', reason: '$status');
+        expect(r.ends, isEmpty, reason: '$status');
+      }
+    });
+
+    test('UT-SES-16: the next 401 after a kept session refreshes again and succeeds', () async {
+      var attempts = 0;
+      final r = _Rig(refresh: (o) {
+        attempts++;
+        return attempts == 1 ? jsonBody(503, backendError(503, 'Service unavailable')) : newTokenPair(o);
+      });
+
+      await failureOf(r);
+      expect(await r.statusOf('/tasks'), 200);
       await r.settle();
 
-      expect(r.storage.access, 'old_access', reason: '$type');
-      expect(r.storage.refresh, 'old_refresh', reason: '$type');
-      expect(r.ends, isEmpty, reason: '$type');
-    }
+      expect(r.refreshAdapter.requests.map((o) => o.data), [
+        {'refreshToken': 'old_refresh'},
+        {'refreshToken': 'old_refresh'},
+      ]);
+      expect(r.storage.refresh, 'new_refresh');
+      expect(r.ends, isEmpty);
+    });
+
+    test('UT-SES-17: a renewal without an answer throws for the socket and keeps the tokens', () async {
+      final r = _Rig(refresh: (_) => jsonBody(502, backendError(502, 'Bad gateway')));
+
+      await expectLater(r.refresher.renew(staleToken: 'old_access'), throwsA(isA<RefreshUnavailable>()));
+      expect(r.storage.refresh, 'old_refresh');
+    });
   });
 
   group('TokenRefresher.renew', () {

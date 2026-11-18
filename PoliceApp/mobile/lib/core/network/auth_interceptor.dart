@@ -9,7 +9,9 @@ import 'token_refresher.dart';
 ///   shared [TokenRefresher] and retry with it
 /// - Each request is retried at most once; a second 401 goes back to the caller
 /// - 401s from auth endpoints (bad credentials/OTP) never trigger a refresh
-/// - A refused refresh clears the session and reports it through [SessionEvents]
+/// - A refused refresh clears the session and reports it through [SessionEvents]; a refresh without
+///   a definitive answer (offline, timeout, 5xx, 408, 429) keeps the session and the original request
+///   fails with that cause, so the caller can retry
 class AuthInterceptor extends Interceptor {
   final Dio dio;
   final SecureStorageService storage;
@@ -84,13 +86,24 @@ class AuthInterceptor extends Interceptor {
       return;
     }
 
+    final String? newToken;
     try {
-      final newToken = await refresher.renew(staleAccessToken: _bearerOf(options));
-      if (newToken == null) {
-        handler.next(err);
-        return;
-      }
+      newToken = await refresher.renew(staleAccessToken: _bearerOf(options));
+    } on RefreshUnavailable catch (unavailable) {
+      // The session is kept: fail with what stopped the refresh (offline, 5xx, 429), which the caller
+      // words as a retryable failure, not with the 401 that would read as a lost session
+      handler.next(_retryable(options, unavailable.cause));
+      return;
+    } catch (_) {
+      handler.next(err);
+      return;
+    }
+    if (newToken == null) {
+      handler.next(err);
+      return;
+    }
 
+    try {
       options.extra[_retriedKey] = true;
       options.headers['Authorization'] = 'Bearer $newToken';
       // A FormData body can only be sent once; retry with a fresh copy
@@ -102,6 +115,27 @@ class AuthInterceptor extends Interceptor {
     } catch (_) {
       handler.next(err);
     }
+  }
+
+  /// The failure of [options] when its refresh got no definitive answer: the refresh's error type and,
+  /// for an HTTP failure (5xx, 429), its status and body, on the caller's own request.
+  static DioException _retryable(RequestOptions options, DioException cause) {
+    final response = cause.response;
+    return DioException(
+      requestOptions: options,
+      type: cause.type,
+      error: cause.error,
+      message: cause.message,
+      response: response == null
+          ? null
+          : Response<dynamic>(
+              requestOptions: options,
+              statusCode: response.statusCode,
+              statusMessage: response.statusMessage,
+              data: response.data,
+              headers: response.headers,
+            ),
+    );
   }
 
   /// The access token a request was sent with

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:police_app/core/constants/api_constants.dart';
 import 'package:police_app/core/network/auth_interceptor.dart';
 import 'package:police_app/core/network/session_events.dart';
+import 'package:police_app/core/network/token_refresher.dart';
 
 import 'helpers/fakes.dart';
 
@@ -135,16 +136,65 @@ void main() {
       expect(h.refreshAdapter.requests, hasLength(1));
     });
 
-    test('UT-INT-07: a failed refresh call ends the session', () async {
+    test('UT-INT-07: a refresh answered 5xx (a gateway during a rolling restart) keeps the session; the request '
+        'fails with that status', () async {
+      for (final status in [500, 502, 503, 504]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (_) => jsonBody(status, {'message': 'down'}),
+        );
+
+        await expectLater(h.dio.get('/tasks'), _dioStatus(status), reason: '$status');
+        expect(h.storage.access, 'old_access', reason: '$status');
+        expect(h.storage.refresh, 'old_refresh', reason: '$status');
+        expect(h.ended, isEmpty, reason: '$status');
+        expect(h.apiAdapter.requests, hasLength(1), reason: '$status');
+      }
+    });
+
+    test('UT-INT-20: a refresh answered 408 or 429 keeps the session; the request fails with that status', () async {
+      for (final status in [408, 429]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (_) => jsonBody(status, _backendError(status, 'ThrottlerException: Too Many Requests')),
+        );
+
+        await expectLater(h.dio.get('/tasks'), _dioStatus(status), reason: '$status');
+        expect(h.storage.access, 'old_access', reason: '$status');
+        expect(h.storage.refresh, 'old_refresh', reason: '$status');
+        expect(h.ended, isEmpty, reason: '$status');
+      }
+    });
+
+    test('UT-INT-21: a kept session refreshes again on the next 401', () async {
+      var attempts = 0;
       final h = _Harness(
         api: (o) => okWhenBearer(o, 'new_access'),
-        refresh: (_) => jsonBody(500, {'message': 'down'}),
+        refresh: (o) => ++attempts == 1 ? jsonBody(503, {'message': 'down'}) : newTokenPair(o),
       );
 
-      await expectLater(h.dio.get('/tasks'), _dioStatus(401));
-      expect(h.storage.access, isNull);
-      expect(h.storage.refresh, isNull);
-      expect(h.ended.map((e) => e.code), ['refresh_failed']);
+      await expectLater(h.dio.get('/tasks'), _dioStatus(503));
+      expect((await h.dio.get('/tasks')).statusCode, 200);
+
+      expect(h.refreshAdapter.requests.map((o) => o.data), [
+        {'refreshToken': 'old_refresh'},
+        {'refreshToken': 'old_refresh'},
+      ]);
+      expect(h.storage.refresh, 'new_refresh');
+      expect(h.ended, isEmpty);
+    });
+
+    test('UT-INT-22: any other 4xx (but 408 and 429) refuses the refresh token, whatever its code', () async {
+      for (final status in [400, 401, 403, 404, 409, 422]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (_) => jsonBody(status, {'statusCode': status}),
+        );
+
+        await expectLater(h.dio.get('/tasks'), _dioStatus(401), reason: '$status');
+        expect(h.storage.refresh, isNull, reason: '$status');
+        expect(h.ended.map((e) => e.code), ['refresh_failed'], reason: '$status');
+      }
     });
 
     test('UT-INT-08: 401 from OTP verification does not trigger a refresh', () async {
@@ -302,29 +352,46 @@ void main() {
       }
     });
 
-    test('UT-INT-16: a refresh that never reached the server keeps the session', () async {
-      final h = _Harness(
-        api: (o) => okWhenBearer(o, 'new_access'),
-        refresh: (o) => throw DioException.connectionError(requestOptions: o, reason: 'offline'),
-      );
+    test('UT-INT-16: a refresh that fails on the network or times out keeps the session; the request fails with '
+        'that cause', () async {
+      for (final type in [
+        DioExceptionType.connectionError,
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.sendTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.unknown,
+      ]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (o) => throw DioException(requestOptions: o, type: type),
+        );
 
-      await expectLater(h.dio.get('/tasks'), _dioStatus(401));
-
-      expect(h.storage.access, 'old_access');
-      expect(h.storage.refresh, 'old_refresh');
-      expect(h.ended, isEmpty);
+        await expectLater(
+          h.dio.get('/tasks'),
+          throwsA(isA<DioException>()
+              .having((e) => e.type, 'type', type)
+              .having((e) => e.requestOptions.path, 'path', '/tasks')
+              .having((e) => e.response?.statusCode, 'status', isNot(401))),
+          reason: '$type',
+        );
+        expect(h.storage.access, 'old_access', reason: '$type');
+        expect(h.storage.refresh, 'old_refresh', reason: '$type');
+        expect(h.ended, isEmpty, reason: '$type');
+      }
     });
 
-    test('UT-INT-17: a refresh whose answer was lost ends the session (the token may be rotated)', () async {
+    test('UT-INT-17: a renewal without an answer throws for the socket and keeps the session', () async {
       final h = _Harness(
         api: (o) => okWhenBearer(o, 'new_access'),
-        refresh: (o) => throw DioException(requestOptions: o, type: DioExceptionType.receiveTimeout),
+        refresh: (_) => jsonBody(502, {'message': 'Bad gateway'}),
       );
 
-      await expectLater(h.dio.get('/tasks'), _dioStatus(401));
-
-      expect(h.storage.refresh, isNull);
-      expect(h.ended.map((e) => e.code), ['refresh_failed']);
+      await expectLater(
+        h.interceptor.refresher.renew(staleAccessToken: 'old_access'),
+        throwsA(isA<RefreshUnavailable>().having((e) => e.cause.response?.statusCode, 'status', 502)),
+      );
+      expect(h.storage.refresh, 'old_refresh');
+      expect(h.ended, isEmpty);
     });
 
     // Enabling MFA ends the old session; a background request may still be refreshing it when the

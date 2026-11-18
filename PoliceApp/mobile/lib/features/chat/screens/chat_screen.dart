@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/session_events.dart';
+import '../../../core/network/token_refresher.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../l10n/l10n.dart';
@@ -239,13 +240,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// Renews the access token through the shared refresher (one refresh with any HTTP 401) and
-  /// reconnects with it. When it cannot be renewed the refresher has ended the session and the
-  /// router shows the login screen, or the server is unreachable: no reconnect then.
+  /// reconnects with it. When the refresh was refused the refresher has ended the session and the
+  /// router shows the login screen: no reconnect then. When it got no answer (offline, 5xx, 429) the
+  /// session is kept and the socket connects again later.
   Future<void> _renewSocket() async {
     if (_renewing || _renewals >= _maxRenewals || !mounted) return;
     _renewing = true;
     _renewals++;
-    final token = await ref.read(renewSessionProvider)(staleAccessToken: _socketToken);
+    final String? token;
+    try {
+      token = await ref.read(renewSessionProvider)(staleAccessToken: _socketToken);
+    } on RefreshUnavailable {
+      _renewing = false;
+      if (mounted) _retryLater();
+      return;
+    }
     _renewing = false;
     if (!mounted) return;
     // Disposed only now, outside the old socket's own event callbacks

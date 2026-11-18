@@ -5,6 +5,18 @@ import '../constants/api_constants.dart';
 import '../storage/secure_storage_service.dart';
 import 'session_events.dart';
 
+/// A refresh that got no definitive answer: the server could not be reached, timed out, failed (5xx)
+/// or throttled the call (429). The tokens are kept; [cause] is what stopped the refresh, so the
+/// caller can fail its own request with it and retry later.
+class RefreshUnavailable implements Exception {
+  const RefreshUnavailable(this.cause);
+
+  final DioException cause;
+
+  @override
+  String toString() => 'RefreshUnavailable(${cause.type}, ${cause.response?.statusCode})';
+}
+
 /// Renews the access token for every caller of the app (HTTP requests and the chat socket).
 ///
 /// - Single flight: callers that arrive while a refresh is out share it.
@@ -12,9 +24,14 @@ import 'session_events.dart';
 ///   the last refresh finished) gets the stored token. POST /auth/refresh rotates the refresh token and
 ///   a reused one ends every session of the account (Web/backend/src/auth/auth.service.ts:426-429), so
 ///   it is never presented twice.
-/// - A refused refresh (4xx, 5xx, receive timeout, a body without both tokens) or a blank stored
-///   refresh token ends the session: tokens cleared and one [SessionEnd] reported. Only a refresh that
-///   provably never reached the server (connection error / connection timeout) keeps the tokens.
+/// - Only a definitive refusal ends the session (tokens cleared, one [SessionEnd] reported): any 4xx
+///   from POST /auth/refresh but 408 and 429 ([isRefreshRefusal]: 401/403 with auth.service.ts
+///   refreshTokens' codes invalid_refresh_token, refresh_token_reused, refresh_token_revoked,
+///   mfa_reauthentication_required, account_disabled, no_role_assigned, whatever the code; a 400 or 404
+///   cannot succeed by retrying either), a 2xx body without both tokens, tokens that cannot be stored,
+///   or a blank stored refresh token.
+/// - Anything else (connection failure, timeout, 5xx such as a gateway's 502/503/504 during a rolling
+///   restart, 408, 429) keeps the tokens and throws [RefreshUnavailable], as the web client does.
 class TokenRefresher {
   TokenRefresher({required this.storage, required this.events, Dio? refreshDio})
       : _refreshDio = refreshDio ?? _plainDio();
@@ -37,14 +54,17 @@ class TokenRefresher {
         },
       ));
 
-  /// Failures of a request that was never sent
-  static const _unsent = {DioExceptionType.connectionError, DioExceptionType.connectionTimeout};
+  /// Whether POST /auth/refresh answered [status] for good: any 4xx but 408 (request timeout) and 429
+  /// (throttled), which a later attempt may get past.
+  static bool isRefreshRefusal(int? status) =>
+      status != null && status >= 400 && status < 500 && status != 408 && status != 429;
 
   static String? _nonBlank(Object? value) =>
       value is String && value.trim().isNotEmpty ? value : null;
 
   /// A usable access token for a caller whose [staleToken] was refused, or null when the session
-  /// is over or the server could not be reached.
+  /// is over. Throws [RefreshUnavailable] when the refresh got no definitive answer (the session is
+  /// kept).
   Future<String?> renew({String? staleToken}) {
     final inFlight = _inFlight;
     if (inFlight != null) return inFlight;
@@ -84,9 +104,11 @@ class TokenRefresher {
       await storage.saveRefreshToken(newRefreshToken);
       return accessToken;
     } on DioException catch (e) {
-      // Never reached the server: the session may still be fine, only this request fails
-      if (_unsent.contains(e.type)) return null;
-      return _end(refreshToken: refreshToken, code: apiErrorCode(e));
+      if (isRefreshRefusal(e.response?.statusCode)) {
+        return _end(refreshToken: refreshToken, code: apiErrorCode(e));
+      }
+      // No verdict on the refresh token: the session may still be fine, only this request fails
+      throw RefreshUnavailable(e);
     } catch (_) {
       return _end(refreshToken: refreshToken, code: null);
     }

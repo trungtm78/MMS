@@ -7,6 +7,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_client.dart';
 import '../../core/network/session_events.dart';
+import '../../core/network/token_refresher.dart';
 import '../../core/storage/secure_storage_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/chat/repositories/chat_repository.dart';
@@ -87,7 +88,7 @@ abstract class ChatSocket {
 typedef ChatSocketFactory = ChatSocket Function(String accessToken);
 
 /// A usable access token after the socket's [staleToken] was refused, or null when the session is
-/// over or the server could not be reached.
+/// over. Throws RefreshUnavailable when the refresh got no answer (the session is kept).
 typedef TokenRenewer = Future<String?> Function(String? staleToken);
 
 /// Starts a timer: `Timer.new` in the app; tests fire timers themselves.
@@ -342,17 +343,26 @@ class WebSocketService {
     _renewals++;
     try {
       String? fresh;
+      var unavailable = false;
       try {
         final renew = _renewToken;
         fresh = renew == null ? null : await renew(_socketToken);
+      } on RefreshUnavailable catch (e) {
+        debugPrint('[WS] Token renewal got no answer: $e');
+        unavailable = true;
       } catch (e) {
         debugPrint('[WS] Token renewal failed: $e');
         fresh = null;
       }
       // Disconnected or replaced while the token was being renewed
       if (!identical(socket, _socket)) return;
+      // The session is kept (offline, 5xx, 429): connect again later, as for authentication_unavailable
+      if (unavailable) {
+        _retryLater();
+        return;
+      }
       _closeSocket();
-      // null: the session is over (the app goes to the login screen) or the server is unreachable
+      // null: the session is over (the app goes to the login screen)
       if (fresh != null) {
         _open(fresh);
         _renewedAfterRefusedHandshake = refusedHandshake;

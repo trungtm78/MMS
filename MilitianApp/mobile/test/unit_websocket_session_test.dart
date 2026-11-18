@@ -12,9 +12,11 @@
 //   a timeout. A client-side close is left to socket.io.
 // Run: flutter test test/unit_websocket_session_test.dart
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:militian_app/core/network/session_events.dart';
+import 'package:militian_app/core/network/token_refresher.dart';
 import 'package:militian_app/features/auth/providers/auth_provider.dart';
 import 'package:militian_app/shared/services/websocket_service.dart';
 import 'package:militian_app/shared/utils/api_failure.dart';
@@ -131,6 +133,28 @@ void main() {
       expect(r.sockets, hasLength(1));
       expect(r.service.isConnected, isFalse);
       expect(r.errors, isEmpty);
+    });
+
+    test('WS-SES-26: a renewal without an answer (offline, 5xx, 429) keeps the session and connects again later',
+        () async {
+      final r = _Rig(renew: (_) => throw RefreshUnavailable(DioException(
+            requestOptions: RequestOptions(path: '/auth/refresh'),
+            type: DioExceptionType.connectionError,
+          )));
+      final first = await r.openChat('c1');
+
+      first.ack('chat:join', {'error': 'session_expired'});
+      await r.settle();
+
+      expect(r.renewals, ['old_access']);
+      expect(first.disposed, isTrue);
+      expect(r.ends, isEmpty);
+      final retry = r.scheduler.active.single;
+      expect(retry.duration, WebSocketService.unavailableRetryDelay(0));
+      retry.fire();
+      expect(r.sockets, hasLength(2));
+      expect(r.sockets.last.token, 'old_access');
+      expect(r.sockets.last.connectCalled, isTrue);
     });
 
     test('WS-SES-05: a client-side transport close does not renew', () async {

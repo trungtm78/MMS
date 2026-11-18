@@ -171,35 +171,62 @@ void main() {
       );
     });
 
-    test('a refresh that never reached the server keeps the session', () async {
-      for (final type in [DioExceptionType.connectionError, DioExceptionType.connectionTimeout]) {
+    test('a refresh that fails on the network or times out keeps the session; the request fails with that cause',
+        () async {
+      for (final type in [
+        DioExceptionType.connectionError,
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.receiveTimeout,
+      ]) {
         final h = _Harness(
           api: (o) => okWhenBearer(o, 'new_access'),
           refresh: (o) => throw DioException(requestOptions: o, type: type),
         );
 
-        await expectLater(h.dio.get('/tasks'), _dioStatus(401), reason: '$type');
+        await expectLater(
+          h.dio.get('/tasks'),
+          throwsA(isA<DioException>()
+              .having((e) => e.type, 'type', type)
+              .having((e) => e.requestOptions.path, 'path', '/tasks')),
+          reason: '$type',
+        );
         expect(h.storage.access, 'old_access', reason: '$type');
         expect(h.storage.refresh, 'old_refresh', reason: '$type');
         expect(h.apiAdapter.requests, hasLength(1), reason: '$type');
       }
     });
 
-    test('a receive timeout on refresh ends the session', () async {
-      final h = _Harness(
-        api: (o) => okWhenBearer(o, 'new_access'),
-        refresh: (o) => throw DioException(requestOptions: o, type: DioExceptionType.receiveTimeout),
-      );
+    test('a refresh answered 5xx, 408 or 429 keeps the session; the request fails with that status', () async {
+      for (final status in [500, 502, 503, 504, 408, 429]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (_) => jsonBody(status, {'message': 'down'}),
+        );
 
-      await expectLater(h.dio.get('/tasks'), _dioStatus(401));
-      expect(h.storage.access, isNull);
-      expect(h.storage.refresh, isNull);
+        await expectLater(h.dio.get('/tasks'), _dioStatus(status), reason: '$status');
+        expect(h.storage.access, 'old_access', reason: '$status');
+        expect(h.storage.refresh, 'old_refresh', reason: '$status');
+        expect(h.apiAdapter.requests, hasLength(1), reason: '$status');
+      }
     });
 
-    test('a failed refresh call ends the session', () async {
+    test('a refresh answered 400 or 404 ends the session: retrying cannot succeed', () async {
+      for (final status in [400, 404]) {
+        final h = _Harness(
+          api: (o) => okWhenBearer(o, 'new_access'),
+          refresh: (_) => jsonBody(status, backendError(status, 'Bad Request')),
+        );
+
+        await expectLater(h.dio.get('/tasks'), _dioStatus(401), reason: '$status');
+        expect(h.storage.access, isNull, reason: '$status');
+        expect(h.storage.refresh, isNull, reason: '$status');
+      }
+    });
+
+    test('a refresh refused 401 ends the session', () async {
       final h = _Harness(
         api: (o) => okWhenBearer(o, 'new_access'),
-        refresh: (_) => jsonBody(500, {'message': 'down'}),
+        refresh: (_) => jsonBody(401, backendError(401, 'refresh_token_revoked')),
       );
 
       await expectLater(h.dio.get('/tasks'), _dioStatus(401));
