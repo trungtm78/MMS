@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Download, Calendar } from 'lucide-react'
 import client from '@/api/client'
+import type { TranslationKey } from '@/i18n/types'
 import { downloadExcelReport } from '@/utils/export-utils'
+import { firstDayOfMonthInVietnam, lastDayOfMonthInVietnam } from '@/lib/dates'
 
 interface AttendanceSummaryRow {
   militiaId: string
@@ -16,11 +19,25 @@ interface AttendanceSummaryRow {
   attendancePct: number // percentage 0-100
 }
 
+const COLUMNS = [
+  'attendance.summary.columns.index',
+  'attendance.summary.columns.name',
+  'attendance.summary.columns.code',
+  'attendance.summary.columns.unit',
+  'attendance.summary.columns.totalDays',
+  'attendance.summary.columns.onTimeDays',
+  'attendance.summary.columns.lateDays',
+  'attendance.summary.columns.absentDays',
+  'attendance.summary.columns.attendancePct',
+] as const satisfies readonly TranslationKey[]
+
+// Unit filter: the wards KP1..KP6
+const WARD_NUMBERS = [1, 2, 3, 4, 5, 6] as const
+
+// The current month in Vietnam (a local Date turned into ISO would start a day early east of UTC)
 function getMonthRange() {
   const now = new Date()
-  const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
-  return { from, to }
+  return { from: firstDayOfMonthInVietnam(now), to: lastDayOfMonthInVietnam(now) }
 }
 
 async function fetchAttendanceSummary(params: {
@@ -51,6 +68,7 @@ function pctBg(rate: number): string {
 }
 
 export function AttendanceSummaryReportPage() {
+  const { t } = useTranslation()
   const defaultRange = getMonthRange()
   const [from, setFrom] = useState(defaultRange.from)
   const [to, setTo] = useState(defaultRange.to)
@@ -87,8 +105,8 @@ export function AttendanceSummaryReportPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Tổng Hợp Điểm Danh</h1>
-          <p className="text-sm text-[#64748B] mt-1">Thống kê tỷ lệ có mặt theo khoảng thời gian</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">{t('attendance.summary.header.title')}</h1>
+          <p className="text-sm text-[#64748B] mt-1">{t('attendance.summary.header.subtitle')}</p>
         </div>
         <button
           onClick={handleExport}
@@ -97,7 +115,7 @@ export function AttendanceSummaryReportPage() {
           className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
         >
           <Download size={16} />
-          {isExporting ? 'Đang xuất...' : 'Xuất báo cáo'}
+          {t(isExporting ? 'common.actions.exporting' : 'attendance.summary.export.button')}
         </button>
       </div>
 
@@ -106,7 +124,7 @@ export function AttendanceSummaryReportPage() {
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Calendar size={16} className="text-[#64748B]" />
-            <label className="text-sm font-medium text-[#0F172A]">Từ:</label>
+            <label className="text-sm font-medium text-[#0F172A]">{t('attendance.summary.filters.from')}</label>
             <input
               type="date"
               value={from}
@@ -116,7 +134,7 @@ export function AttendanceSummaryReportPage() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-[#0F172A]">Đến:</label>
+            <label className="text-sm font-medium text-[#0F172A]">{t('attendance.summary.filters.to')}</label>
             <input
               type="date"
               value={to}
@@ -126,19 +144,17 @@ export function AttendanceSummaryReportPage() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-[#0F172A]">Đơn vị:</label>
+            <label className="text-sm font-medium text-[#0F172A]">{t('attendance.summary.filters.unit')}</label>
             <select
               value={unitCode}
               onChange={e => setUnitCode(e.target.value)}
+              data-testid="unit-filter"
               className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
             >
-              <option value="">Tất cả</option>
-              <option value="KP1">Khu phố 1</option>
-              <option value="KP2">Khu phố 2</option>
-              <option value="KP3">Khu phố 3</option>
-              <option value="KP4">Khu phố 4</option>
-              <option value="KP5">Khu phố 5</option>
-              <option value="KP6">Khu phố 6</option>
+              <option value="">{t('common.filters.all')}</option>
+              {WARD_NUMBERS.map((number) => (
+                <option key={number} value={`KP${number}`}>{t('attendance.summary.filters.ward', { number })}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -146,21 +162,21 @@ export function AttendanceSummaryReportPage() {
 
       {isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
-          Không thể tải báo cáo điểm danh.
+          {t('attendance.summary.list.loadError')}
         </div>
       )}
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
         {isLoading ? (
-          <div className="p-12 text-center text-[#64748B] text-sm">Đang tải...</div>
+          <div className="p-12 text-center text-[#64748B] text-sm">{t('common.states.loading')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
                 <tr>
-                  {['STT', 'Họ tên', 'Mã DQTV', 'Đơn vị', 'Tổng ngày', 'Đúng giờ', 'Trễ', 'Vắng', '% Có mặt'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  {COLUMNS.map(column => (
+                    <th key={column} className="px-4 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide whitespace-nowrap">{t(column)}</th>
                   ))}
                 </tr>
               </thead>
@@ -168,7 +184,7 @@ export function AttendanceSummaryReportPage() {
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-6 py-12 text-center text-sm text-[#64748B]">
-                      Không có dữ liệu
+                      {t('common.states.empty')}
                     </td>
                   </tr>
                 ) : rows.map((row, idx) => (

@@ -28,7 +28,16 @@ export class RolesGuard {
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const user = request.user;
-    if (!user?.role || !requiredRoles.includes(user.role as UserRole)) {
+    // Route permissions are not hierarchical: any assigned role that the route
+    // requires authorizes the call, not only the primary one
+    const claimedRoles: unknown = user?.roles;
+    const held = new Set<string>([
+      ...(typeof user?.role === 'string' ? [user.role] : []),
+      ...(Array.isArray(claimedRoles)
+        ? claimedRoles.filter((r): r is string => typeof r === 'string')
+        : []),
+    ]);
+    if (!requiredRoles.some((role) => held.has(role))) {
       throw new ForbiddenException('insufficient_role');
     }
     return true;

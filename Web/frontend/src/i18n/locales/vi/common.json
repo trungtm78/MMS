@@ -1,0 +1,37 @@
+{
+  "actions": {
+    "add": "Thêm",
+    "back": "Quay lại",
+    "cancel": "Hủy",
+    "close": "Đóng",
+    "confirm": "Xác nhận",
+    "create": "Tạo",
+    "delete": "Xóa",
+    "edit": "Chỉnh sửa",
+    "export": "Xuất Excel",
+    "exporting": "Đang xuất...",
+    "reload": "Tải lại trang",
+    "retry": "Thử lại",
+    "save": "Lưu",
+    "saving": "Đang lưu...",
+    "search": "Tìm kiếm",
+    "view": "Xem chi tiết"
+  },
+  "states": {
+    "empty": "Không có dữ liệu",
+    "loading": "Đang tải...",
+    "loadError": "Không thể tải dữ liệu.",
+    "none": "—"
+  },
+  "pagination": {
+    "next": "Trang sau",
+    "previous": "Trang trước"
+  },
+  "filters": {
+    "all": "Tất cả",
+    "from": "Từ ngày",
+    "to": "Đến ngày",
+    "unitCode": "Mã đơn vị",
+    "year": "Năm"
+  }
+}

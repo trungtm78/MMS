@@ -3,18 +3,36 @@
 import {
   Injectable,
   BadRequestException,
-  NotFoundException,
   ForbiddenException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { queryRows } from '../database/query-rows';
 import * as crypto from 'crypto';
 import * as ExcelJS from 'exceljs';
 import { AssignmentsService } from '../assignments/assignments.service';
-import { CA_ROLES } from '../common/constants/roles';
+import { REWARD_LEDGER_SQL } from '../rewards/reward-ledger.sql';
+import {
+  assertUnitInScope,
+  effectiveUnit,
+  holdsAnyRole,
+  type ScopedActor,
+} from '../common/access/unit-scope';
+import { businessDate } from '../common/time/business-date';
 import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
+import {
+  FilesService,
+  type FileView,
+  type ViewRow,
+} from '../files/files.service';
+import { MILITIA_STAFF_ROLE_SET } from './militia-roles';
+
+export interface MilitiaActor extends ScopedActor {
+  sub?: string | null;
+}
 
 export interface MilitiaSearchItem {
   id: string;
@@ -26,6 +44,19 @@ export interface MilitiaSearchItem {
   status: string;
   unitCode: string;
   unitName: string;
+}
+
+// A row of the paginated DQTV list: the picker fields plus what the list page and the
+// Mẫu 01-BC roster show
+const MILITIA_LIST_FIELDS = `mp.email, mp.gender, mp.dob AS "dateOfBirth", mp.occupation,
+                mp.education_level AS "educationLevel"`;
+
+export interface MilitiaListItem extends MilitiaSearchItem {
+  email: string | null;
+  gender: string | null;
+  dateOfBirth: string | null;
+  occupation: string | null;
+  educationLevel: string | null;
 }
 
 // NĐ 72/2020 Điều 15-18: Full detail profile (used by getMilitiaById)
@@ -63,6 +94,7 @@ export class MilitiaService {
     private readonly dataSource: DataSource,
     private readonly assignmentsService: AssignmentsService,
     private readonly excelExportService: ExcelExportService,
+    private readonly files: FilesService,
   ) {}
 
   // ── CCCD encryption helpers ────────────────────────────────────────────
@@ -71,7 +103,9 @@ export class MilitiaService {
     const key = process.env.AES_CCCD_KEY;
     if (!key) return null;
     if (key.length !== 64) {
-      this.logger.warn('AES_CCCD_KEY must be 64 hex chars (32 bytes); falling back to plaintext');
+      this.logger.warn(
+        'AES_CCCD_KEY must be 64 hex chars (32 bytes); falling back to plaintext',
+      );
       return null;
     }
     return Buffer.from(key, 'hex');
@@ -81,10 +115,16 @@ export class MilitiaService {
   encryptCccd(plaintext: string): { lookupHash: string; encrypted: string } {
     const key = this.getEncryptionKey();
     if (!key) throw new Error('AES_CCCD_KEY env var not set or invalid');
-    const lookupHash = crypto.createHmac('sha256', key).update(plaintext).digest('hex');
+    const lookupHash = crypto
+      .createHmac('sha256', key)
+      .update(plaintext)
+      .digest('hex');
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const encrypted = Buffer.concat([
+      cipher.update(plaintext, 'utf8'),
+      cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
     const combined = Buffer.concat([iv, tag, encrypted]);
     return { lookupHash, encrypted: combined.toString('base64url') };
@@ -99,7 +139,9 @@ export class MilitiaService {
     const ciphertext = combined.subarray(28);
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
-    return decipher.update(ciphertext) + decipher.final('utf8');
+    return (
+      decipher.update(ciphertext, undefined, 'utf8') + decipher.final('utf8')
+    );
   }
 
   computeLookupHash(plaintext: string): string {
@@ -110,13 +152,27 @@ export class MilitiaService {
 
   // US-SS-01 AC-1: Search militia by name (unaccent), code, phone
   // US-SS-02 AC-3: PostgreSQL unaccent for accent-insensitive matching
+  // Militia picker behind the web forms: wide roles search every unit (optionally one),
+  // CA officers only the DQTV assigned to them, everyone else only their own unit
   async search(
+    actor: ScopedActor & { sub?: string },
     q: string,
     unitCode?: string,
     limit = 20,
   ): Promise<MilitiaSearchItem[]> {
     // US-SS-01: normalise limit
     const safeLimit = Math.min(Math.max(1, limit), 50);
+
+    let unit: string | null = null;
+    let assignedUserIds: string[] | null = null;
+    if (actor.role === 'ca_officer' && actor.sub) {
+      assignedUserIds = await this.assignmentsService.getAssignedDqtvIds(
+        actor.sub,
+      );
+      if (!assignedUserIds.length) return [];
+    } else {
+      unit = effectiveUnit(actor, unitCode);
+    }
 
     const rows = await this.dataSource.query<MilitiaSearchItem[]>(
       `SELECT
@@ -137,6 +193,7 @@ export class MilitiaService {
            OR LOWER(mp.militia_code)           ILIKE LOWER('%'||$1||'%')
            OR mp.phone                         ILIKE '%'||$1||'%')
          AND ($2::text IS NULL OR u.code = $2)
+         AND ($3::uuid[] IS NULL OR mp.user_id = ANY($3::uuid[]))
        ORDER BY
          CASE
            WHEN LOWER(mp.militia_code) = LOWER($1)              THEN 0
@@ -145,8 +202,8 @@ export class MilitiaService {
            ELSE 3
          END,
          mp.full_name
-       LIMIT $3`,
-      [q ?? '', unitCode ?? null, safeLimit],
+       LIMIT $4`,
+      [q ?? '', unit, assignedUserIds, safeLimit],
     );
 
     return rows;
@@ -154,7 +211,13 @@ export class MilitiaService {
 
   // US-SS-05: Quick-create militia inline from SmartSelect modal
   // Guard: unit must exist; militiaCode must be unique
-  async quickCreate(dto: CreateMilitiaDto): Promise<MilitiaSearchItem> {
+  async quickCreate(
+    actor: ScopedActor,
+    dto: CreateMilitiaDto,
+  ): Promise<MilitiaSearchItem> {
+    // Unit-scoped staff may only enrol members into their own unit
+    assertUnitInScope(actor, dto.unitCode);
+
     // US-SS-05 AC-2: Resolve unit id from code
     const unitRows = await this.dataSource.query<{ id: string }[]>(
       `SELECT id FROM units WHERE code = $1 LIMIT 1`,
@@ -175,10 +238,13 @@ export class MilitiaService {
     }
 
     // Default CCCD: 12 chars max — use 'T' + last 11 digits of code, or '000000000000'
-    const defaultCccd = dto.cccd
-      ?? ('T' + dto.militiaCode.replace(/[^0-9]/g, '')).slice(0, 12).padEnd(12, '0');
+    const defaultCccd =
+      dto.cccd ??
+      ('T' + dto.militiaCode.replace(/[^0-9]/g, ''))
+        .slice(0, 12)
+        .padEnd(12, '0');
     // Default dob/joinDate to today if not provided (required NOT NULL columns)
-    const today = new Date().toISOString().slice(0, 10);
+    const today = businessDate().isoDate;
 
     // Encrypt CCCD if AES_CCCD_KEY is set; otherwise store plaintext (dev fallback)
     let cccdPlaintext: string | null = defaultCccd;
@@ -192,66 +258,102 @@ export class MilitiaService {
         cccdEncrypted = encrypted;
         cccdPlaintext = null; // migrate away from plaintext when key is present
       } catch (err) {
-        this.logger.warn(`CCCD encryption failed, storing plaintext: ${(err as Error).message}`);
+        this.logger.warn(
+          `CCCD encryption failed, storing plaintext: ${(err as Error).message}`,
+        );
       }
     }
 
-    const inserted = await this.dataSource.query<{ id: string }[]>(
-      `INSERT INTO militia_profiles
-         (militia_code, full_name, cccd, cccd_lookup_hash, cccd_encrypted, phone, rank, unit_id, gender, dob, position, join_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
-       RETURNING id`,
-      [
-        dto.militiaCode,
-        dto.fullName,
-        cccdPlaintext,
-        cccdLookupHash,
-        cccdEncrypted,
-        dto.phone ?? null,
-        dto.rank ?? null,
-        unitId,
-        dto.gender ?? 'male',
-        dto.dob ?? today,
-        dto.position ?? null,
-        dto.joinDate ?? today,
-      ],
-    );
+    let inserted: { id: string }[];
+    try {
+      inserted = await this.dataSource.query<{ id: string }[]>(
+        `INSERT INTO militia_profiles
+           (militia_code, full_name, cccd, cccd_lookup_hash, cccd_encrypted, phone, rank, unit_id, gender, dob, position, join_date, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
+         RETURNING id`,
+        [
+          dto.militiaCode,
+          dto.fullName,
+          cccdPlaintext,
+          cccdLookupHash,
+          cccdEncrypted,
+          dto.phone ?? null,
+          dto.rank ?? null,
+          unitId,
+          dto.gender ?? 'male',
+          dto.dob ?? today,
+          dto.position ?? null,
+          dto.joinDate ?? today,
+        ],
+      );
+    } catch (err) {
+      // The duplicate check above can lose a race with a concurrent create
+      const pgError = err as { code?: string; constraint?: string };
+      if (pgError.code === '23505') {
+        throw new BadRequestException(
+          pgError.constraint?.includes('cccd')
+            ? 'militia_cccd_duplicate'
+            : 'militia_code_duplicate',
+        );
+      }
+      throw err;
+    }
 
-    const newId = inserted[0].id;
-    const results = await this.search(dto.militiaCode, undefined, 1);
-    if (!results.length) {
+    // Read the new row back by id: the picker search is scoped and fuzzy
+    const rows = await this.dataSource.query<MilitiaSearchItem[]>(
+      `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode",
+              mp.full_name AS "fullName", mp.phone, mp.rank, mp.status,
+              u.code AS "unitCode", u.name AS "unitName"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE mp.id = $1`,
+      [inserted[0].id],
+    );
+    if (!rows.length) {
       throw new NotFoundException('militia_create_read_back_failed');
     }
-    return results.find((r) => r.id === newId) ?? results[0];
+    return rows[0];
   }
 
-  // Paginated search with unitScope enforcement + CA explicit assignment filter
+  // Paginated roster: CA officers see the DQTV assigned to them (nobody without assignments),
+  // everyone else the members of their effective unit
   async searchMilitia(
-    user: { role: string; unitScope: string | null; sub?: string | null },
-    params: { q?: string; unitCode?: string; page?: number; limit?: number; excludeAssignedTo?: string },
-  ): Promise<{ data: MilitiaSearchItem[]; total: number; page: number; limit: number }> {
+    user: MilitiaActor,
+    params: {
+      q?: string;
+      unitCode?: string;
+      page?: number;
+      limit?: number;
+      excludeAssignedTo?: string;
+    },
+  ): Promise<{
+    data: MilitiaListItem[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
     const offset = (page - 1) * limit;
     const q = params.q ?? '';
+    const unit = effectiveUnit(user, params.unitCode);
 
-    // CA officers with explicit assignments: filter to assigned DQTV only.
-    // If CA has zero assignments, fall back to unitScope (backward compat for new CAs).
     let assignedUserIds: string[] | null = null;
-    if (CA_ROLES.has(user.role) && user.sub) {
-      const ids = await this.assignmentsService.getAssignedDqtvIds(user.sub);
-      if (ids.length > 0) {
-        assignedUserIds = ids;
-      }
+    if (user.role === 'ca_officer') {
+      assignedUserIds = user.sub
+        ? await this.assignmentsService.getAssignedDqtvIds(user.sub)
+        : [];
+      if (assignedUserIds.length === 0)
+        return { data: [], total: 0, page, limit };
     }
 
     // Resolve IDs already assigned to the given CA (for excludeAssignedTo filter)
     let excludedUserIds: string[] | null = null;
     if (params.excludeAssignedTo) {
-      excludedUserIds = await this.assignmentsService.getAssignedDqtvIds(params.excludeAssignedTo);
+      excludedUserIds = await this.assignmentsService.getAssignedDqtvIds(
+        params.excludeAssignedTo,
+      );
     }
-
-    const effectiveUnit = user.role === 'system_admin' ? params.unitCode : user.unitScope ?? undefined;
 
     if (assignedUserIds !== null) {
       // Filter to explicitly assigned DQTV
@@ -270,9 +372,10 @@ export class MilitiaService {
       );
       const total = parseInt(countResult[0]?.count ?? '0', 10);
 
-      const rows = await this.dataSource.query<MilitiaSearchItem[]>(
+      const rows = await this.dataSource.query<MilitiaListItem[]>(
         `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
-                mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
+                mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName",
+                ${MILITIA_LIST_FIELDS}
          FROM militia_profiles mp
          JOIN units u ON u.id = mp.unit_id
          WHERE mp.status IN ('active')
@@ -302,14 +405,15 @@ export class MilitiaService {
          AND ($2::text IS NULL OR u.code = $2)
          ${excludedUserIds && excludedUserIds.length > 0 ? 'AND (mp.user_id IS NULL OR mp.user_id != ALL($3::uuid[]))' : ''}`,
       excludedUserIds && excludedUserIds.length > 0
-        ? [q, effectiveUnit ?? null, excludedUserIds]
-        : [q, effectiveUnit ?? null],
+        ? [q, unit, excludedUserIds]
+        : [q, unit],
     );
     const total = parseInt(countResult[0]?.count ?? '0', 10);
 
-    const rows = await this.dataSource.query<MilitiaSearchItem[]>(
+    const rows = await this.dataSource.query<MilitiaListItem[]>(
       `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
-              mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
+              mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName",
+              ${MILITIA_LIST_FIELDS}
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
        WHERE mp.status IN ('active')
@@ -321,8 +425,8 @@ export class MilitiaService {
        ORDER BY mp.full_name
        LIMIT $${excludedUserIds && excludedUserIds.length > 0 ? 4 : 3} OFFSET $${excludedUserIds && excludedUserIds.length > 0 ? 5 : 4}`,
       excludedUserIds && excludedUserIds.length > 0
-        ? [q, effectiveUnit ?? null, excludedUserIds, limit, offset]
-        : [q, effectiveUnit ?? null, limit, offset],
+        ? [q, unit, excludedUserIds, limit, offset]
+        : [q, unit, limit, offset],
     );
 
     return { data: rows, total, page, limit };
@@ -335,7 +439,9 @@ export class MilitiaService {
   ): Promise<MilitiaSearchItem | null> {
     const lookupHash = this.computeLookupHash(cccd);
 
-    const rows = await this.dataSource.query<(MilitiaSearchItem & { unitCode: string })[]>(
+    const rows = await this.dataSource.query<
+      (MilitiaSearchItem & { unitCode: string })[]
+    >(
       `SELECT mp.id, mp.user_id AS "userId", mp.militia_code AS "militiaCode", mp.full_name AS "fullName",
               mp.phone, mp.rank, mp.status, u.code AS "unitCode", u.name AS "unitName"
        FROM militia_profiles mp
@@ -348,17 +454,61 @@ export class MilitiaService {
     if (!rows.length) return null;
 
     const row = rows[0];
-    if (user.role !== 'system_admin' && user.unitScope && row.unitCode !== user.unitScope) {
-      throw new ForbiddenException('unit_scope_violation');
-    }
+    assertUnitInScope(user, row.unitCode);
 
     return row;
   }
 
+  // Profiles hold personal data: staff read those in their unit scope (CA officers only the
+  // DQTV assigned to them), anyone else only their own. Other profiles answer 404, so their
+  // existence is not revealed.
+  private async assertCanReadProfile(
+    actor: MilitiaActor,
+    profile: { userId: string | null; unitCode: string },
+  ): Promise<void> {
+    if (!holdsAnyRole(actor, MILITIA_STAFF_ROLE_SET)) {
+      if (!actor.sub || profile.userId !== actor.sub) {
+        throw new NotFoundException('militia_not_found');
+      }
+      return;
+    }
+    if (actor.role === 'ca_officer') {
+      const assigned = actor.sub
+        ? await this.assignmentsService.getAssignedDqtvIds(actor.sub)
+        : [];
+      if (!profile.userId || !assigned.includes(profile.userId)) {
+        throw new NotFoundException('militia_not_found');
+      }
+      return;
+    }
+    assertUnitInScope(actor, profile.unitCode);
+  }
+
+  private async assertCanReadProfileById(
+    actor: MilitiaActor,
+    id: string,
+  ): Promise<void> {
+    const rows = await this.dataSource.query<
+      { userId: string | null; unitCode: string }[]
+    >(
+      `SELECT mp.user_id AS "userId", u.code AS "unitCode"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE mp.id = $1`,
+      [id],
+    );
+    if (!rows.length) throw new NotFoundException('militia_not_found');
+    await this.assertCanReadProfile(actor, rows[0]);
+  }
+
   // P3-18: History tab — assignments + task history
-  async getMilitiaHistory(id: string): Promise<Record<string, unknown>> {
+  async getMilitiaHistory(
+    actor: MilitiaActor,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    await this.assertCanReadProfileById(actor, id);
     const [assignments, taskHistory] = await Promise.all([
-      this.dataSource.query(
+      this.dataSource.query<Record<string, unknown>[]>(
         `SELECT a.id, a.ca_user_id AS "caUserId", u.username AS "caUsername",
                 a.assigned_at AS "assignedAt"
          FROM ca_dqtv_assignments a
@@ -367,7 +517,7 @@ export class MilitiaService {
          ORDER BY a.assigned_at DESC`,
         [id],
       ),
-      this.dataSource.query(
+      this.dataSource.query<Record<string, unknown>[]>(
         `SELECT ta.id, t.title, ta.status, ta.created_at AS "createdAt", ta.updated_at AS "updatedAt"
          FROM task_assignments ta
          JOIN tasks t ON t.id = ta.task_id
@@ -379,24 +529,57 @@ export class MilitiaService {
     return { assignments, taskHistory };
   }
 
-  // P3-18: Rewards tab — militia_rewards table
-  async getMilitiaRewards(id: string): Promise<unknown[]> {
+  // P3-18: Rewards tab — every khen thưởng / kỷ luật entry of the member (reward ledger)
+  async getMilitiaRewards(actor: MilitiaActor, id: string): Promise<unknown[]> {
+    await this.assertCanReadProfileById(actor, id);
     return this.dataSource.query(
       `SELECT id, reward_type AS "rewardType", title, description,
-              issued_date AS "issuedDate", issued_by AS "issuedBy", created_at AS "createdAt"
-       FROM militia_rewards WHERE militia_id = $1 ORDER BY issued_date DESC NULLS LAST`,
+              issued_date AS "issuedDate", issued_by AS "issuedBy", status,
+              created_at AS "createdAt"
+       FROM (${REWARD_LEDGER_SQL}) mr
+       WHERE militia_id = $1
+       ORDER BY issued_date DESC NULLS LAST, created_at DESC`,
       [id],
     );
   }
 
-  // P3-18: Documents tab — files related to militia profile
-  async getMilitiaDocuments(id: string): Promise<unknown[]> {
-    return this.dataSource.query(
-      `SELECT id, original_name AS "originalName", mime_type AS "mimeType",
-              size, url, created_at AS "uploadedAt"
-       FROM files WHERE related_id = $1 AND related_type = 'militia_profile'
-       ORDER BY created_at DESC`,
+  // P3-18: Documents tab — files attached to the profile (migration 034), newest first, each
+  // with the path its content downloads from (FilesService applies the profile read rule)
+  async getMilitiaDocuments(
+    actor: MilitiaActor,
+    id: string,
+  ): Promise<FileView[]> {
+    await this.assertCanReadProfileById(actor, id);
+    const rows = await this.dataSource.query<ViewRow[]>(
+      `SELECT f.id, f.original_name AS name, f.mime_type AS "mimeType", f.size
+       FROM files f
+       WHERE f.related_type = 'militia_profile' AND f.related_id = $1
+       ORDER BY f.created_at DESC, f.id`,
       [id],
+    );
+    return this.files.views(rows);
+  }
+
+  // POST /militia/:id/documents — staff attach their own uploads to a profile they may read;
+  // a member reads their profile's documents but never adds to them. The files are claimed
+  // in one transaction, so a refused file attaches none.
+  async attachMilitiaDocuments(
+    actor: MilitiaActor,
+    id: string,
+    fileIds: string[],
+  ): Promise<FileView[]> {
+    const ownerId = actor.sub;
+    if (!ownerId || !holdsAnyRole(actor, MILITIA_STAFF_ROLE_SET)) {
+      throw new ForbiddenException('insufficient_role');
+    }
+    await this.assertCanReadProfileById(actor, id);
+    return this.dataSource.transaction((mgr) =>
+      this.files.attach(mgr, {
+        ownerId,
+        fileIds,
+        relatedType: 'militia_profile',
+        relatedId: id,
+      }),
     );
   }
 
@@ -416,34 +599,49 @@ export class MilitiaService {
       [userId],
     );
     if (!profileRows.length) {
-      return { profile: null, training: [], attendance: [], leaveRequests: [], kpiScores: [], exportedAt: new Date().toISOString() };
+      return {
+        profile: null,
+        training: [],
+        attendance: [],
+        leaveRequests: [],
+        kpiScores: [],
+        exportedAt: new Date().toISOString(),
+      };
     }
     const profile = profileRows[0];
     const militiaId = profile['id'] as string;
 
     const [training, attendance, leaveRequests, kpiScores] = await Promise.all([
-      this.dataSource.query(
-        `SELECT id, training_type AS "trainingType", start_date AS "startDate",
-                end_date AS "endDate", days_count AS "daysCount", result, notes
-         FROM training_records WHERE militia_id = $1 ORDER BY start_date DESC`,
+      this.dataSource.query<Record<string, unknown>[]>(
+        `SELECT id, training_type AS "trainingType", from_date AS "fromDate",
+                to_date AS "toDate", total_days AS "totalDays", result, notes
+         FROM training_records WHERE militia_id = $1 ORDER BY from_date DESC`,
         [militiaId],
       ),
-      this.dataSource.query(
-        `SELECT id, work_date AS "workDate", check_in_time AS "checkInTime",
-                check_out_time AS "checkOutTime", status, notes
+      this.dataSource.query<Record<string, unknown>[]>(
+        `SELECT id, work_date AS "workDate", checkin_at AS "checkinAt",
+                checkout_at AS "checkoutAt", status, note
          FROM attendance_records WHERE militia_id = $1
          ORDER BY work_date DESC LIMIT 180`,
         [militiaId],
       ),
-      this.dataSource.query(
-        `SELECT id, leave_type AS "leaveType", start_date AS "startDate",
-                end_date AS "endDate", status, reason
-         FROM leave_requests WHERE requester_id = $1 ORDER BY created_at DESC`,
+      this.dataSource.query<Record<string, unknown>[]>(
+        `SELECT lr.id, lt.code AS "leaveType", lt.name AS "leaveTypeName",
+                lr.from_date AS "fromDate", lr.to_date AS "toDate", lr.status, lr.reason
+         FROM leave_requests lr
+         JOIN leave_types lt ON lt.id = lr.leave_type_id
+         WHERE lr.requester_id = $1
+         ORDER BY lr.created_at DESC`,
         [userId],
       ),
-      this.dataSource.query(
-        `SELECT id, period_id AS "periodId", score, created_at AS "createdAt"
-         FROM kpi_scores WHERE militia_id = $1 ORDER BY created_at DESC LIMIT 12`,
+      this.dataSource.query<Record<string, unknown>[]>(
+        `SELECT ks.id, ks.period_id AS "periodId", kp.month, kp.year,
+                ks.total_score AS "totalScore", ks.created_at AS "createdAt"
+         FROM kpi_scores ks
+         JOIN kpi_periods kp ON kp.id = ks.period_id
+         WHERE ks.militia_id = $1
+         ORDER BY kp.year DESC, kp.month DESC
+         LIMIT 12`,
         [militiaId],
       ),
     ]);
@@ -465,8 +663,7 @@ export class MilitiaService {
     user: JwtPayload,
     filters: { unitCode?: string; status?: string },
   ): Promise<ExcelJS.Workbook> {
-    const effectiveUnit: string | null =
-      user.role === 'system_admin' ? (filters.unitCode ?? null) : (user.unitScope ?? null);
+    const unit = effectiveUnit(user, filters.unitCode);
 
     const rows = await this.dataSource.query<Record<string, unknown>[]>(
       `SELECT
@@ -494,7 +691,7 @@ export class MilitiaService {
        WHERE ($1::text IS NULL OR u.code = $1)
          AND ($2::text IS NULL OR mp.status = $2)
        ORDER BY u.code, mp.full_name`,
-      [effectiveUnit, filters.status ?? null],
+      [unit, filters.status ?? null],
     );
 
     const wb = this.excelExportService.createWorkbook();
@@ -533,50 +730,76 @@ export class MilitiaService {
       };
     });
 
-    this.excelExportService.addStyledTable(sheet1, startRow, [
-      { header: 'STT',            key: 'stt',                    width: 6,  type: 'number' as const },
-      { header: 'Mã DQTV',       key: 'militiaCode',            width: 14 },
-      { header: 'Họ tên',        key: 'fullName',               width: 24 },
-      { header: 'CCCD (ẩn)',     key: 'cccd',                   width: 18 },
-      { header: 'Điện thoại',    key: 'phone',                  width: 16 },
-      { header: 'Cấp bậc',       key: 'rank',                   width: 14 },
-      {
-        header: 'Trạng thái',
-        key: 'status',
-        width: 14,
-        type: 'status' as const,
-        statusColors: { active: 'CCFFCC', inactive: 'FFCCCC', reserve: 'FFF3CD' },
-      },
-      { header: 'Giới tính',     key: 'gender',                 width: 12 },
-      { header: 'Ngày sinh',     key: 'dob',                    width: 14, type: 'date' as const },
-      { header: 'Chức vụ',       key: 'position',               width: 18 },
-      { header: 'Ngày nhập ngũ', key: 'joinDate',               width: 16, type: 'date' as const },
-      { header: 'Nghề nghiệp',   key: 'occupation',             width: 18 },
-      { header: 'Trình độ',      key: 'educationLevel',         width: 16 },
-      { header: 'Sức khỏe',      key: 'healthStatus',           width: 14 },
-      { header: 'Nhóm máu',      key: 'bloodType',              width: 12 },
-      { header: 'Địa chỉ TT',    key: 'permanentAddress',       width: 30 },
-      { header: 'Tư pháp',       key: 'judicialClearanceStatus',width: 18 },
-      { header: 'Mã đơn vị',     key: 'unitCode',               width: 14 },
-      { header: 'Tên đơn vị',    key: 'unitName',               width: 24 },
-    ], tableRows);
+    this.excelExportService.addStyledTable(
+      sheet1,
+      startRow,
+      [
+        { header: 'STT', key: 'stt', width: 6, type: 'number' as const },
+        { header: 'Mã DQTV', key: 'militiaCode', width: 14 },
+        { header: 'Họ tên', key: 'fullName', width: 24 },
+        { header: 'CCCD (ẩn)', key: 'cccd', width: 18 },
+        { header: 'Điện thoại', key: 'phone', width: 16 },
+        { header: 'Cấp bậc', key: 'rank', width: 14 },
+        {
+          header: 'Trạng thái',
+          key: 'status',
+          width: 14,
+          type: 'status' as const,
+          statusColors: {
+            active: 'CCFFCC',
+            inactive: 'FFCCCC',
+            reserve: 'FFF3CD',
+          },
+        },
+        { header: 'Giới tính', key: 'gender', width: 12 },
+        { header: 'Ngày sinh', key: 'dob', width: 14, type: 'date' as const },
+        { header: 'Chức vụ', key: 'position', width: 18 },
+        {
+          header: 'Ngày nhập ngũ',
+          key: 'joinDate',
+          width: 16,
+          type: 'date' as const,
+        },
+        { header: 'Nghề nghiệp', key: 'occupation', width: 18 },
+        { header: 'Trình độ', key: 'educationLevel', width: 16 },
+        { header: 'Sức khỏe', key: 'healthStatus', width: 14 },
+        { header: 'Nhóm máu', key: 'bloodType', width: 12 },
+        { header: 'Địa chỉ TT', key: 'permanentAddress', width: 30 },
+        { header: 'Tư pháp', key: 'judicialClearanceStatus', width: 18 },
+        { header: 'Mã đơn vị', key: 'unitCode', width: 14 },
+        { header: 'Tên đơn vị', key: 'unitName', width: 24 },
+      ],
+      tableRows,
+    );
 
-    this.excelExportService.addDocumentHash(sheet1, `militia-roster-${effectiveUnit ?? 'all'}-${rows.length}`);
-    this.excelExportService.addSignatureBlock(sheet1, startRow + rows.length + 2, {
-      position: 'Chỉ huy trưởng',
-    });
+    this.excelExportService.addDocumentHash(
+      sheet1,
+      `militia-roster-${unit ?? 'all'}-${rows.length}`,
+    );
+    this.excelExportService.addSignatureBlock(
+      sheet1,
+      startRow + rows.length + 2,
+      {
+        position: 'Chỉ huy trưởng',
+      },
+    );
 
     // Sheet 2 — summary stats
     const sheet2 = wb.addWorksheet('Thống kê');
     const activeCount = rows.filter((r) => r['status'] === 'active').length;
     const inactiveCount = rows.filter((r) => r['status'] === 'inactive').length;
 
-    this.excelExportService.addSummaryStatsTable(sheet2, 0, 'Thống kê danh sách DQTV', [
-      { label: 'Tổng số', value: rows.length },
-      { label: 'Đang hoạt động', value: activeCount },
-      { label: 'Không hoạt động', value: inactiveCount },
-      { label: 'Đơn vị', value: effectiveUnit ?? 'Toàn bộ' },
-    ]);
+    this.excelExportService.addSummaryStatsTable(
+      sheet2,
+      0,
+      'Thống kê danh sách DQTV',
+      [
+        { label: 'Tổng số', value: rows.length },
+        { label: 'Đang hoạt động', value: activeCount },
+        { label: 'Không hoạt động', value: inactiveCount },
+        { label: 'Đơn vị', value: unit ?? 'Toàn bộ' },
+      ],
+    );
 
     return wb;
   }
@@ -589,20 +812,38 @@ export class MilitiaService {
     await this.dataSource.query(
       `INSERT INTO audit_logs(actor_id, action, entity_type, after_json, created_at)
        VALUES ($1, 'DATA_CORRECTION_REQUEST', 'militia_profile', $2::jsonb, NOW())`,
-      [userId, JSON.stringify({ field: dto.field, requestedValue: dto.requestedValue, reason: dto.reason })],
+      [
+        userId,
+        JSON.stringify({
+          field: dto.field,
+          requestedValue: dto.requestedValue,
+          reason: dto.reason,
+        }),
+      ],
     );
-    return { accepted: true, message: 'Yêu cầu đã được ghi nhận và sẽ được xem xét trong 30 ngày' };
+    return {
+      accepted: true,
+      message: 'Yêu cầu đã được ghi nhận và sẽ được xem xét trong 30 ngày',
+    };
   }
 
   // PATCH /militia/:id — update mutable fields (militiaCode is immutable)
   async updateMilitia(
     id: string,
     dto: Partial<{
-      fullName: string; phone: string; address: string; position: string; rank: string;
-      gender: string; dob: string; joinDate: string;
-      emergencyContactName: string; emergencyContactPhone: string; emergencyContactRelationship: string;
+      fullName: string;
+      phone: string;
+      address: string;
+      position: string;
+      rank: string;
+      gender: string;
+      dob: string;
+      joinDate: string;
+      emergencyContactName: string;
+      emergencyContactPhone: string;
+      emergencyContactRelationship: string;
     }>,
-    actor: { sub: string },
+    actor: MilitiaActor,
   ): Promise<Record<string, unknown>> {
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -630,13 +871,23 @@ export class MilitiaService {
       }
     }
 
-    if (fields.length === 0) throw new BadRequestException('no_fields_to_update');
+    if (fields.length === 0)
+      throw new BadRequestException('no_fields_to_update');
 
     fields.push(`updated_at = NOW()`);
-    values.push(id);
+    // Unit staff edit only profiles of their own unit. The scope is part of the UPDATE
+    // itself, so no concurrent unit change can slip between a check and the write, and a
+    // profile outside the scope answers exactly like a missing one.
+    values.push(id, effectiveUnit(actor));
 
-    const rows = await this.dataSource.query<Record<string, unknown>[]>(
-      `UPDATE militia_profiles SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, full_name AS "fullName", phone, status, updated_at AS "updatedAt"`,
+    const rows = await queryRows<Record<string, unknown>>(
+      this.dataSource,
+      `UPDATE militia_profiles mp SET ${fields.join(', ')}
+       FROM units u
+       WHERE mp.id = $${idx}
+         AND u.id = mp.unit_id
+         AND ($${idx + 1}::text IS NULL OR u.code = $${idx + 1})
+       RETURNING mp.id, mp.full_name AS "fullName", mp.phone, mp.status, mp.updated_at AS "updatedAt"`,
       values,
     );
     if (!rows.length) throw new NotFoundException('militia_not_found');
@@ -644,17 +895,21 @@ export class MilitiaService {
   }
 
   // DELETE /militia/:id — soft delete: set status='inactive'
+  // The controller passes the acting user; AuditInterceptor records who deleted
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async deleteMilitia(id: string, actor: { sub: string }): Promise<void> {
-    const result = await this.dataSource.query<{ id: string }[]>(
+    const result = await queryRows<{ id: string }>(
+      this.dataSource,
       `UPDATE militia_profiles SET status = 'inactive', updated_at = NOW() WHERE id = $1 AND status != 'inactive' RETURNING id`,
       [id],
     );
-    if (!result.length) throw new NotFoundException('militia_not_found_or_already_inactive');
+    if (!result.length)
+      throw new NotFoundException('militia_not_found_or_already_inactive');
   }
 
   // Get single militia member with unitScope enforcement — includes 6 NĐ 72/2020 fields
   async getMilitiaById(
-    user: { role: string; unitScope: string | null },
+    user: MilitiaActor,
     id: string,
   ): Promise<MilitiaDetailProfile> {
     const rows = await this.dataSource.query<Record<string, unknown>[]>(
@@ -683,9 +938,10 @@ export class MilitiaService {
     if (!rows.length) throw new NotFoundException('militia_not_found');
     const row = rows[0];
     const unitCode = row['unitCode'] as string;
-    if (user.role !== 'system_admin' && user.unitScope && unitCode !== user.unitScope) {
-      throw new ForbiddenException('unit_scope_violation');
-    }
+    await this.assertCanReadProfile(user, {
+      userId: (row['userId'] as string | null) ?? null,
+      unitCode,
+    });
     return {
       id: row['id'] as string,
       userId: (row['userId'] as string | null) ?? null,
@@ -703,7 +959,8 @@ export class MilitiaService {
       healthStatus: (row['healthStatus'] as string | null) ?? null,
       bloodType: (row['bloodType'] as string | null) ?? null,
       permanentAddress: (row['permanentAddress'] as string | null) ?? null,
-      judicialClearanceStatus: (row['judicialClearanceStatus'] as string | null) ?? null,
+      judicialClearanceStatus:
+        (row['judicialClearanceStatus'] as string | null) ?? null,
     };
   }
 
@@ -717,8 +974,7 @@ export class MilitiaService {
       unitCode?: string;
     },
   ): Promise<unknown[]> {
-    const WIDE_ROLES = new Set(['system_admin', 'police_ward']);
-    const effectiveUnit = WIDE_ROLES.has(user.role) ? (params.unitCode ?? null) : (user.unitScope ?? null);
+    const unit = effectiveUnit(user, params.unitCode);
 
     const conditions: string[] = ['1=1'];
     const qParams: unknown[] = [];
@@ -735,22 +991,24 @@ export class MilitiaService {
       qParams.push(params.type);
       conditions.push(`mr.reward_type = $${qParams.length}`);
     }
-    if (effectiveUnit) {
-      qParams.push(effectiveUnit);
+    if (unit) {
+      qParams.push(unit);
       conditions.push(`u.code = $${qParams.length}`);
     }
 
+    // Every ledger: free-form militia_rewards rows and the decisions recorded through
+    // /rewards and /discipline; status tells an overturned discipline decision apart
     return this.dataSource.query(
       `SELECT mr.id, mp.full_name AS "fullName", mp.militia_code AS "militiaCode",
               u.name AS "unitName", mr.reward_type AS "rewardType",
               mr.title AS "description", mr.description AS "content",
               mr.issued_by AS "issuedBy", mr.issued_date AS "decisionDate",
-              mr.created_at AS "createdAt"
-       FROM militia_rewards mr
+              mr.status AS "status", mr.created_at AS "createdAt"
+       FROM (${REWARD_LEDGER_SQL}) mr
        JOIN militia_profiles mp ON mp.id = mr.militia_id
        JOIN units u ON u.id = mp.unit_id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY mr.issued_date DESC NULLS LAST`,
+       ORDER BY mr.issued_date DESC NULLS LAST, mr.created_at DESC`,
       qParams,
     );
   }
@@ -762,8 +1020,12 @@ export class MilitiaService {
     res: import('express').Response,
   ): Promise<void> {
     const data = await this.getRewardsReport(user, params);
-    const rewards = (data as Record<string, unknown>[]).filter(r => r['rewardType'] === 'reward');
-    const discipline = (data as Record<string, unknown>[]).filter(r => r['rewardType'] !== 'reward');
+    const rewards = (data as Record<string, unknown>[]).filter(
+      (r) => r['rewardType'] === 'reward',
+    );
+    const discipline = (data as Record<string, unknown>[]).filter(
+      (r) => r['rewardType'] !== 'reward',
+    );
 
     const wb = this.excelExportService.createWorkbook();
     const reportDate = new Date();
@@ -778,7 +1040,9 @@ export class MilitiaService {
         rewardType: item['rewardType'],
         content: item['content'],
         issuedBy: item['issuedBy'],
-        decisionDate: item['decisionDate'] ? new Date(item['decisionDate'] as string) : null,
+        decisionDate: item['decisionDate']
+          ? new Date(item['decisionDate'] as string)
+          : null,
       }));
 
     const cols = [
@@ -789,7 +1053,12 @@ export class MilitiaService {
       { header: 'Hình thức', key: 'rewardType', width: 16 },
       { header: 'Nội dung', key: 'content', width: 30 },
       { header: 'Người ký', key: 'issuedBy', width: 16 },
-      { header: 'Ngày QĐ', key: 'decisionDate', width: 14, type: 'date' as const },
+      {
+        header: 'Ngày QĐ',
+        key: 'decisionDate',
+        width: 14,
+        type: 'date' as const,
+      },
     ];
 
     // Sheet 1: Khen thưởng
@@ -799,7 +1068,12 @@ export class MilitiaService {
       reportTitle: `DANH SÁCH KHEN THƯỞNG DÂN QUÂN TỰ VỆ (${dateRange})`,
       reportDate,
     });
-    this.excelExportService.addStyledTable(sheet1, start1, cols, toRows(rewards));
+    this.excelExportService.addStyledTable(
+      sheet1,
+      start1,
+      cols,
+      toRows(rewards),
+    );
     this.excelExportService.addDocumentHash(sheet1, `khen-thuong-${dateRange}`);
 
     // Sheet 2: Kỷ luật
@@ -809,8 +1083,14 @@ export class MilitiaService {
       reportTitle: `DANH SÁCH KỶ LUẬT DÂN QUÂN TỰ VỆ (${dateRange})`,
       reportDate,
     });
-    this.excelExportService.addStyledTable(sheet2, start2, cols, toRows(discipline));
-    sheet2.getCell(`A${start2 - 1}`).note = 'Tóm tắt nội bộ — không phải biên bản chính thức. Tham chiếu: TT 57/2020/TT-BQP.';
+    this.excelExportService.addStyledTable(
+      sheet2,
+      start2,
+      cols,
+      toRows(discipline),
+    );
+    sheet2.getCell(`A${start2 - 1}`).note =
+      'Tóm tắt nội bộ — không phải biên bản chính thức. Tham chiếu: TT 57/2020/TT-BQP.';
     this.excelExportService.addDocumentHash(sheet2, `ky-luat-${dateRange}`);
 
     this.excelExportService.addLegalReferencesSheet(wb, [

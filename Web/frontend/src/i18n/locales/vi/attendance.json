@@ -1,0 +1,152 @@
+{
+  "form": {
+    "header": {
+      "title": "Ghi nhận chấm công",
+      "subtitle": "Điền thông tin chấm công cho DQTV"
+    },
+    "fields": {
+      "militia": "Cán bộ dân quân *",
+      "militiaPlaceholder": "Tìm theo tên, mã hoặc SĐT...",
+      "workDate": "Ngày chấm công *",
+      "status": "Trạng thái *",
+      "note": "Ghi chú",
+      "notePlaceholder": "Ghi chú thêm..."
+    },
+    "statusOptions": {
+      "present": "Có mặt",
+      "absent": "Vắng mặt",
+      "late": "Đi trễ",
+      "halfDay": "Nửa ngày"
+    },
+    "validation": {
+      "militiaRequired": "Vui lòng chọn cán bộ dân quân",
+      "workDateRequired": "Ngày chấm công là bắt buộc",
+      "statusRequired": "Trạng thái là bắt buộc"
+    },
+    "actions": {
+      "reset": "Đặt lại",
+      "submit": "Ghi nhận"
+    },
+    "record": {
+      "success": "Ghi nhận chấm công thành công",
+      "successBanner": "Ghi nhận chấm công thành công!",
+      "error": "Có lỗi xảy ra. Vui lòng thử lại."
+    }
+  },
+  "report": {
+    "header": {
+      "title": "Báo Cáo Điểm Danh",
+      "subtitle": "Thống kê điểm danh theo ngày"
+    },
+    "filters": {
+      "date": "Ngày:"
+    },
+    "stats": {
+      "present": "Có mặt",
+      "absent": "Vắng mặt",
+      "late": "Đi trễ",
+      "total": "Tổng"
+    },
+    "status": {
+      "checkedIn": "Đã điểm danh",
+      "checkedOut": "Đã về",
+      "absent": "Vắng mặt",
+      "late": "Đi trễ",
+      "earlyLeave": "Về sớm"
+    },
+    "columns": {
+      "code": "Mã DQTV",
+      "name": "Họ và tên",
+      "status": "Trạng thái",
+      "checkIn": "Giờ vào",
+      "checkOut": "Giờ ra",
+      "hours": "Số giờ"
+    },
+    "table": {
+      "empty": "Không có dữ liệu điểm danh cho ngày này",
+      "hours": "{{hours}}h",
+      "total": "Tổng <count>{{total}}</count> bản ghi"
+    }
+  },
+  "summary": {
+    "header": {
+      "title": "Tổng Hợp Điểm Danh",
+      "subtitle": "Thống kê tỷ lệ có mặt theo khoảng thời gian"
+    },
+    "export": {
+      "button": "Xuất báo cáo"
+    },
+    "filters": {
+      "from": "Từ:",
+      "to": "Đến:",
+      "unit": "Đơn vị:",
+      "ward": "Khu phố {{number}}"
+    },
+    "list": {
+      "loadError": "Không thể tải báo cáo điểm danh."
+    },
+    "columns": {
+      "index": "STT",
+      "name": "Họ tên",
+      "code": "Mã DQTV",
+      "unit": "Đơn vị",
+      "totalDays": "Tổng ngày",
+      "onTimeDays": "Đúng giờ",
+      "lateDays": "Trễ",
+      "absentDays": "Vắng",
+      "attendancePct": "% Có mặt"
+    }
+  },
+  "timesheet": {
+    "header": {
+      "title": "Bảng Chấm Công",
+      "period": "Tháng {{month}}/{{year}}"
+    },
+    "filters": {
+      "month": "Tháng {{month}}",
+      "unit": "Đơn vị",
+      "unitPlaceholder": "Tất cả đơn vị..."
+    },
+    "list": {
+      "loadError": "Không thể tải bảng chấm công. Vui lòng thử lại.",
+      "loading": "Đang tải dữ liệu...",
+      "empty": "Không có thành viên nào trong phạm vi này."
+    },
+    "row": {
+      "member": "{{code}} · {{unit}}"
+    },
+    "totals": {
+      "present": "Có mặt",
+      "late": "Đi trễ",
+      "earlyLeave": "Về sớm",
+      "absent": "Vắng",
+      "leave": "Nghỉ phép",
+      "unrecorded": "Chưa chấm công"
+    },
+    "pagination": {
+      "total": "Tổng {{total}} thành viên",
+      "page": "Trang {{page}}/{{pages}}"
+    },
+    "status": {
+      "present": "Có mặt",
+      "absent": "Vắng",
+      "leave": "Nghỉ phép",
+      "late": "Đi trễ",
+      "earlyLeave": "Về sớm"
+    },
+    "weekdays": {
+      "mon": "Thứ 2",
+      "tue": "Thứ 3",
+      "wed": "Thứ 4",
+      "thu": "Thứ 5",
+      "fri": "Thứ 6",
+      "sat": "Thứ 7",
+      "sun": "CN"
+    },
+    "day": {
+      "hours": "{{checkIn}} – {{checkOut}}",
+      "workHours": "{{hours}} giờ",
+      "onLeave": "Có đơn nghỉ phép"
+    }
+  }
+}

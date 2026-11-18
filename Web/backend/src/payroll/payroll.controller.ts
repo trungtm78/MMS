@@ -15,8 +15,18 @@ import {
   ParseIntPipe,
   UsePipes,
   ValidationPipe,
+  ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
-import { IsNumber, IsString, IsOptional, Min, Max, IsInt } from 'class-validator';
+import {
+  IsNumber,
+  IsString,
+  IsOptional,
+  Min,
+  Max,
+  IsInt,
+  IsUUID,
+} from 'class-validator';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -30,13 +40,16 @@ class CreatePayrollPeriodDto {
 }
 
 class AdjustKpiDto {
-  @IsNumber() @Min(0) @Max(100)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
   adjustedScore: number;
 
   @IsString()
   adjustmentNote: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsUUID()
   periodId?: string;
 }
 
@@ -48,14 +61,14 @@ export class PayrollController {
 
   // GET /payroll/compliance-check?periodId=
   @Get('compliance-check')
-  async getComplianceCheck(@Query('periodId') periodId: string) {
+  async getComplianceCheck(@Query('periodId', ParseUUIDPipe) periodId: string) {
     return this.payrollService.getComplianceCheck(periodId);
   }
 
   // GET /payroll/export?periodId= → xlsx stream
   @Get('export')
   async exportPayroll(
-    @Query('periodId') periodId: string,
+    @Query('periodId', ParseUUIDPipe) periodId: string,
     @Res() res: Response,
   ) {
     return this.payrollService.exportPayroll(periodId, res);
@@ -75,7 +88,7 @@ export class PayrollController {
   // GET /payroll/kpi
   @Get('kpi')
   async getKpiScores(
-    @Query('periodId') periodId: string,
+    @Query('periodId', ParseUUIDPipe) periodId: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
@@ -88,14 +101,18 @@ export class PayrollController {
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async adjustKpi(
-    @Param('militiaId') militiaId: string,
-    @Query('periodId') periodId: string,
+    @Param('militiaId', ParseUUIDPipe) militiaId: string,
+    @Query('periodId', new ParseUUIDPipe({ optional: true }))
+    periodId: string | undefined,
     @Body() dto: AdjustKpiDto,
     @Request() req: { user: JwtPayload },
   ) {
+    // The period may come from the query string or the body
+    const targetPeriodId = dto.periodId ?? periodId;
+    if (!targetPeriodId) throw new BadRequestException('period_id_required');
     return this.payrollService.adjustKpi(
       militiaId,
-      dto.periodId ?? periodId,
+      targetPeriodId,
       dto.adjustedScore,
       dto.adjustmentNote,
       req.user.sub,
@@ -105,7 +122,7 @@ export class PayrollController {
   // GET /payroll/periods/:id/export-pdf — printable HTML payroll sheet (NĐ 72/2020)
   @Get('periods/:id/export-pdf')
   async exportPdf(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Res() res: Response,
   ) {
     const html = await this.payrollService.exportHtml(id);
@@ -116,7 +133,7 @@ export class PayrollController {
   // POST /payroll/periods/:id/calculate — trigger allowance calculation (NĐ 72/2020)
   @Post('periods/:id/calculate')
   @HttpCode(HttpStatus.OK)
-  async calculate(@Param('id') id: string) {
+  async calculate(@Param('id', ParseUUIDPipe) id: string) {
     return this.payrollService.calculateAllowances(id);
   }
 
@@ -134,7 +151,7 @@ export class PayrollController {
   @Roles('system_admin', 'police_ward')
   @HttpCode(HttpStatus.OK)
   async reopenPeriod(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: { user: JwtPayload },
   ) {
     return this.payrollService.reopenPeriod(id, req.user);
@@ -144,7 +161,7 @@ export class PayrollController {
   @Post('periods/:id/lock')
   @HttpCode(HttpStatus.OK)
   async lockPeriod(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: { user: JwtPayload },
   ) {
     return this.payrollService.lockPeriod(id, req.user);

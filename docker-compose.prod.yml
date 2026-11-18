@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -37,6 +35,21 @@ services:
   backend:
     image: ${REGISTRY}/mms-backend:${IMAGE_TAG:-latest}
     env_file: .env.docker
+    # Fixed by this topology, so they override .env.docker. nginx is the only way in: it
+    # reaches the replicas over the `edge` network from a pinned address and overwrites
+    # X-Forwarded-For, so TRUST_PROXY trusts exactly that address. The replicas must share
+    # rate-limit counters and Socket.IO events through the `redis` service, authenticating
+    # with the password it is started with.
+    environment:
+      TRUST_PROXY: ${MMS_NGINX_EDGE_ADDRESS:-10.87.64.10}
+      THROTTLE_STORAGE: redis
+      SOCKET_ADAPTER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the root .env}
+    networks:
+      - default
+      - edge
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +63,18 @@ services:
       restart_policy:
         condition: on-failure
 
+  # The single-page app; nginx proxies every path outside /api and /socket.io to it
+  frontend:
+    image: ${REGISTRY}/mms-frontend:${IMAGE_TAG:-latest}
+    networks:
+      - edge
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+
   nginx:
     image: nginx:alpine
     ports:
@@ -58,8 +83,23 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      edge:
+        ipv4_address: ${MMS_NGINX_EDGE_ADDRESS:-10.87.64.10}
     depends_on:
       - backend
+      - frontend
+
+networks:
+  # The request path: nginx, the backend replicas and the frontend. Postgres and Redis stay
+  # on `default`, out of nginx's reach. Containers get addresses from the dynamic range
+  # only, so nginx's pinned address (outside that range) is never taken. Change the three
+  # MMS_EDGE_* / MMS_NGINX_EDGE_ADDRESS settings together in the root .env.
+  edge:
+    ipam:
+      config:
+        - subnet: ${MMS_EDGE_SUBNET:-10.87.64.0/24}
+          ip_range: ${MMS_EDGE_DYNAMIC_RANGE:-10.87.64.128/25}
 
 volumes:
   postgres_data:

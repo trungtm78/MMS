@@ -1,16 +1,16 @@
-import { IsString, IsOptional, IsBoolean, Length } from 'class-validator'
+import { IsString, IsOptional, IsBoolean, Length } from 'class-validator';
 
 export class UpdatePositionDto {
   @IsOptional()
   @IsString()
   @Length(1, 100)
-  name?: string
+  name?: string;
 
   @IsOptional()
   @IsString()
-  description?: string
+  description?: string;
 
   @IsOptional()
   @IsBoolean()
-  isActive?: boolean
+  isActive?: boolean;
 }

@@ -3,11 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/api_constants.dart';
-import '../../../core/network/dio_client.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../../../l10n/l10n.dart';
+import '../repositories/tasks_repository.dart';
+import '../task_location.dart';
+import '../task_status.dart';
+import '../tasks_texts.dart';
 
 // ── Screen ───────────────────────────────────────────────────────────────────
+/// The signed-in member's tasks. Tabs and counts follow the backend's tasks.status and deadline
+/// (task_status.dart), over every page of GET /tasks.
 class TasksListScreen extends ConsumerStatefulWidget {
   const TasksListScreen({super.key});
 
@@ -18,8 +22,9 @@ class TasksListScreen extends ConsumerStatefulWidget {
 class _TasksListScreenState extends ConsumerState<TasksListScreen> {
   List<Map<String, dynamic>> _tasks = [];
   bool _loading = true;
-  String _filter = 'in-progress';
+  TaskTab _tab = TaskTab.inProgress;
   String? _error;
+  final Set<String> _accepting = {};
 
   @override
   void initState() {
@@ -28,30 +33,73 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      final res = await dio.get(ApiConstants.tasks);
-      final data = (res.data['data'] as List?) ?? [];
+      final tasks = await ref.read(tasksRepositoryProvider).myTasks();
       if (mounted) {
         setState(() {
-          _tasks = data.cast<Map<String, dynamic>>();
+          _tasks = tasks;
           _loading = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() { _error = 'Lỗi tải nhiệm vụ'; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = tasksErrorText(context.l10n, e);
+          _loading = false;
+        });
+      }
     }
   }
 
-  List<Map<String, dynamic>> get _filtered =>
-      _filter == 'all' ? _tasks : _tasks.where((t) => t['status'] == _filter).toList();
+  /// POST /tasks/:id/accept, then reload so the task moves to the in-progress tab.
+  Future<void> _accept(String id) async {
+    if (_accepting.contains(id)) return;
+    setState(() {
+      _accepting.add(id);
+    });
+    try {
+      await ref.read(tasksRepositoryProvider).accept(id);
+      if (!mounted) return;
+      setState(() {
+        _accepting.remove(id);
+      });
+      _showSnack(context.l10n.taskAcceptDone);
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _accepting.remove(id);
+      });
+      _showSnack(tasksErrorText(context.l10n, e), isError: true);
+    }
+  }
 
-  int _count(String status) => _tasks.where((t) => t['status'] == status).length;
+  /// Opens the detail or report screen; the status may have changed on return.
+  Future<void> _open(String path, [Map<String, dynamic>? task]) async {
+    await context.push(path, extra: task);
+    if (mounted) _load();
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.error : AppColors.success,
+      ));
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final now = DateTime.now();
+    final counts = countTaskTabs(_tasks, now);
+    final shown = tasksInTab(_tasks, _tab, now);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -66,21 +114,20 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
               bottom: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text('Nhiệm Vụ Của Tôi',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        )),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.filter_list, color: AppColors.primary),
-                      onPressed: () {},
-                    ),
-                  ],
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(l10n.taskListTitle,
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          )),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -94,14 +141,13 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  _TabBtn('Đang làm', 'in-progress', _filter, _count('in-progress'),
-                      (v) => setState(() => _filter = v)),
-                  _TabBtn('Chờ tiếp nhận', 'pending', _filter, _count('pending'),
-                      (v) => setState(() => _filter = v)),
-                  _TabBtn('Đã hoàn thành', 'completed', _filter, _count('completed'),
-                      (v) => setState(() => _filter = v)),
-                  _TabBtn('Quá hạn', 'overdue', _filter, _count('overdue'),
-                      (v) => setState(() => _filter = v)),
+                  for (final tab in TaskTab.values)
+                    _TabBtn(
+                      label: taskTabText(l10n, tab),
+                      active: tab == _tab,
+                      count: counts[tab] ?? 0,
+                      onSelect: () => setState(() => _tab = tab),
+                    ),
                 ],
               ),
             ),
@@ -121,34 +167,30 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: AppColors.navy),
                               onPressed: _load,
-                              child: const Text('Thử lại', style: TextStyle(color: Colors.white)),
+                              child: Text(l10n.commonRetryButton, style: const TextStyle(color: Colors.white)),
                             ),
                           ],
                         ),
                       )
-                    : _filtered.isEmpty
-                        ? _buildEmpty()
+                    : shown.isEmpty
+                        ? _buildEmpty(l10n)
                         : RefreshIndicator(
                             color: AppColors.navy,
                             onRefresh: _load,
                             child: ListView.separated(
                               padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                              itemCount: _filtered.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
-                              itemBuilder: (ctx, i) {
-                                final task = _filtered[i];
+                              itemCount: shown.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final task = shown[index];
+                                final id = task['id'].toString();
                                 return _TaskCard(
                                   task: task,
-                                  onTap: () => context.push('/tasks/${task['id']}', extra: task),
-                                  onAccept: task['status'] == 'pending'
-                                      ? () => _handleAccept(task['id'].toString())
-                                      : null,
-                                  onReport: task['status'] == 'in-progress'
-                                      ? () => context.push('/tasks/${task['id']}/report')
-                                      : null,
-                                  onExplain: task['status'] == 'overdue'
-                                      ? () {}
-                                      : null,
+                                  overdue: isTaskOverdue(task, now),
+                                  accepting: _accepting.contains(id),
+                                  onTap: () => _open('/tasks/$id', task),
+                                  onAccept: canAcceptTask(task) ? () => _accept(id) : null,
+                                  onReport: canReportTask(task) ? () => _open('/tasks/$id/report') : null,
                                 );
                               },
                             ),
@@ -159,42 +201,36 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen> {
     );
   }
 
-  Widget _buildEmpty() => const Center(
+  Widget _buildEmpty(AppLocalizations l10n) => Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.assignment_outlined, size: 64, color: AppColors.textSecondary),
-        SizedBox(height: 12),
-        Text('Không có nhiệm vụ', style: TextStyle(fontSize: 16, color: AppColors.textSecondary)),
+        const Icon(Icons.assignment_outlined, size: 64, color: AppColors.textSecondary),
+        const SizedBox(height: 12),
+        Text(l10n.taskListEmpty, style: const TextStyle(fontSize: 16, color: AppColors.textSecondary)),
       ],
     ),
   );
-
-  Future<void> _handleAccept(String id) async {
-    try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      await dio.post('/tasks/$id/accept');
-      _load();
-    } catch (_) {}
-  }
 }
 
 // ── Tab Button ────────────────────────────────────────────────────────────────
 class _TabBtn extends StatelessWidget {
   final String label;
-  final String value;
-  final String current;
+  final bool active;
   final int count;
-  final ValueChanged<String> onSelect;
+  final VoidCallback onSelect;
 
-  const _TabBtn(this.label, this.value, this.current, this.count, this.onSelect);
+  const _TabBtn({
+    required this.label,
+    required this.active,
+    required this.count,
+    required this.onSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final active = current == value;
     return GestureDetector(
-      onTap: () => onSelect(value),
+      onTap: onSelect,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
         margin: const EdgeInsets.only(right: 20),
@@ -207,7 +243,7 @@ class _TabBtn extends StatelessWidget {
           ),
         ),
         child: Text(
-          count > 0 ? '$label ($count)' : label,
+          count > 0 ? context.l10n.taskListTabWithCount(label, count) : label,
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -222,40 +258,30 @@ class _TabBtn extends StatelessWidget {
 // ── Task Card ─────────────────────────────────────────────────────────────────
 class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
+  final bool overdue;
+  final bool accepting;
   final VoidCallback onTap;
   final VoidCallback? onAccept;
   final VoidCallback? onReport;
-  final VoidCallback? onExplain;
 
   const _TaskCard({
     required this.task,
+    required this.overdue,
+    required this.accepting,
     required this.onTap,
     this.onAccept,
     this.onReport,
-    this.onExplain,
   });
 
   @override
   Widget build(BuildContext context) {
-    final status = task['status'] as String? ?? 'pending';
+    final l10n = context.l10n;
+    final status = taskStatusOf(task);
     final priority = task['priority'] as String? ?? 'medium';
-    final isOverdue = status == 'overdue';
-
-    // Left border color by status
-    Color leftBorder;
-    switch (status) {
-      case 'overdue':
-        leftBorder = AppColors.error;
-        break;
-      case 'in-progress':
-        leftBorder = AppColors.blue;
-        break;
-      case 'completed':
-        leftBorder = AppColors.success;
-        break;
-      default:
-        leftBorder = AppColors.textSecondary;
-    }
+    final location = taskLocationText(task);
+    final deadline = formatTaskDeadline(task);
+    final description = task['description'] as String? ?? '';
+    final leftBorder = overdue ? AppColors.error : taskStatusColor(status);
 
     return GestureDetector(
       onTap: onTap,
@@ -264,7 +290,7 @@ class _TaskCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border(left: BorderSide(color: leftBorder, width: 4)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
         ),
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -300,25 +326,27 @@ class _TaskCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
-            // Meta info
-            _MetaRow(Icons.location_on_outlined, task['location'] as String? ?? '', AppColors.textSecondary),
-            const SizedBox(height: 3),
+            // Meta info (locationName / locationLat / locationLng, deadline)
+            if (location != null) ...[
+              _MetaRow(Icons.location_on_outlined, location, AppColors.textSecondary),
+              const SizedBox(height: 3),
+            ],
             _MetaRow(
               Icons.access_time,
-              task['deadline'] as String? ?? '',
-              isOverdue ? AppColors.error : AppColors.textSecondary,
+              deadline.isEmpty ? l10n.taskNoDeadline : l10n.taskDeadline(deadline),
+              overdue ? AppColors.error : AppColors.textSecondary,
             ),
-            const SizedBox(height: 3),
-            _MetaRow(Icons.person_outline, task['assignedBy'] as String? ?? task['assigned_by'] as String? ?? '', AppColors.textSecondary),
-            const SizedBox(height: 8),
 
             // Description
-            Text(
-              task['description'] as String? ?? '',
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                description,
+                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
             const SizedBox(height: 10),
 
             // Status row + action button
@@ -326,14 +354,21 @@ class _TaskCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                _StatusBadge(status),
+                _Badge(taskStatusText(l10n, status), taskStatusColor(status)),
+                if (overdue && status != TaskStatus.overdue) ...[
+                  const SizedBox(width: 6),
+                  _Badge(taskStatusText(l10n, TaskStatus.overdue), AppColors.error),
+                ],
                 const Spacer(),
                 if (onAccept != null)
-                  _ActionBtn('Tiếp nhận', AppColors.navy, false, onAccept!),
+                  _ActionBtn(
+                    accepting ? l10n.taskAccepting : l10n.taskAcceptButton,
+                    AppColors.navy,
+                    false,
+                    accepting ? null : onAccept,
+                  ),
                 if (onReport != null)
-                  _ActionBtn('Báo cáo', AppColors.primary, true, onReport!),
-                if (onExplain != null)
-                  _ActionBtn('Giải trình', AppColors.warning, true, onExplain!),
+                  _ActionBtn(l10n.taskReportButton, AppColors.primary, true, onReport),
               ],
             ),
           ],
@@ -363,47 +398,20 @@ class _MetaRow extends StatelessWidget {
 }
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge(this.status);
+class _Badge extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Badge(this.label, this.color);
 
   @override
-  Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
-    String label;
-    switch (status) {
-      case 'pending':
-        bg = AppColors.textSecondary.withOpacity(0.1);
-        fg = AppColors.textSecondary;
-        label = 'Chờ tiếp nhận';
-        break;
-      case 'in-progress':
-        bg = AppColors.blue.withOpacity(0.1);
-        fg = AppColors.blue;
-        label = 'Đang làm';
-        break;
-      case 'completed':
-        bg = AppColors.success.withOpacity(0.1);
-        fg = AppColors.success;
-        label = 'Đã hoàn thành';
-        break;
-      case 'overdue':
-        bg = AppColors.error.withOpacity(0.1);
-        fg = AppColors.error;
-        label = 'Quá hạn';
-        break;
-      default:
-        bg = AppColors.textMuted.withOpacity(0.1);
-        fg = AppColors.textMuted;
-        label = status;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+  );
 }
 
 // ── Priority Badge ────────────────────────────────────────────────────────────
@@ -413,35 +421,17 @@ class _PriorityBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
-    String label;
-    switch (priority) {
-      case 'urgent':
-      case 'critical':
-        bg = AppColors.error;
-        fg = Colors.white;
-        label = 'Khẩn cấp';
-        break;
-      case 'high':
-        bg = AppColors.warning;
-        fg = Colors.white;
-        label = 'Cao';
-        break;
-      case 'medium':
-        bg = AppColors.warning.withOpacity(0.5);
-        fg = Colors.white;
-        label = 'Trung bình';
-        break;
-      default:
-        bg = const Color(0xFF94A3B8);
-        fg = Colors.white;
-        label = 'Thấp';
-    }
+    final bg = switch (priority) {
+      'urgent' => AppColors.error,
+      'high' => AppColors.warning,
+      'medium' => AppColors.warning.withValues(alpha: 0.5),
+      _ => const Color(0xFF94A3B8),
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+      child: Text(taskPriorityText(context.l10n, priority),
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
     );
   }
 }
@@ -451,25 +441,30 @@ class _ActionBtn extends StatelessWidget {
   final String label;
   final Color color;
   final bool filled;
-  final VoidCallback onTap;
+
+  /// null: shown disabled
+  final VoidCallback? onTap;
   const _ActionBtn(this.label, this.color, this.filled, this.onTap);
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        color: filled ? color : Colors.transparent,
-        border: Border.all(color: color),
-        borderRadius: BorderRadius.circular(8),
+    child: Opacity(
+      opacity: onTap == null ? 0.5 : 1,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: filled ? color : Colors.transparent,
+          border: Border.all(color: color),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: filled ? Colors.white : color,
+          )),
       ),
-      child: Text(label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: filled ? Colors.white : color,
-        )),
     ),
   );
 }

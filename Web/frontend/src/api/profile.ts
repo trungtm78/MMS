@@ -1,5 +1,6 @@
 import client from './client'
 
+// GET /users/me (Web/backend/src/users/users.service.ts)
 export interface ProfileData {
   id: string
   username: string
@@ -7,7 +8,8 @@ export interface ProfileData {
   email: string | null
   phone: string | null
   status: string
-  role: string
+  role: string | null // primary role, null when none is assigned
+  roles?: string[] // every assigned role, primary first
   unitScope: string | null
   createdAt: string
   updatedAt: string

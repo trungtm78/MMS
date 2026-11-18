@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsIn, IsDateString, Length } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsIn,
+  IsDateString,
+  Length,
+} from 'class-validator';
 
 export class UpdateWeaponDto {
   @IsOptional() @IsString() @Length(1, 100) serialNumber?: string;

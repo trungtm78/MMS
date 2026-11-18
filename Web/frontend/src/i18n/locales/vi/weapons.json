@@ -1,0 +1,221 @@
+{
+  "page": {
+    "header": {
+      "title": "Vũ khí & Trang thiết bị",
+      "subtitle": "UBND Phường Phú Định – Quản lý vũ khí ANTT"
+    },
+    "tabs": {
+      "label": "Quản lý vũ khí",
+      "catalog": "Danh mục",
+      "log": "Log cấp phát",
+      "inventory": "Kiểm kê"
+    }
+  },
+  "codes": {
+    "conditions": {
+      "good": "Tốt",
+      "damaged": "Hỏng",
+      "maintenance": "Bảo trì"
+    }
+  },
+  "catalog": {
+    "list": {
+      "addButton": "Thêm vũ khí",
+      "loading": "Đang tải danh mục vũ khí",
+      "empty": "Chưa có vũ khí nào",
+      "error": "Không thể tải danh mục vũ khí."
+    },
+    "table": {
+      "serialNumber": "Số hiệu",
+      "type": "Loại",
+      "condition": "Tình trạng",
+      "storageLocation": "Nơi cất",
+      "responsiblePerson": "Người chịu trách nhiệm",
+      "acquiredAt": "Ngày nhập"
+    },
+    "create": {
+      "dialog": {
+        "title": "Thêm vũ khí / trang thiết bị"
+      },
+      "fields": {
+        "type": "Loại vũ khí",
+        "typePlaceholder": "VD: Súng AK-47",
+        "serialNumber": "Số hiệu",
+        "serialNumberPlaceholder": "VD: AK-2024-001",
+        "condition": "Tình trạng",
+        "acquiredAt": "Ngày nhập",
+        "storageLocation": "Nơi cất",
+        "storageLocationPlaceholder": "VD: Kho vũ khí A"
+      },
+      "validation": {
+        "summary": "Vui lòng điền đầy đủ các trường bắt buộc",
+        "typeRequired": "Vui lòng nhập loại vũ khí",
+        "serialNumberRequired": "Vui lòng nhập số hiệu",
+        "acquiredAtRequired": "Vui lòng chọn ngày nhập",
+        "storageLocationRequired": "Vui lòng nhập nơi cất"
+      },
+      "submit": {
+        "idle": "Thêm",
+        "pending": "Đang lưu...",
+        "success": "Đã thêm vũ khí",
+        "error": "Không thể thêm vũ khí",
+        "duplicateSerial": "Số hiệu này đã có trong danh mục vũ khí."
+      }
+    }
+  },
+  "log": {
+    "list": {
+      "loading": "Đang tải log cấp phát",
+      "empty": "Chưa có log cấp phát nào",
+      "error": "Không thể tải log cấp phát."
+    },
+    "table": {
+      "issuedAt": "Ngày",
+      "weapon": "Vũ khí",
+      "recipient": "Người nhận",
+      "purpose": "Mục đích",
+      "returnedAt": "Ngày trả"
+    },
+    "row": {
+      "notReturned": "Chưa trả"
+    }
+  },
+  "inventory": {
+    "cards": {
+      "good": "Tình trạng tốt",
+      "maintenance": "Đang bảo trì",
+      "damaged": "Hỏng",
+      "overdue": "Quá hạn (>180 ngày)"
+    },
+    "report": {
+      "table": {
+        "type": "Loại",
+        "serialNumber": "Số hiệu",
+        "condition": "Tình trạng",
+        "storageLocation": "Nơi cất",
+        "responsiblePerson": "Người chịu TN",
+        "currentHolder": "Đang cấp phát",
+        "overdue": "Quá hạn"
+      },
+      "overdueBadge": "Quá hạn",
+      "error": "Không thể tải báo cáo tồn kho vũ khí."
+    },
+    "export": {
+      "button": "Biên bản kiểm kê (nội bộ)",
+      "error": "Không thể xuất biên bản kiểm kê",
+      "forbidden": "Bạn không có quyền xuất biên bản kiểm kê."
+    },
+    "record": {
+      "heading": "Xác nhận kiểm kê",
+      "registerTotal": "Tổng số vũ khí / trang thiết bị đang hoạt động theo sổ sách:",
+      "open": "Xác nhận kiểm kê",
+      "dialog": {
+        "title": "Ghi nhận kết quả kiểm kê"
+      },
+      "mode": {
+        "legend": "Cách kiểm kê",
+        "count": "Nhập số lượng",
+        "checklist": "Kiểm theo danh sách"
+      },
+      "fields": {
+        "confirmedCount": "Số lượng xác nhận có mặt",
+        "confirmedCountHint": "Theo sổ sách hiện có {{total}} vũ khí đang hoạt động.",
+        "notes": "Ghi chú kiểm kê",
+        "notesPlaceholder": "Ghi chú về tình trạng kiểm kê..."
+      },
+      "validation": {
+        "countRequired": "Vui lòng nhập số lượng xác nhận có mặt",
+        "countInvalid": "Số lượng phải là số nguyên từ 0 đến 100.000"
+      },
+      "submit": {
+        "idle": "Lưu kết quả",
+        "pending": "Đang xác nhận...",
+        "success": "Đã xác nhận kiểm kê",
+        "error": "Không thể xác nhận kiểm kê",
+        "forbidden": "Tài khoản của bạn không được phép ghi nhận kiểm kê vũ khí."
+      }
+    },
+    "checklist": {
+      "loading": "Đang tải danh sách vũ khí",
+      "error": "Không thể tải danh sách vũ khí để kiểm kê.",
+      "empty": "Không có vũ khí nào đang hoạt động trong sổ sách.",
+      "markAll": "Đánh dấu tất cả có mặt",
+      "foundCount": "Xác nhận có mặt: {{found}}/{{total}}",
+      "foundLabel": "Có mặt: {{serial}}",
+      "observedLabel": "Tình trạng khi kiểm kê: {{serial}}",
+      "table": {
+        "found": "Có mặt",
+        "serialNumber": "Số hiệu",
+        "type": "Loại",
+        "storageLocation": "Nơi cất",
+        "condition": "Tình trạng trong sổ",
+        "observedCondition": "Tình trạng khi kiểm kê"
+      }
+    },
+    "result": {
+      "title": "Kết quả kiểm kê ngày {{date}}"
+    },
+    "summary": {
+      "expected": "Theo sổ sách",
+      "confirmed": "Xác nhận có mặt",
+      "discrepancy": "Chênh lệch",
+      "missing": "Thiếu {{amount}} vũ khí so với sổ sách",
+      "surplus": "Thừa {{amount}} vũ khí so với sổ sách",
+      "match": "Số lượng khớp với sổ sách",
+      "notFound": "Không có mặt ({{amount}}): {{serials}}",
+      "notes": "Ghi chú"
+    },
+    "discrepancy": {
+      "missing": "Thiếu {{amount}}",
+      "surplus": "Thừa {{amount}}",
+      "match": "Khớp"
+    },
+    "history": {
+      "heading": "Lịch sử kiểm kê",
+      "filters": {
+        "rangeInvalid": "Ngày kết thúc không được trước ngày bắt đầu."
+      },
+      "load": {
+        "loading": "Đang tải lịch sử kiểm kê",
+        "empty": "Chưa có lần kiểm kê nào trong khoảng thời gian đã chọn.",
+        "error": "Không thể tải lịch sử kiểm kê."
+      },
+      "table": {
+        "checkDate": "Ngày kiểm kê",
+        "performedBy": "Người kiểm kê",
+        "expected": "Theo sổ sách",
+        "confirmed": "Xác nhận có mặt",
+        "discrepancy": "Chênh lệch",
+        "itemised": "Kiểm theo danh sách",
+        "notes": "Ghi chú",
+        "actions": "Thao tác"
+      },
+      "row": {
+        "itemised": "Đã kiểm {{verified}}/{{total}} · Không có mặt {{missing}}",
+        "countOnly": "Chỉ nhập số lượng"
+      }
+    },
+    "detail": {
+      "title": "Phiếu kiểm kê ngày {{date}}",
+      "description": "Người kiểm kê: {{name}}",
+      "loading": "Đang tải phiếu kiểm kê",
+      "error": "Không thể tải phiếu kiểm kê.",
+      "empty": "Phiếu kiểm kê không có vũ khí nào.",
+      "conditionChanged": "{{from}} → {{to}}",
+      "table": {
+        "serialNumber": "Số hiệu",
+        "type": "Loại",
+        "storageLocation": "Nơi cất",
+        "holder": "Đang cấp cho",
+        "condition": "Tình trạng trong sổ",
+        "result": "Kết quả",
+        "observedCondition": "Tình trạng khi kiểm kê"
+      },
+      "result": {
+        "found": "Có mặt",
+        "missing": "Không có mặt",
+        "notItemised": "Không kiểm theo danh sách"
+      }
+    }
+  }
+}

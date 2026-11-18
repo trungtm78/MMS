@@ -1,0 +1,376 @@
+{
+  "custom": {
+    "header": {
+      "title": "Báo Cáo Tùy Chỉnh",
+      "subtitle": "Tạo báo cáo theo khoảng thời gian và loại dữ liệu"
+    },
+    "types": {
+      "attendance": "Chấm công",
+      "tasks": "Nhiệm vụ",
+      "kpi": "KPI & Hiệu suất",
+      "payroll": "Lương & Phụ cấp"
+    },
+    "titles": {
+      "attendance": "Báo cáo chấm công",
+      "tasks": "Báo cáo nhiệm vụ",
+      "kpi": "Báo cáo KPI & hiệu suất",
+      "payroll": "Báo cáo lương & phụ cấp"
+    },
+    "groupBy": {
+      "none": "Không nhóm",
+      "unit": "Đơn vị",
+      "member": "DQTV",
+      "day": "Ngày",
+      "month": "Tháng",
+      "status": "Trạng thái",
+      "type": "Loại nhiệm vụ",
+      "priority": "Mức độ ưu tiên",
+      "assignee": "Người thực hiện"
+    },
+    "statuses": {
+      "attendance": {
+        "present": "Có mặt",
+        "late": "Đi muộn",
+        "earlyLeave": "Về sớm",
+        "absent": "Vắng"
+      },
+      "tasks": {
+        "pending": "Chờ giao",
+        "assigned": "Đã giao",
+        "inProgress": "Đang thực hiện",
+        "completed": "Hoàn thành",
+        "cancelled": "Đã hủy",
+        "overdue": "Quá hạn"
+      },
+      "kpi": {
+        "reward": "Khen thưởng",
+        "maintain": "Duy trì",
+        "training": "Bồi dưỡng thêm",
+        "warning": "Nhắc nhở",
+        "discipline": "Xem xét kỷ luật"
+      },
+      "payroll": {
+        "pending": "Chờ duyệt",
+        "approved": "Đã duyệt",
+        "rejected": "Từ chối"
+      }
+    },
+    "columns": {
+      "attendance": {
+        "unitCode": "Mã đơn vị",
+        "unitName": "Đơn vị",
+        "militiaId": "ID DQTV",
+        "militiaCode": "Mã DQTV",
+        "fullName": "Họ tên",
+        "date": "Ngày",
+        "month": "Tháng",
+        "status": "Mã trạng thái",
+        "statusLabel": "Trạng thái",
+        "records": "Số lượt chấm công",
+        "members": "Số DQTV",
+        "present": "Có mặt",
+        "late": "Đi muộn",
+        "earlyLeave": "Về sớm",
+        "absent": "Vắng",
+        "workHours": "Tổng giờ công",
+        "attendanceRate": "Tỷ lệ có mặt (%)"
+      },
+      "tasks": {
+        "unitCode": "Mã đơn vị",
+        "unitName": "Đơn vị",
+        "date": "Ngày",
+        "month": "Tháng",
+        "status": "Mã trạng thái",
+        "statusLabel": "Trạng thái",
+        "type": "Mã loại",
+        "typeLabel": "Loại nhiệm vụ",
+        "priority": "Mã mức độ",
+        "priorityLabel": "Mức độ ưu tiên",
+        "userId": "ID người thực hiện",
+        "fullName": "Người thực hiện",
+        "tasks": "Tổng nhiệm vụ",
+        "pending": "Chờ giao",
+        "assigned": "Đã giao",
+        "inProgress": "Đang thực hiện",
+        "completed": "Hoàn thành",
+        "cancelled": "Đã hủy",
+        "overdue": "Quá hạn",
+        "completionRate": "Tỷ lệ hoàn thành (%)"
+      },
+      "kpi": {
+        "unitCode": "Mã đơn vị",
+        "unitName": "Đơn vị",
+        "militiaId": "ID DQTV",
+        "militiaCode": "Mã DQTV",
+        "fullName": "Họ tên",
+        "month": "Tháng",
+        "status": "Mã đề xuất",
+        "statusLabel": "Đề xuất",
+        "evaluations": "Số lượt đánh giá",
+        "members": "Số DQTV được đánh giá",
+        "averageScore": "Điểm trung bình (thang 100)",
+        "minScore": "Điểm thấp nhất",
+        "maxScore": "Điểm cao nhất",
+        "reward": "Đề xuất: Khen thưởng",
+        "maintain": "Đề xuất: Duy trì",
+        "training": "Đề xuất: Bồi dưỡng thêm",
+        "warning": "Đề xuất: Nhắc nhở",
+        "discipline": "Đề xuất: Xem xét kỷ luật"
+      },
+      "payroll": {
+        "unitCode": "Mã đơn vị",
+        "unitName": "Đơn vị",
+        "militiaId": "ID DQTV",
+        "militiaCode": "Mã DQTV",
+        "fullName": "Họ tên",
+        "month": "Tháng",
+        "status": "Mã trạng thái duyệt",
+        "statusLabel": "Trạng thái duyệt",
+        "items": "Số bảng lương",
+        "members": "Số DQTV",
+        "baseSalary": "Lương cơ bản",
+        "attendanceAllowance": "Phụ cấp chuyên cần",
+        "taskBonus": "Thưởng nhiệm vụ",
+        "kpiBonus": "Thưởng KPI",
+        "trainingAllowance": "Phụ cấp huấn luyện",
+        "otherAllowance": "Phụ cấp khác",
+        "deduction": "Khấu trừ",
+        "netSalary": "Thực lĩnh"
+      }
+    },
+    "statutory": {
+      "title": "Báo cáo pháp định",
+      "legalBasis": "Theo TT 144/2014/TT-BQP",
+      "mau03bcLabel": "Mẫu 03-BC",
+      "mau03bcDescription": "Báo cáo tháng dân quân tự vệ",
+      "trainingLabel": "Mẫu huấn luyện",
+      "trainingDescription": "Kết quả huấn luyện định kỳ",
+      "rewardsLabel": "Mẫu khen thưởng-kỷ luật",
+      "rewardsDescription": "Đề nghị khen thưởng / kỷ luật"
+    },
+    "mau03bc": {
+      "unitLabel": "Mã đơn vị (tuỳ chọn)",
+      "unitPlaceholder": "VD: DV01",
+      "exportError": "Không thể xuất Mẫu 03-BC",
+      "militiaTitle": "I. Quân số",
+      "militiaActive": "Hiện dịch:",
+      "militiaReserve": "Dự bị:",
+      "militiaFemale": "Nữ:",
+      "trainingTitle": "II. Huấn luyện",
+      "trainingCount": "Lượt:",
+      "trainingDays": "Ngày:",
+      "disciplineTitle": "III. Kỷ luật",
+      "disciplineRewards": "Khen thưởng:",
+      "disciplineCount": "Kỷ luật:",
+      "budgetTitle": "IV. Kinh phí",
+      "budgetSalary": "Lương:",
+      "budgetAmount": "{{amount}} đ"
+    },
+    "filters": {
+      "title": "Tham số báo cáo",
+      "type": "Loại báo cáo",
+      "groupBy": "Nhóm theo",
+      "status": "Trạng thái",
+      "unitPlaceholder": "VD: KP1"
+    },
+    "generate": {
+      "idle": "Tạo báo cáo",
+      "pending": "Đang tạo...",
+      "error": "Không thể tạo báo cáo. Vui lòng thử lại."
+    },
+    "export": {
+      "error": "Không thể xuất báo cáo."
+    },
+    "result": {
+      "generatedAt": "Tạo lúc {{time}} ngày {{date}}",
+      "period": "Từ {{from}} đến {{to}} · {{scope}}",
+      "allUnits": "Toàn phường",
+      "unit": "Đơn vị {{unitCode}}",
+      "summary": "Tổng hợp",
+      "truncated": "Chỉ hiển thị {{rowCount}} dòng đầu (giới hạn {{rowLimit}} dòng). Hãy thu hẹp bộ lọc để xem đầy đủ.",
+      "percent": "{{value}}%",
+      "currency": "{{value}} đ"
+    }
+  },
+  "tasks": {
+    "header": {
+      "title": "Báo Cáo Nhiệm Vụ",
+      "subtitle": "Báo cáo thống kê tình hình thực hiện nhiệm vụ",
+      "period": "Từ {{from}} đến {{to}}"
+    },
+    "load": {
+      "pending": "Đang tải báo cáo...",
+      "error": "Không thể tải báo cáo. Vui lòng thử lại."
+    },
+    "filters": {
+      "unit": "Đơn vị",
+      "area": "Khu phố {{number}}"
+    },
+    "totals": {
+      "total": "Tổng nhiệm vụ",
+      "completed": "Đã hoàn thành",
+      "inProgress": "Đang thực hiện",
+      "overdue": "Quá hạn",
+      "cancelled": "Đã hủy",
+      "completionRate": "Tỷ lệ hoàn thành"
+    },
+    "status": {
+      "pending": "Chờ giao",
+      "assigned": "Đã giao",
+      "inProgress": "Đang thực hiện",
+      "completed": "Hoàn thành",
+      "cancelled": "Đã hủy",
+      "overdue": "Quá hạn"
+    },
+    "type": {
+      "patrol": "Tuần tra",
+      "guard": "Canh gác",
+      "inspection": "Kiểm tra",
+      "support": "Hỗ trợ",
+      "training": "Huấn luyện",
+      "admin": "Hành chính",
+      "other": "Khác"
+    },
+    "priority": {
+      "urgent": "Khẩn cấp",
+      "high": "Cao",
+      "medium": "Trung bình",
+      "low": "Thấp"
+    },
+    "columns": {
+      "status": "Trạng thái",
+      "type": "Loại nhiệm vụ",
+      "priority": "Mức độ ưu tiên",
+      "count": "Số nhiệm vụ",
+      "unit": "Đơn vị",
+      "assignee": "Người thực hiện",
+      "militiaCode": "Mã DQTV",
+      "total": "Tổng",
+      "completed": "Hoàn thành",
+      "inProgress": "Đang thực hiện",
+      "cancelled": "Đã hủy",
+      "overdue": "Quá hạn",
+      "completionRate": "Tỷ lệ hoàn thành"
+    },
+    "byStatus": {
+      "title": "Theo trạng thái"
+    },
+    "byType": {
+      "title": "Nhiệm vụ theo loại"
+    },
+    "byPriority": {
+      "title": "Theo mức độ ưu tiên"
+    },
+    "byMonth": {
+      "title": "Hoàn thành theo tháng",
+      "month": "{{month}}/{{year}}"
+    },
+    "byUnit": {
+      "title": "Theo đơn vị",
+      "unassigned": "Chưa xác định đơn vị"
+    },
+    "byAssignee": {
+      "title": "Theo người thực hiện",
+      "total": "Tổng {{total}} người thực hiện"
+    },
+    "values": {
+      "percent": "{{value}}%"
+    }
+  },
+  "trainingCompliance": {
+    "header": {
+      "title": "Báo Cáo Tuân Thủ Huấn Luyện",
+      "subtitle": "Kết quả huấn luyện và tuân thủ theo từng DQTV"
+    },
+    "filters": {
+      "year": "Năm:",
+      "unit": "Đơn vị:",
+      "area": "Khu phố {{number}}"
+    },
+    "export": {
+      "idle": "Xuất báo cáo",
+      "pending": "Đang tạo báo cáo...",
+      "success": "File đã tải xuống. In và ký tay trước khi nộp.",
+      "error": "Không thể xuất báo cáo huấn luyện."
+    },
+    "load": {
+      "error": "Không thể tải báo cáo huấn luyện."
+    },
+    "summary": {
+      "total": "Tổng DQTV",
+      "passed": "Đạt",
+      "percent": "{{value}}%",
+      "passedCount": "{{count}} người",
+      "warning": "Cảnh báo",
+      "failed": "Không đạt"
+    },
+    "columns": {
+      "index": "STT",
+      "fullName": "Họ tên",
+      "militiaCode": "Mã DQTV",
+      "unit": "Đơn vị",
+      "military": "Quân sự",
+      "political": "Chính trị",
+      "fire": "PCCC",
+      "firstAid": "Sơ cứu",
+      "other": "Khác",
+      "total": "Tổng",
+      "result": "Kết quả"
+    },
+    "status": {
+      "pass": "ĐẠT",
+      "warning": "CẢNH BÁO",
+      "fail": "KHÔNG ĐẠT"
+    },
+    "byType": {
+      "title": "Thống kê theo loại huấn luyện (tổng ngày)"
+    }
+  },
+  "roster": {
+    "gender": {
+      "male": "Nam",
+      "female": "Nữ",
+      "other": "Khác"
+    },
+    "header": {
+      "title": "Danh Sách Quân Nhân (Mẫu 01-BC)",
+      "subtitle": "Danh sách dân quân tự vệ theo đơn vị và trạng thái"
+    },
+    "export": {
+      "idle": "Xuất Excel (Mẫu 01-BC)"
+    },
+    "filters": {
+      "unit": "Đơn vị:",
+      "area": "Khu phố {{number}}",
+      "status": "Trạng thái:",
+      "allStatuses": "Tất cả trạng thái",
+      "active": "Đang hoạt động",
+      "reserve": "Dự bị",
+      "inactive": "Ngừng hoạt động"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "reserve": "Dự bị",
+      "inactive": "Ngừng"
+    },
+    "load": {
+      "error": "Không thể tải danh sách quân nhân."
+    },
+    "columns": {
+      "index": "STT",
+      "militiaCode": "Mã DQTV",
+      "fullName": "Họ tên",
+      "dateOfBirth": "Ngày sinh",
+      "gender": "Giới tính",
+      "phone": "Điện thoại",
+      "unit": "Đơn vị",
+      "rank": "Cấp bậc",
+      "occupation": "Nghề nghiệp",
+      "education": "Học vấn",
+      "status": "Trạng thái"
+    },
+    "pagination": {
+      "total": "Tổng <count>{{total}}</count> bản ghi"
+    }
+  }
+}

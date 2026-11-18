@@ -11,8 +11,12 @@ const mockAssignmentsService = {
   listByCa: jest.fn(),
 };
 
-const adminReq = { user: { sub: 'admin-1', role: 'system_admin', unitScope: null } };
-const caReq = { user: { sub: 'ca-1', role: 'ca_officer', unitScope: 'UNIT_001' } };
+const adminReq = {
+  user: { sub: 'admin-1', role: 'system_admin', unitScope: null },
+};
+const caReq = {
+  user: { sub: 'ca-1', role: 'ca_officer', unitScope: 'UNIT_001' },
+};
 
 describe('AssignmentsController', () => {
   let controller: AssignmentsController;
@@ -20,7 +24,9 @@ describe('AssignmentsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AssignmentsController],
-      providers: [{ provide: AssignmentsService, useValue: mockAssignmentsService }],
+      providers: [
+        { provide: AssignmentsService, useValue: mockAssignmentsService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
@@ -38,10 +44,13 @@ describe('AssignmentsController', () => {
       const created = { id: 'a-new', ...dto };
       mockAssignmentsService.createAssignment.mockReturnValueOnce(created);
 
-      const result = controller.create(dto as any, adminReq as any);
+      const result = controller.create(dto as never, adminReq as never);
 
       expect(result).toEqual(created);
-      expect(mockAssignmentsService.createAssignment).toHaveBeenCalledWith(dto, 'admin-1');
+      expect(mockAssignmentsService.createAssignment).toHaveBeenCalledWith(
+        dto,
+        'admin-1',
+      );
     });
 
     it('propagates error from service', () => {
@@ -49,7 +58,9 @@ describe('AssignmentsController', () => {
         throw new Error('duplicate_assignment');
       });
 
-      expect(() => controller.create({} as any, adminReq as any)).toThrow('duplicate_assignment');
+      expect(() => controller.create({} as never, adminReq as never)).toThrow(
+        'duplicate_assignment',
+      );
     });
   });
 
@@ -57,13 +68,12 @@ describe('AssignmentsController', () => {
     it('removes assignment and returns void (204)', () => {
       mockAssignmentsService.removeAssignment.mockReturnValueOnce(undefined);
 
-      const result = controller.remove('a-1', adminReq as any);
+      const result = controller.remove('a-1');
 
       expect(result).toBeUndefined();
-      expect(mockAssignmentsService.removeAssignment).toHaveBeenCalledWith('a-1', {
-        sub: 'admin-1',
-        role: 'system_admin',
-      });
+      expect(mockAssignmentsService.removeAssignment).toHaveBeenCalledWith(
+        'a-1',
+      );
     });
 
     it('propagates NotFoundException for unknown assignment', () => {
@@ -71,16 +81,18 @@ describe('AssignmentsController', () => {
         throw new NotFoundException();
       });
 
-      expect(() => controller.remove('bad', adminReq as any)).toThrow(NotFoundException);
+      expect(() => controller.remove('bad')).toThrow(NotFoundException);
     });
   });
 
   describe('list', () => {
     it('returns assignments for specified caUserId (admin)', () => {
-      const assignments = [{ id: 'a1', caUserId: 'ca-1', dqtvUserId: 'dqtv-1' }];
+      const assignments = [
+        { id: 'a1', caUserId: 'ca-1', dqtvUserId: 'dqtv-1' },
+      ];
       mockAssignmentsService.listByCa.mockReturnValueOnce(assignments);
 
-      const result = controller.list('ca-1', adminReq as any);
+      const result = controller.list('ca-1', adminReq as never);
 
       expect(result).toEqual(assignments);
       expect(mockAssignmentsService.listByCa).toHaveBeenCalledWith('ca-1', {
@@ -93,7 +105,7 @@ describe('AssignmentsController', () => {
       const assignments = [{ id: 'a1', caUserId: 'ca-1' }];
       mockAssignmentsService.listByCa.mockReturnValueOnce(assignments);
 
-      const result = controller.list(undefined, caReq as any);
+      const result = controller.list(undefined, caReq as never);
 
       expect(result).toEqual(assignments);
       expect(mockAssignmentsService.listByCa).toHaveBeenCalledWith(undefined, {
@@ -107,7 +119,9 @@ describe('AssignmentsController', () => {
         throw new ForbiddenException();
       });
 
-      expect(() => controller.list('other-ca', caReq as any)).toThrow(ForbiddenException);
+      expect(() => controller.list('other-ca', caReq as never)).toThrow(
+        ForbiddenException,
+      );
     });
   });
 });

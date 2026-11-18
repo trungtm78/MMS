@@ -1,11 +1,14 @@
 import {
-  Injectable, NotFoundException, ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { RecruitmentApplication } from './entities/recruitment-application.entity';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { UpdateApplicationDto } from './dto/update-application.dto';
+import { businessDate } from '../common/time/business-date';
 
 @Injectable()
 export class RecruitmentService {
@@ -39,7 +42,7 @@ export class RecruitmentService {
   ): Promise<RecruitmentApplication> {
     const app = this.repo.create({
       ...dto,
-      applyDate: new Date().toISOString().slice(0, 10),
+      applyDate: businessDate().isoDate,
       status: 'new',
       createdBy: userId,
     });
@@ -71,7 +74,11 @@ export class RecruitmentService {
     return this.repo.save(app);
   }
 
-  async deleteApplication(id: string, userId: string, isAdmin: boolean): Promise<void> {
+  async deleteApplication(
+    id: string,
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<void> {
     if (!isAdmin) throw new ForbiddenException('only_admin_can_delete');
     const app = await this.getApplicationById(id);
     app.deletedAt = new Date();

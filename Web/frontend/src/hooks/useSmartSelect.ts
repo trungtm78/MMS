@@ -10,8 +10,6 @@ import type { KeyboardEvent } from 'react'
 import type { SmartSelectOption } from '@/types'
 
 export interface UseSmartSelectOptions {
-  /** Unique field name — used for data-testid attributes */
-  name: string
   /** Controlled value (selected option id) */
   value?: string
   /** Called when user selects an option */
@@ -20,8 +18,6 @@ export interface UseSmartSelectOptions {
   onClear?: () => void
   /** Options list (static or from remote) */
   options: SmartSelectOption[]
-  /** Loading state from parent (API fetching) */
-  isLoading?: boolean
   /** Whether the select is disabled */
   disabled?: boolean
   /** Debounce delay in ms (default 300) */
@@ -54,13 +50,10 @@ export interface UseSmartSelectReturn {
 }
 
 export function useSmartSelect({
-  // name param used for testid prefix in the component, not in the hook
-  name: _name, // eslint-disable-line @typescript-eslint/no-unused-vars
   value,
   onChange,
   onClear,
   options,
-  isLoading: _isLoading = false, // eslint-disable-line @typescript-eslint/no-unused-vars
   disabled = false,
   debounceMs = 300,
   onSearch,
@@ -145,9 +138,22 @@ export function useSmartSelect({
     [debounceMs, onSearch, updateActiveIndex],
   )
 
+  // Selecting closes the list and empties the search; a disabled option cannot be selected.
+  // Re-created with the caller's onChange, so every path that selects calls the current one.
+  const handleOptionSelect = useCallback(
+    (option: SmartSelectOption) => {
+      if (option.disabled) return
+      setIsOpen(false)
+      setInputValue('')
+      updateActiveIndex(-1)
+      onChange?.(option.id, option)
+    },
+    [onChange, updateActiveIndex],
+  )
+
   // US-SS-03: Keyboard navigation
   // F10+F11: reads activeIndexRef + filteredOptionsRef instead of state/derived values
-  //          so this callback only re-creates when disabled or isOpen changes
+  //          so this callback only re-creates when disabled, isOpen or the selection handler changes
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (disabled) return
@@ -194,23 +200,8 @@ export function useSmartSelect({
           break
       }
     },
-    // F10+F11: deps collapse from [disabled, isOpen, activeIndex, filteredOptions] → [disabled, isOpen]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [disabled, isOpen, updateActiveIndex],
+    [disabled, isOpen, handleOptionSelect, updateActiveIndex],
   )
-
-  function handleOptionSelect(option: SmartSelectOption) {
-    if (option.disabled) return
-    setIsOpen(false)
-    setInputValue('')
-    updateActiveIndex(-1)
-    onChange?.(option.id, option)
-  }
-
-  const handleOptionClick = useCallback((option: SmartSelectOption) => {
-    handleOptionSelect(option)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onChange])
 
   const handleClear = useCallback(() => {
     setInputValue('')
@@ -253,7 +244,7 @@ export function useSmartSelect({
     selectedOption,
     handleInputChange,
     handleKeyDown,
-    handleOptionClick,
+    handleOptionClick: handleOptionSelect,
     handleClear,
     handleInputFocus,
     handleInputBlur,

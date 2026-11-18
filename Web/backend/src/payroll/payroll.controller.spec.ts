@@ -15,7 +15,14 @@ const mockPayrollService = {
   lockPeriod: jest.fn(),
 };
 
-const adminReq = { user: { sub: 'admin-1', username: 'admin', role: 'system_admin', unitScope: null } };
+const adminReq = {
+  user: {
+    sub: 'admin-1',
+    username: 'admin',
+    role: 'system_admin',
+    unitScope: null,
+  },
+};
 
 describe('PayrollController', () => {
   let controller: PayrollController;
@@ -38,7 +45,10 @@ describe('PayrollController', () => {
   describe('listPeriods', () => {
     it('returns array of periods directly', async () => {
       const periods = [{ id: 'p1', year: 2025, month: 1 }];
-      mockPayrollService.listPeriods.mockResolvedValueOnce({ data: periods, total: 1 });
+      mockPayrollService.listPeriods.mockResolvedValueOnce({
+        data: periods,
+        total: 1,
+      });
 
       const result = await controller.listPeriods(1, 20);
 
@@ -47,7 +57,10 @@ describe('PayrollController', () => {
     });
 
     it('returns empty array when no periods exist', async () => {
-      mockPayrollService.listPeriods.mockResolvedValueOnce({ data: [], total: 0 });
+      mockPayrollService.listPeriods.mockResolvedValueOnce({
+        data: [],
+        total: 0,
+      });
 
       const result = await controller.listPeriods(1, 20);
 
@@ -63,11 +76,18 @@ describe('PayrollController', () => {
       const result = await controller.getKpiScores('p-1', 1, 20);
 
       expect(result).toEqual(kpi);
-      expect(mockPayrollService.getKpiScores).toHaveBeenCalledWith('p-1', 1, 20);
+      expect(mockPayrollService.getKpiScores).toHaveBeenCalledWith(
+        'p-1',
+        1,
+        20,
+      );
     });
 
     it('returns empty result for unknown period', async () => {
-      mockPayrollService.getKpiScores.mockResolvedValueOnce({ data: [], total: 0 });
+      mockPayrollService.getKpiScores.mockResolvedValueOnce({
+        data: [],
+        total: 0,
+      });
 
       const result = await controller.getKpiScores('bad', 1, 20);
 
@@ -125,13 +145,19 @@ describe('PayrollController', () => {
       const result = await controller.calculate('p-1');
 
       expect(result).toEqual(calcResult);
-      expect(mockPayrollService.calculateAllowances).toHaveBeenCalledWith('p-1');
+      expect(mockPayrollService.calculateAllowances).toHaveBeenCalledWith(
+        'p-1',
+      );
     });
 
     it('propagates error when period locked', async () => {
-      mockPayrollService.calculateAllowances.mockRejectedValueOnce(new Error('period_locked'));
+      mockPayrollService.calculateAllowances.mockRejectedValueOnce(
+        new Error('period_locked'),
+      );
 
-      await expect(controller.calculate('locked-p')).rejects.toThrow('period_locked');
+      await expect(controller.calculate('locked-p')).rejects.toThrow(
+        'period_locked',
+      );
     });
   });
 
@@ -147,9 +173,13 @@ describe('PayrollController', () => {
     });
 
     it('propagates error on duplicate period', async () => {
-      mockPayrollService.createPeriod.mockRejectedValueOnce(new Error('period_exists'));
+      mockPayrollService.createPeriod.mockRejectedValueOnce(
+        new Error('period_exists'),
+      );
 
-      await expect(controller.createPeriod({ year: 2025, month: 1 })).rejects.toThrow('period_exists');
+      await expect(
+        controller.createPeriod({ year: 2025, month: 1 }),
+      ).rejects.toThrow('period_exists');
     });
   });
 
@@ -161,7 +191,10 @@ describe('PayrollController', () => {
       const result = await controller.lockPeriod('p-1', adminReq);
 
       expect(result).toEqual(locked);
-      expect(mockPayrollService.lockPeriod).toHaveBeenCalledWith('p-1', adminReq.user);
+      expect(mockPayrollService.lockPeriod).toHaveBeenCalledWith(
+        'p-1',
+        adminReq.user,
+      );
     });
   });
 

@@ -1,13 +1,16 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { GpsRetentionService } from './gps-retention.service';
 
 describe('GpsRetentionService', () => {
   let service: GpsRetentionService;
-  let mockQuery: jest.Mock;
+  let mockQuery: jest.Mock<Promise<unknown>, [sql: string, params: unknown[]]>;
 
   beforeEach(async () => {
-    mockQuery = jest.fn().mockResolvedValue([null, 5]);
+    mockQuery = jest
+      .fn<Promise<unknown>, [sql: string, params: unknown[]]>()
+      .mockResolvedValue([[], 5]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -24,6 +27,8 @@ describe('GpsRetentionService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    // Undo the Logger.prototype spies so they do not leak into other suites
+    jest.restoreAllMocks();
   });
 
   it('should be defined', () => {
@@ -49,7 +54,7 @@ describe('GpsRetentionService', () => {
 
     it('logs a message containing "GPS retention"', async () => {
       const logSpy = jest
-        .spyOn((service as any).logger, 'log')
+        .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
 
       await service.purgeOldGpsPoints();
@@ -60,9 +65,9 @@ describe('GpsRetentionService', () => {
     });
 
     it('reports the correct deleted row count from query result', async () => {
-      mockQuery.mockResolvedValueOnce([null, 42]);
+      mockQuery.mockResolvedValueOnce([[], 42]);
       const logSpy = jest
-        .spyOn((service as any).logger, 'log')
+        .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
 
       await service.purgeOldGpsPoints();
@@ -73,7 +78,7 @@ describe('GpsRetentionService', () => {
     it('swallows errors and logs them without rethrowing', async () => {
       mockQuery.mockRejectedValueOnce(new Error('DB connection lost'));
       const errorSpy = jest
-        .spyOn((service as any).logger, 'error')
+        .spyOn(Logger.prototype, 'error')
         .mockImplementation(() => undefined);
 
       await expect(service.purgeOldGpsPoints()).resolves.toBeUndefined();

@@ -1,27 +1,65 @@
-// US-SS-08: UserForm — create user with unit SmartSelect
-import { useState, useCallback } from 'react'
+// US-SS-08: UserForm — create an account through POST /admin/users (admin.controller.ts, CreateUserBodyDto)
+// with the unit picked in a SmartSelect; the server generates the password and returns it once
+import { useState, useCallback, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { unitsApi, usersApi } from '@/api/users'
-import type { SmartSelectOption, UnitSearchItem } from '@/types'
+import {
+  CREATE_USER_ERROR_FIELDS,
+  CREATE_USER_VALIDATION_FIELDS,
+  OFFICE_STAFF_ASSIGNABLE_ROLES,
+  PHONE_PATTERN,
+  USERNAME_PATTERN,
+  buildCreateUserBody,
+  createUser,
+  type CreateUserField,
+} from '@/api/admin'
+import { unitsApi } from '@/api/users'
+import { useRbac } from '@/hooks/useRbac'
+import {
+  describeApiError,
+  errorCodeText,
+  mapValidationErrors,
+  parseApiError,
+  validationFormMessage,
+} from '@/lib/api-error'
+import { ROLE_PRIORITY, roleLabel } from '@/lib/roles'
+import type { SmartSelectOption, UnitSearchItem, UserRole } from '@/types'
 
-const schema = z.object({
-  username: z.string().min(3, 'Tên đăng nhập tối thiểu 3 ký tự').max(50),
-  fullName: z.string().min(2, 'Họ tên tối thiểu 2 ký tự').max(100),
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
-  role: z.string().min(1, 'Vai trò là bắt buộc'),
-  unitCode: z.string().optional(),
-  email: z.string().email('Email không hợp lệ').optional().or(z.literal('')),
-  phone: z.string().optional(),
-})
+// The user list this form belongs to (pageRoutes.ts /users/*)
+const USER_LIST_PATH = '/users'
 
-type FormValues = z.infer<typeof schema>
+// CreateUserBodyDto rules; messages are read when the form is built, in the current language
+function buildSchema(t: TFunction, assignableRoles: readonly UserRole[]) {
+  return z.object({
+    username: z.string().trim().regex(USERNAME_PATTERN, t('users.create.validation.username')),
+    fullName: z.string().trim().min(1, t('users.create.validation.fullNameRequired')),
+    role: z
+      .string()
+      .refine((value) => (assignableRoles as readonly string[]).includes(value), t('users.form.validation.roleRequired')),
+    unitCode: z.string(),
+    email: z
+      .string()
+      .trim()
+      .refine((value) => value === '' || z.string().email().safeParse(value).success, t('users.create.validation.emailInvalid')),
+    phone: z
+      .string()
+      .trim()
+      .refine((value) => value === '' || PHONE_PATTERN.test(value), t('users.create.validation.phoneInvalid')),
+  })
+}
+
+type FormValues = z.infer<ReturnType<typeof buildSchema>>
+
+const EMPTY_FORM: FormValues = { username: '', fullName: '', role: '', unitCode: '', email: '', phone: '' }
 
 function toSmartSelectOption(u: UnitSearchItem): SmartSelectOption {
   return {
@@ -32,14 +70,73 @@ function toSmartSelectOption(u: UnitSearchItem): SmartSelectOption {
   }
 }
 
+interface CreatedAccount {
+  username: string
+  password: string
+}
+
+// The one-time password of the account just created: shown until acknowledged, never stored
+function TemporaryPasswordPanel({ account, onDismiss }: { account: CreatedAccount; onDismiss: () => void }) {
+  const { t } = useTranslation()
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
+
+  const copyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(account.password)
+      setCopyStatus(t('users.temporaryPassword.copied'))
+    } catch {
+      setCopyStatus(t('users.temporaryPassword.copyFailed'))
+    }
+  }
+
+  return (
+    <div data-testid="user-create-success" className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-2">
+      <p className="text-sm font-medium text-green-700">{t('users.form.created.title', { username: account.username })}</p>
+      <h3 className="text-base font-semibold text-slate-800">{t('users.temporaryPassword.title')}</h3>
+      <p className="text-sm text-slate-600">{t('users.temporaryPassword.description')}</p>
+      <p className="rounded-md border border-slate-200 bg-white p-3 text-center">
+        <span data-testid="temp-password" className="font-mono text-xl font-bold text-[#C62828]">{account.password}</span>
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="secondary" onClick={copyPassword}>
+          {t('users.temporaryPassword.copy')}
+        </Button>
+        <Button type="button" onClick={onDismiss}>
+          {t('users.temporaryPassword.acknowledge')}
+        </Button>
+        <Link to={USER_LIST_PATH} className="text-sm font-medium text-blue-700 hover:underline">
+          {t('users.form.actions.backToList')}
+        </Link>
+      </div>
+      {copyStatus && (
+        <p role="status" className="text-xs text-slate-600">
+          {copyStatus}
+        </p>
+      )}
+    </div>
+  )
+}
+
 interface UserFormProps {
   onSuccess?: () => void
 }
 
 export function UserForm({ onSuccess }: UserFormProps) {
+  const { t } = useTranslation()
+  const { hasRole } = useRbac()
   const queryClient = useQueryClient()
   const [unitId, setUnitId] = useState('')
   const [unitQuery, setUnitQuery] = useState('')
+  const [created, setCreated] = useState<CreatedAccount | null>(null)
+
+  // Roles the signed-in user may assign (AdminService.assertAssignableRole)
+  const isSystemAdmin = hasRole('system_admin')
+  const isOfficeStaff = hasRole('office_staff')
+  const assignableRoles = useMemo<readonly UserRole[]>(
+    () => (isSystemAdmin ? ROLE_PRIORITY : isOfficeStaff ? OFFICE_STAFF_ASSIGNABLE_ROLES : []),
+    [isSystemAdmin, isOfficeStaff],
+  )
+  const schema = useMemo(() => buildSchema(t, assignableRoles), [t, assignableRoles])
 
   const { data: unitOptions = [], isFetching: unitLoading } = useQuery({
     queryKey: ['units-search', unitQuery],
@@ -51,35 +148,43 @@ export function UserForm({ onSuccess }: UserFormProps) {
     register,
     handleSubmit,
     setValue,
+    setError,
     reset,
     formState: { errors },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: EMPTY_FORM })
+
+  const resetForm = () => {
+    reset(EMPTY_FORM)
+    setUnitId('')
+  }
 
   const createMutation = useMutation({
-    mutationFn: (data: FormValues) => {
-      const unitOption = unitOptions.find((o) => o.id === unitId)
-      const unitCode = unitOption
-        ? (unitOption.meta as unknown as UnitSearchItem).code
-        : undefined
-      return usersApi.create({
-        username: data.username,
-        fullName: data.fullName,
-        password: data.password,
-        role: data.role as Parameters<typeof usersApi.create>[0]['role'],
-        unitScope: unitCode ?? null,
-        email: data.email ?? '',
-        phone: data.phone ?? '',
-      })
-    },
-    onSuccess: () => {
-      toast.success('Tạo tài khoản thành công')
-      reset()
-      setUnitId('')
-      queryClient.invalidateQueries({ queryKey: ['users'] })
+    mutationFn: (values: FormValues) => createUser(buildCreateUserBody({ ...values, role: values.role as UserRole })),
+    onSuccess: (result) => {
+      toast.success(t('users.form.submit.success'))
+      setCreated({ username: result.username, password: result.temporaryPassword })
+      resetForm()
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       onSuccess?.()
     },
-    onError: () => {
-      toast.error('Có lỗi xảy ra. Vui lòng thử lại.')
+    onError: (err) => {
+      const { code } = parseApiError(err)
+      const field = code ? CREATE_USER_ERROR_FIELDS[code] : undefined
+      const fieldText = code && field ? errorCodeText('admin', code) : null
+      if (field && fieldText) {
+        setError(field, { type: 'server', message: fieldText })
+        return
+      }
+      const validation = mapValidationErrors(err, CREATE_USER_VALIDATION_FIELDS)
+      if (validation) {
+        for (const [name, message] of Object.entries(validation.fieldErrors) as [CreateUserField, string][]) {
+          setError(name, { type: 'server', message })
+        }
+        const formMessage = validationFormMessage(validation.otherErrors)
+        if (formMessage) toast.error(formMessage)
+        return
+      }
+      toast.error(describeApiError(err, { scope: 'admin', fallback: 'users.form.submit.error' }))
     },
   })
 
@@ -96,11 +201,11 @@ export function UserForm({ onSuccess }: UserFormProps) {
 
   const handleUnitClear = useCallback(() => {
     setUnitId('')
-    setValue('unitCode', undefined)
+    setValue('unitCode', '')
   }, [setValue])
 
   const onSubmit = handleSubmit((data) => {
-    void createMutation.mutate(data)
+    createMutation.mutate(data)
   })
 
   return (
@@ -110,13 +215,25 @@ export function UserForm({ onSuccess }: UserFormProps) {
       className="space-y-4 max-w-xl"
       noValidate
     >
-      <h2 className="text-lg font-semibold text-slate-800">Tạo tài khoản mới</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">{t('users.form.page.title')}</h2>
+          <p className="text-sm text-slate-500">{t('users.form.page.description')}</p>
+        </div>
+        <Link to={USER_LIST_PATH} className="text-sm font-medium text-blue-700 hover:underline">
+          {t('users.form.actions.backToList')}
+        </Link>
+      </div>
+
+      {created && <TemporaryPasswordPanel account={created} onDismiss={() => setCreated(null)} />}
 
       <Input
         id="user-username"
         data-testid="user-username-input"
-        label="Tên đăng nhập *"
-        placeholder="Nhập tên đăng nhập..."
+        label={t('users.form.fields.username')}
+        placeholder={t('users.form.fields.usernamePlaceholder')}
+        maxLength={50}
+        autoComplete="off"
         error={!!errors.username}
         errorMessage={errors.username?.message}
         {...register('username')}
@@ -124,63 +241,59 @@ export function UserForm({ onSuccess }: UserFormProps) {
 
       <Input
         id="user-fullname"
-        label="Họ và tên *"
-        placeholder="Nhập họ tên đầy đủ..."
+        label={t('users.form.fields.fullName')}
+        placeholder={t('users.form.fields.fullNamePlaceholder')}
+        maxLength={255}
         error={!!errors.fullName}
         errorMessage={errors.fullName?.message}
         {...register('fullName')}
       />
 
-      <Input
-        id="user-password"
-        type="password"
-        label="Mật khẩu *"
-        placeholder="Nhập mật khẩu..."
-        error={!!errors.password}
-        errorMessage={errors.password?.message}
-        {...register('password')}
-      />
-
       {/* Role */}
       <div className="flex flex-col gap-1">
-        <label htmlFor="user-role" className="text-sm font-medium text-slate-700">Vai trò *</label>
+        <label htmlFor="user-role" className="text-sm font-medium text-slate-700">{t('users.form.fields.role')}</label>
         <select
           id="user-role"
           data-testid="user-role-select"
+          aria-invalid={errors.role ? 'true' : 'false'}
+          aria-describedby={errors.role ? 'user-role-error' : undefined}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           {...register('role')}
         >
-          <option value="">-- Chọn vai trò --</option>
-          <option value="system_admin">Quản trị hệ thống</option>
-          <option value="ubnd_leader">Lãnh đạo UBND</option>
-          <option value="police_ward">CA Phường</option>
-          <option value="police_area">CA Khu phố</option>
-          <option value="office_staff">Văn phòng</option>
-          <option value="dqtv">Dân quân tự vệ</option>
+          <option value="">{t('users.form.fields.rolePlaceholder')}</option>
+          {assignableRoles.map((code) => (
+            <option key={code} value={code}>{roleLabel(code)}</option>
+          ))}
         </select>
         {errors.role && (
-          <p className="text-xs text-red-500">{errors.role.message}</p>
+          <p id="user-role-error" data-testid="user-role-error" role="alert" className="text-xs text-red-500">
+            {errors.role.message}
+          </p>
         )}
       </div>
 
       {/* Unit SmartSelect */}
       <SmartSelect
         name="unit"
-        label="Đơn vị / Khu phố"
-        placeholder="Tìm đơn vị theo tên hoặc mã..."
+        label={t('users.form.fields.unit')}
+        placeholder={t('users.form.fields.unitPlaceholder')}
         value={unitId}
         onChange={(id) => handleUnitChange(id)}
         onClear={handleUnitClear}
         options={unitOptions}
         isLoading={unitLoading}
+        error={!!errors.unitCode}
+        errorMessage={errors.unitCode?.message}
         onSearch={setUnitQuery}
       />
 
       <Input
         id="user-email"
         type="email"
-        label="Email"
-        placeholder="email@example.com"
+        data-testid="user-email-input"
+        label={t('users.form.fields.email')}
+        placeholder={t('users.form.fields.emailPlaceholder')}
+        maxLength={255}
         error={!!errors.email}
         errorMessage={errors.email?.message}
         {...register('email')}
@@ -188,27 +301,25 @@ export function UserForm({ onSuccess }: UserFormProps) {
 
       <Input
         id="user-phone"
-        label="Số điện thoại"
-        placeholder="0909xxxxxx"
+        type="tel"
+        label={t('users.form.fields.phone')}
+        placeholder={t('users.form.fields.phonePlaceholder')}
+        maxLength={20}
+        error={!!errors.phone}
+        errorMessage={errors.phone?.message}
         {...register('phone')}
       />
 
-      {createMutation.isSuccess && (
-        <div data-testid="user-create-success" className="text-sm text-green-600 font-medium">
-          Tài khoản đã được tạo thành công!
-        </div>
-      )}
-
       <div className="flex justify-end gap-3 pt-2">
-        <Button type="button" variant="secondary" onClick={() => { reset(); setUnitId('') }}>
-          Đặt lại
+        <Button type="button" variant="secondary" onClick={resetForm}>
+          {t('users.form.actions.reset')}
         </Button>
         <Button
           type="submit"
           data-testid="user-submit-btn"
           loading={createMutation.isPending}
         >
-          Tạo tài khoản
+          {t('users.form.actions.submit')}
         </Button>
       </div>
     </form>

@@ -8,6 +8,7 @@ class Routes {
   static const mfaSetup       = '/mfa-setup';
   static const recoveryCodes  = '/recovery-codes';
   static const forgotPassword = '/forgot-password';
+  static const security       = '/security';  // MFA management, both roles
 
   // ─── CA Shell ────────────────────────────────────────────────────────────────
   static const caHome         = '/ca/home';

@@ -1,0 +1,74 @@
+{
+  "sidebar": {
+    "landmark": {
+      "label": "Điều hướng"
+    },
+    "mobile": {
+      "title": "Menu",
+      "close": "Đóng menu"
+    },
+    "fixed": {
+      "dashboard": "Tổng quan",
+      "help": "Hướng dẫn",
+      "settings": "Cài đặt",
+      "logout": "Đăng xuất"
+    },
+    "favorites": {
+      "group": "Yêu thích",
+      "add": "Thêm vào yêu thích",
+      "remove": "Bỏ yêu thích",
+      "removeFromGroup": "Xóa khỏi yêu thích"
+    },
+    "groups": {
+      "personnel": "Quản Lý Nhân Sự",
+      "tasks": "Giao Việc",
+      "attendance": "Chấm Công & Lương",
+      "monitoring": "Theo Dõi & Cảnh Báo",
+      "training": "Huấn Luyện",
+      "rewards": "Khen Thưởng - Kỷ Luật",
+      "complianceReports": "Báo Cáo Pháp Định",
+      "reports": "Báo Cáo & Thống Kê",
+      "documents": "Văn Bản & Tin Nhắn",
+      "account": "Tài Khoản",
+      "admin": "Quản Trị"
+    },
+    "items": {
+      "militiaList": "Danh sách DQTV",
+      "organization": "Tổ chức biên chế",
+      "recruitment": "Tuyển chọn & Đăng ký",
+      "exemptions": "Miễn hoãn nghĩa vụ",
+      "tasks": "Danh sách giao việc",
+      "attendance": "Chấm công",
+      "timesheet": "Bảng công",
+      "payroll": "KPI & Lương",
+      "leave": "Đơn nghỉ phép",
+      "approvals": "Phê duyệt",
+      "sos": "SOS / Cảnh báo",
+      "notifications": "Thông báo",
+      "gpsTracking": "GPS Tracking",
+      "training": "Lịch huấn luyện",
+      "rewards": "Quyết định khen thưởng, kỷ luật",
+      "complianceDashboard": "Tổng quan tuân thủ",
+      "reportTrainingCompliance": "Tuân thủ huấn luyện",
+      "reportRoster": "Danh sách QN (Mẫu 01-BC)",
+      "reportAttendanceSummary": "Tổng hợp điểm danh",
+      "reportRewardsDiscipline": "Khen thưởng - Kỷ luật",
+      "reports": "Báo cáo",
+      "kpiDashboard": "Chỉ tiêu KPI",
+      "officialDocuments": "Văn bản pháp lý",
+      "chat": "Tin nhắn",
+      "deviceSessions": "Thiết bị & Phiên",
+      "userManagement": "Quản lý tài khoản",
+      "assignments": "Phân công",
+      "auditLog": "Nhật ký hệ thống",
+      "weapons": "Vũ khí trang thiết bị"
+    },
+    "today": {
+      "title": "Hôm nay",
+      "attendance": "Điểm danh:",
+      "attendanceRecorded": "Đã ghi nhận",
+      "attendanceMissing": "Chưa chấm",
+      "tasks": "Nhiệm vụ:"
+    }
+  }
+}

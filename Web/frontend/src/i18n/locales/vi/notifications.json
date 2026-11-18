@@ -1,0 +1,75 @@
+{
+  "item": {
+    "unreadBadge": {
+      "label": "{{total}} chưa đọc"
+    },
+    "remove": {
+      "label": "Xóa thông báo \"{{title}}\"",
+      "title": "Xóa thông báo",
+      "success": "Đã xóa thông báo",
+      "error": "Không thể xóa thông báo"
+    },
+    "markRead": {
+      "error": "Không thể đánh dấu đã đọc"
+    },
+    "markAll": {
+      "error": "Không thể cập nhật"
+    }
+  },
+  "drawer": {
+    "panel": {
+      "title": "Thông báo",
+      "close": "Đóng thông báo"
+    },
+    "item": {
+      "unread": "(chưa đọc)"
+    },
+    "markAll": {
+      "action": "Đọc tất cả",
+      "success": "Đã đánh dấu tất cả đã đọc"
+    },
+    "list": {
+      "loadError": "Không thể tải thông báo.",
+      "empty": "Bạn không có thông báo nào"
+    },
+    "viewAll": {
+      "action": "Xem tất cả thông báo"
+    }
+  },
+  "page": {
+    "header": {
+      "title": "Thông báo",
+      "subtitle": "UBND Phường Phú Định – ANTT"
+    },
+    "filters": {
+      "unread": "Chưa đọc",
+      "read": "Đã đọc"
+    },
+    "item": {
+      "unread": "Chưa đọc"
+    },
+    "time": {
+      "justNow": "Vừa xong",
+      "minutesAgo": "{{minutes}} phút trước",
+      "hoursAgo": "{{hours}} giờ trước",
+      "daysAgo": "{{days}} ngày trước"
+    },
+    "markAll": {
+      "action": "Đánh dấu tất cả đã đọc",
+      "success": "Đã đánh dấu tất cả là đã đọc"
+    },
+    "list": {
+      "loadError": "Không thể tải thông báo. Vui lòng thử lại."
+    },
+    "empty": {
+      "title": "Không có thông báo",
+      "allRead": "Bạn đã đọc tất cả thông báo",
+      "none": "Chưa có thông báo nào"
+    },
+    "pagination": {
+      "label": "Phân trang thông báo",
+      "total": "Tổng <total>{{total}}</total> thông báo",
+      "page": "Trang {{page}}/{{totalPages}}"
+    }
+  }
+}

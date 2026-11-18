@@ -1,19 +1,22 @@
 // Admin-only: system settings with edit mode for system_admin
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Settings, Edit, Save, X, AlertTriangle } from 'lucide-react'
 import client from '@/api/client'
-import { useAuth } from '@/contexts/AuthContext'
+import { useRbac } from '@/hooks/useRbac'
+import type { TranslationKey } from '@/i18n/types'
+import { describeApiError } from '@/lib/api-error'
 
 type SettingsMap = Record<string, string>
 
-const EDITABLE_FIELDS: { key: string; label: string; type: 'number' | 'text' }[] = [
-  { key: 'session_timeout_minutes', label: 'Thời gian hết phiên (phút)', type: 'number' },
-  { key: 'password_min_length', label: 'Độ dài mật khẩu tối thiểu', type: 'number' },
-  { key: 'max_login_attempts', label: 'Số lần đăng nhập sai tối đa', type: 'number' },
-  { key: 'gps_retention_days', label: 'Lưu giữ GPS (ngày)', type: 'number' },
-  { key: 'min_wage_region_1', label: 'Lương tối thiểu vùng I (VNĐ)', type: 'number' },
-  { key: 'training_daily_allowance_rate', label: 'Hệ số phụ cấp huấn luyện/ngày', type: 'text' },
+const EDITABLE_FIELDS: { key: string; labelKey: TranslationKey; type: 'number' | 'text' }[] = [
+  { key: 'session_timeout_minutes', labelKey: 'settings.system.fields.sessionTimeoutMinutes', type: 'number' },
+  { key: 'password_min_length', labelKey: 'settings.system.fields.passwordMinLength', type: 'number' },
+  { key: 'max_login_attempts', labelKey: 'settings.system.fields.maxLoginAttempts', type: 'number' },
+  { key: 'gps_retention_days', labelKey: 'settings.system.fields.gpsRetentionDays', type: 'number' },
+  { key: 'min_wage_region_1', labelKey: 'settings.system.fields.minWageRegion1', type: 'number' },
+  { key: 'training_daily_allowance_rate', labelKey: 'settings.system.fields.trainingDailyAllowanceRate', type: 'text' },
 ]
 
 async function fetchSettings(): Promise<SettingsMap> {
@@ -28,12 +31,14 @@ async function saveSettings(dto: SettingsMap): Promise<void> {
 interface AlertDialogProps {
   title: string
   description: string
+  confirmLabel: string
   onConfirm: () => void
   onCancel: () => void
   isPending?: boolean
 }
 
-function AlertDialog({ title, description, onConfirm, onCancel, isPending }: AlertDialogProps) {
+function AlertDialog({ title, description, confirmLabel, onConfirm, onCancel, isPending }: AlertDialogProps) {
+  const { t } = useTranslation()
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-xl border border-[#E2E8F0] shadow-2xl w-full max-w-md mx-4 p-6">
@@ -51,7 +56,7 @@ function AlertDialog({ title, description, onConfirm, onCancel, isPending }: Ale
             onClick={onCancel}
             className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            Hủy
+            {t('common.actions.cancel')}
           </button>
           <button
             onClick={onConfirm}
@@ -59,7 +64,7 @@ function AlertDialog({ title, description, onConfirm, onCancel, isPending }: Ale
             data-testid="confirm-save-btn"
             className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-60 transition-colors"
           >
-            {isPending ? 'Đang lưu...' : 'Xác nhận lưu'}
+            {isPending ? t('common.actions.saving') : confirmLabel}
           </button>
         </div>
       </div>
@@ -77,8 +82,10 @@ function SettingRow({ label, value }: { label: string; value: React.ReactNode })
 }
 
 export function SettingsSystemPage() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'system_admin'
+  const { t } = useTranslation()
+  // PATCH /admin/system-settings is system_admin only; any held role counts
+  const { hasRole } = useRbac()
+  const isAdmin = hasRole('system_admin')
 
   const qc = useQueryClient()
   const { data, isLoading, isError } = useQuery({
@@ -99,8 +106,8 @@ export function SettingsSystemPage() {
       setSaveError(null)
       setShowConfirm(false)
     },
-    onError: () => {
-      setSaveError('Không thể lưu cài đặt. Vui lòng thử lại.')
+    onError: (err: unknown) => {
+      setSaveError(describeApiError(err, { fallback: 'settings.system.save.error' }))
       setShowConfirm(false)
     },
   })
@@ -132,7 +139,7 @@ export function SettingsSystemPage() {
   if (isLoading) {
     return (
       <div className="p-6 bg-[#F8FAFC] min-h-full">
-        <div className="text-center text-[#64748B] py-12 text-sm">Đang tải...</div>
+        <div className="text-center text-[#64748B] py-12 text-sm">{t('common.states.loading')}</div>
       </div>
     )
   }
@@ -142,8 +149,8 @@ export function SettingsSystemPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Cài Đặt Hệ Thống</h1>
-          <p className="text-sm text-[#64748B] mt-1">Cấu hình chung cho toàn bộ hệ thống MMS</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">{t('settings.system.page.heading')}</h1>
+          <p className="text-sm text-[#64748B] mt-1">{t('settings.system.page.description')}</p>
         </div>
         {isAdmin && !isEditing && (
           <button
@@ -152,7 +159,7 @@ export function SettingsSystemPage() {
             className="flex items-center gap-2 border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors bg-white"
           >
             <Edit size={15} />
-            Chỉnh sửa
+            {t('common.actions.edit')}
           </button>
         )}
         {isEditing && (
@@ -163,7 +170,7 @@ export function SettingsSystemPage() {
               className="flex items-center gap-2 border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
             >
               <X size={15} />
-              Huỷ
+              {t('settings.system.edit.cancel')}
             </button>
             <button
               onClick={handleSave}
@@ -172,7 +179,7 @@ export function SettingsSystemPage() {
               className="flex items-center gap-2 bg-[#2E7D32] text-white hover:bg-[#1B5E20] rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 transition-colors"
             >
               <Save size={15} />
-              {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              {mutation.isPending ? t('common.actions.saving') : t('common.actions.save')}
             </button>
           </div>
         )}
@@ -180,7 +187,7 @@ export function SettingsSystemPage() {
 
       {isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
-          Không thể tải cài đặt hệ thống.
+          {t('settings.system.page.loadError')}
         </div>
       )}
 
@@ -197,15 +204,15 @@ export function SettingsSystemPage() {
               <Settings size={16} className="text-[#C62828]" />
             </div>
             <p className="text-sm font-semibold text-[#0F172A]">
-              {isEditing ? 'Chỉnh sửa cài đặt hệ thống' : 'Thông số hệ thống'}
+              {isEditing ? t('settings.system.card.edit') : t('settings.system.card.view')}
             </p>
           </div>
           <div className="px-6 py-2">
             {isEditing ? (
               <div className="py-4 space-y-4">
-                {EDITABLE_FIELDS.map(({ key, label, type }) => (
+                {EDITABLE_FIELDS.map(({ key, labelKey, type }) => (
                   <div key={key} className="grid grid-cols-2 gap-4 items-center">
-                    <label className="text-sm text-[#64748B]">{label}</label>
+                    <label className="text-sm text-[#64748B]">{t(labelKey)}</label>
                     <input
                       type={type}
                       value={draft[key] ?? ''}
@@ -218,8 +225,8 @@ export function SettingsSystemPage() {
               </div>
             ) : (
               <>
-                {EDITABLE_FIELDS.map(({ key, label }) => (
-                  <SettingRow key={key} label={label} value={data[key] ?? '—'} />
+                {EDITABLE_FIELDS.map(({ key, labelKey }) => (
+                  <SettingRow key={key} label={t(labelKey)} value={data[key] ?? t('common.states.none')} />
                 ))}
                 {Object.entries(data)
                   .filter(([k]) => !EDITABLE_FIELDS.some((f) => f.key === k))
@@ -235,8 +242,9 @@ export function SettingsSystemPage() {
       {/* Confirm AlertDialog */}
       {showConfirm && (
         <AlertDialog
-          title="Xác nhận lưu cài đặt"
-          description="Thao tác này sẽ thay đổi cấu hình toàn bộ hệ thống MMS. Bạn chắc chắn muốn tiếp tục?"
+          title={t('settings.system.save.confirmTitle')}
+          description={t('settings.system.save.confirmDescription')}
+          confirmLabel={t('settings.system.save.confirmLabel')}
           onConfirm={handleConfirmSave}
           onCancel={() => setShowConfirm(false)}
           isPending={mutation.isPending}

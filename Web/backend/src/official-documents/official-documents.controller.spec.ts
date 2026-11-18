@@ -4,6 +4,10 @@ import { OfficialDocumentsService } from './official-documents.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotFoundException } from '@nestjs/common';
+import type { JwtPayload } from '../auth/auth.service';
+
+// The controller keeps its body DTO private, so take it from the handler signature
+type CreateDocBody = Parameters<OfficialDocumentsController['create']>[1];
 
 const mockOfficialDocumentsService = {
   list: jest.fn(),
@@ -13,7 +17,14 @@ const mockOfficialDocumentsService = {
   revoke: jest.fn(),
 };
 
-const adminReq = { user: { sub: 'admin-1', role: 'system_admin', unitScope: null } };
+const adminReq: { user: JwtPayload } = {
+  user: {
+    sub: 'admin-1',
+    username: 'admin',
+    role: 'system_admin',
+    unitScope: null,
+  },
+};
 
 describe('OfficialDocumentsController', () => {
   let controller: OfficialDocumentsController;
@@ -21,7 +32,12 @@ describe('OfficialDocumentsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OfficialDocumentsController],
-      providers: [{ provide: OfficialDocumentsService, useValue: mockOfficialDocumentsService }],
+      providers: [
+        {
+          provide: OfficialDocumentsService,
+          useValue: mockOfficialDocumentsService,
+        },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
@@ -29,7 +45,9 @@ describe('OfficialDocumentsController', () => {
       .useValue({ canActivate: () => true })
       .compile();
 
-    controller = module.get<OfficialDocumentsController>(OfficialDocumentsController);
+    controller = module.get<OfficialDocumentsController>(
+      OfficialDocumentsController,
+    );
     jest.clearAllMocks();
   });
 
@@ -41,28 +59,44 @@ describe('OfficialDocumentsController', () => {
       const result = controller.list(undefined, undefined, 1, 20);
 
       expect(result).toEqual(paginated);
-      expect(mockOfficialDocumentsService.list).toHaveBeenCalledWith({ type: undefined, status: undefined, page: 1, limit: 20 });
+      expect(mockOfficialDocumentsService.list).toHaveBeenCalledWith({
+        type: undefined,
+        status: undefined,
+        page: 1,
+        limit: 20,
+      });
     });
 
-    it('filters by type and status', () => {
-      mockOfficialDocumentsService.list.mockReturnValueOnce({ data: [], total: 0 });
+    it('filters by type and status', async () => {
+      mockOfficialDocumentsService.list.mockReturnValueOnce({
+        data: [],
+        total: 0,
+      });
 
-      controller.list('decree', 'active', 1, 20);
+      await controller.list('decree', 'active', 1, 20);
 
-      expect(mockOfficialDocumentsService.list).toHaveBeenCalledWith({ type: 'decree', status: 'active', page: 1, limit: 20 });
+      expect(mockOfficialDocumentsService.list).toHaveBeenCalledWith({
+        type: 'decree',
+        status: 'active',
+        page: 1,
+        limit: 20,
+      });
     });
   });
 
   describe('create', () => {
     it('creates and returns document', () => {
-      const dto = { docType: 'decree', title: 'Decree 01/2025' };
+      const dto: CreateDocBody = { docType: 'decree', title: 'Decree 01/2025' };
       const created = { id: 'doc-new', ...dto };
       mockOfficialDocumentsService.create.mockReturnValueOnce(created);
 
-      const result = controller.create(adminReq as any, dto as any);
+      const result = controller.create(adminReq, dto);
 
       expect(result).toEqual(created);
-      expect(mockOfficialDocumentsService.create).toHaveBeenCalledWith('admin-1', dto);
+      expect(mockOfficialDocumentsService.create).toHaveBeenCalledWith(
+        'admin-1',
+        dto,
+      );
     });
 
     it('propagates error from service', () => {
@@ -70,7 +104,9 @@ describe('OfficialDocumentsController', () => {
         throw new Error('invalid_dto');
       });
 
-      expect(() => controller.create(adminReq as any, {} as any)).toThrow('invalid_dto');
+      // A body missing its required fields, as a client might send it
+      const invalid = {} as unknown as CreateDocBody;
+      expect(() => controller.create(adminReq, invalid)).toThrow('invalid_dto');
     });
   });
 
@@ -121,7 +157,9 @@ describe('OfficialDocumentsController', () => {
     });
 
     it('propagates NotFoundException for unknown document', async () => {
-      mockOfficialDocumentsService.revoke.mockRejectedValueOnce(new NotFoundException());
+      mockOfficialDocumentsService.revoke.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
       await expect(controller.revoke('bad')).rejects.toThrow(NotFoundException);
     });

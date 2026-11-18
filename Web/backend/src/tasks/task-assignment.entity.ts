@@ -27,7 +27,7 @@ export class TaskAssignment {
   @Column({ name: 'assigned_by', type: 'uuid' })
   assignedBy: string;
 
-  @Column({ length: 20, default: 'assigned' })
+  @Column({ type: 'varchar', length: 20, default: 'assigned' })
   status: AssignmentStatus;
 
   @CreateDateColumn({ name: 'assigned_at', type: 'timestamptz' })

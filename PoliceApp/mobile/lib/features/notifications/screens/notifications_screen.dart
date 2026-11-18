@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/api_constants.dart';
+import '../../../l10n/l10n.dart';
+import '../../../shared/errors/app_failure.dart';
 import '../../../shared/widgets/app_header.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../models/notification_models.dart';
+import '../providers/notifications_provider.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -15,9 +17,19 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
-  List<Map<String, dynamic>> _notifications = [];
+  static const _pageSize = 20;
+
+  List<AppNotification> _notifications = [];
+  int _total = 0;
+  int _page = 0;
   bool _loading = true;
-  String? _error;
+  bool _loadingMore = false;
+  bool _markingAll = false;
+  AppFailure? _failure;
+
+  NotificationsApi get _api => ref.read(notificationsApiProvider);
+
+  bool get _hasMore => _notifications.length < _total;
 
   @override
   void initState() {
@@ -26,126 +38,187 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Future<void> _load() async {
-    if (!mounted) return;
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _failure = null;
+    });
     try {
-      final dio = ref.read(dioProvider);
-      final resp = await dio.get(ApiConstants.notifications);
-      final data = resp.data['data'];
+      final page = await _api.fetch(page: 1, limit: _pageSize);
       if (!mounted) return;
       setState(() {
-        if (data is List) {
-          _notifications = List<Map<String, dynamic>>.from(data);
-        } else if (data is Map && data['items'] is List) {
-          _notifications = List<Map<String, dynamic>>.from(data['items'] as List);
-        }
+        _notifications = page.items;
+        _total = page.total;
+        _page = page.page;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = 'Lỗi tải thông báo'; _loading = false; });
+      setState(() {
+        _failure = AppFailure.from(e);
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await _api.fetch(page: _page + 1, limit: _pageSize);
+      if (!mounted) return;
+      final shown = _notifications.map((n) => n.id).toSet();
+      setState(() {
+        _notifications = [..._notifications, ...page.items.where((n) => !shown.contains(n.id))];
+        _total = page.total;
+        _page = page.page;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+      _showFailure(e);
     }
   }
 
   Future<void> _markAllRead() async {
+    if (_markingAll) return;
+    setState(() => _markingAll = true);
     try {
-      final dio = ref.read(dioProvider);
-      await dio.post(ApiConstants.notificationReadAll);
+      await _api.markAllRead();
       if (!mounted) return;
-      await _load();
-    } catch (_) {}
+      final now = DateTime.now();
+      setState(() {
+        _notifications = [for (final n in _notifications) n.isRead ? n : n.markedRead(now)];
+        _markingAll = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _markingAll = false);
+      _showFailure(e);
+    }
   }
 
-  Future<void> _markRead(String id) async {
+  Future<void> _markRead(AppNotification notification) async {
+    if (notification.isRead) return;
+    _replace(notification.markedRead());
     try {
-      final dio = ref.read(dioProvider);
-      final url = ApiConstants.notificationRead.replaceFirst('{id}', id);
-      await dio.post(url);
-      if (!mounted) return;
-      setState(() {
-        final idx = _notifications.indexWhere((n) => n['id'] == id);
-        if (idx != -1) _notifications[idx] = {..._notifications[idx], 'isRead': true};
-      });
-    } catch (_) {}
+      await _api.markRead(notification.id);
+    } catch (e) {
+      // Put the unread state back so the list matches the server
+      _replace(notification);
+      if (mounted) _showFailure(e);
+    }
+  }
+
+  void _replace(AppNotification updated) {
+    if (!mounted) return;
+    setState(() {
+      _notifications = [for (final n in _notifications) n.id == updated.id ? updated : n];
+    });
+  }
+
+  void _showFailure(Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(failureText(context.l10n, AppFailure.from(error))),
+        backgroundColor: AppColors.error,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where((n) => n['isRead'] != true).length;
+    final l10n = context.l10n;
+    final hasUnread = _notifications.any((n) => !n.isRead);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        title: 'Thông báo',
+        title: l10n.notificationsTitle,
         showBack: true,
-        action: unreadCount > 0
-            ? TextButton(onPressed: _markAllRead, child: const Text('Đọc hết', style: TextStyle(color: AppColors.navy)))
+        action: hasUnread
+            ? TextButton(
+                onPressed: _markingAll ? null : _markAllRead,
+                child: Text(l10n.notificationsMarkAllRead, style: const TextStyle(color: AppColors.navy)),
+              )
             : null,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.navy))
-          : _error != null
+          : _failure != null
               ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.error_outline, color: AppColors.error, size: 48),
                   const SizedBox(height: 8),
-                  Text(_error!),
-                  ElevatedButton(onPressed: _load, child: const Text('Thử lại')),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      l10n.notificationsLoadFailed(failureText(l10n, _failure!)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  ElevatedButton(onPressed: _load, child: Text(l10n.commonRetry)),
                 ]))
               : _notifications.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.notifications_none, size: 64, color: AppColors.textMuted),
-                        SizedBox(height: 8),
-                        Text('Chưa có thông báo nào', style: TextStyle(color: AppColors.textMuted)),
+                        const Icon(Icons.notifications_none, size: 64, color: AppColors.textMuted),
+                        const SizedBox(height: 8),
+                        Text(l10n.notificationsEmpty, style: const TextStyle(color: AppColors.textMuted)),
                       ]),
                     )
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: _notifications.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemCount: _notifications.length + (_hasMore ? 1 : 0),
+                        separatorBuilder: (context, index) => const Divider(height: 1),
                         itemBuilder: (context, i) {
-                          final n = _notifications[i];
-                          final isRead = n['isRead'] == true;
-                          final createdAt = n['createdAt'] as String?;
-                          String timeStr = '';
-                          if (createdAt != null) {
-                            try {
-                              final dt = DateTime.parse(createdAt).toLocal();
-                              timeStr = DateFormat('dd/MM HH:mm').format(dt);
-                            } catch (_) {}
+                          if (i == _notifications.length) {
+                            return Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Center(
+                                child: _loadingMore
+                                    ? const CircularProgressIndicator(color: AppColors.navy)
+                                    : TextButton(
+                                        onPressed: _loadMore,
+                                        child: Text(
+                                          l10n.notificationsLoadMore(_notifications.length, _total),
+                                          style: const TextStyle(color: AppColors.navy),
+                                        ),
+                                      ),
+                              ),
+                            );
                           }
+                          final n = _notifications[i];
+                          final created = n.createdAt;
+                          final timeStr =
+                              created == null ? '' : DateFormat('dd/MM HH:mm').format(created.toLocal());
 
                           return ListTile(
-                            tileColor: isRead ? null : AppColors.blue.withOpacity(0.05),
+                            tileColor: n.isRead ? null : AppColors.blue.withValues(alpha: 0.05),
                             leading: CircleAvatar(
                               radius: 20,
-                              backgroundColor: _notifColor(n['type'] as String? ?? '').withOpacity(0.12),
-                              child: Icon(
-                                _notifIcon(n['type'] as String? ?? ''),
-                                size: 18,
-                                color: _notifColor(n['type'] as String? ?? ''),
-                              ),
+                              backgroundColor: _notifColor(n.type).withValues(alpha: 0.12),
+                              child: Icon(_notifIcon(n.type), size: 18, color: _notifColor(n.type)),
                             ),
                             title: Text(
-                              n['title'] as String? ?? '',
+                              n.title,
                               style: TextStyle(
-                                fontWeight: isRead ? FontWeight.w400 : FontWeight.w700,
+                                fontWeight: n.isRead ? FontWeight.w400 : FontWeight.w700,
                                 fontSize: 14,
                               ),
                             ),
                             subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(n['body'] as String? ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
+                              Text(n.body, maxLines: 2, overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12)),
                               const SizedBox(height: 2),
                               Text(timeStr, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
                             ]),
-                            trailing: !isRead
+                            trailing: !n.isRead
                                 ? Container(width: 8, height: 8, decoration: const BoxDecoration(
                                     color: AppColors.blue, shape: BoxShape.circle))
                                 : null,
-                            onTap: () { if (!isRead) _markRead(n['id'] as String); },
+                            onTap: () => _markRead(n),
                           );
                         },
                       ),
@@ -153,22 +226,18 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     );
   }
 
-  IconData _notifIcon(String type) {
-    switch (type) {
-      case 'task': return Icons.assignment_outlined;
-      case 'alert': return Icons.warning_outlined;
-      case 'leave': return Icons.event_available_outlined;
-      case 'attendance': return Icons.access_time;
-      default: return Icons.notifications_outlined;
-    }
-  }
+  IconData _notifIcon(String type) => switch (type) {
+        'task' => Icons.assignment_outlined,
+        'alert' => Icons.warning_outlined,
+        'leave' => Icons.event_available_outlined,
+        'attendance' => Icons.access_time,
+        _ => Icons.notifications_outlined,
+      };
 
-  Color _notifColor(String type) {
-    switch (type) {
-      case 'task': return AppColors.navy;
-      case 'alert': return AppColors.error;
-      case 'leave': return AppColors.warning;
-      default: return AppColors.blue;
-    }
-  }
+  Color _notifColor(String type) => switch (type) {
+        'task' => AppColors.navy,
+        'alert' => AppColors.error,
+        'leave' => AppColors.warning,
+        _ => AppColors.blue,
+      };
 }

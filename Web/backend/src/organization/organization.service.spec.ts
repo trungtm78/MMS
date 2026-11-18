@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { OrganizationService } from './organization.service';
 import { OrganizationUnit } from './entities/organization-unit.entity';
 
@@ -75,7 +79,9 @@ describe('OrganizationService', () => {
 
     it('throws NotFoundException when not found', async () => {
       mockRepo.findOne.mockResolvedValue(null);
-      await expect(service.getUnitById('nonexistent')).rejects.toThrow(NotFoundException);
+      await expect(service.getUnitById('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -92,12 +98,16 @@ describe('OrganizationService', () => {
 
     it('throws NotFoundException when unit not found', async () => {
       mockRepo.findOne.mockResolvedValue(null);
-      await expect(service.updateUnit('bad-id', { name: 'x' })).rejects.toThrow(NotFoundException);
+      await expect(service.updateUnit('bad-id', { name: 'x' })).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('throws BadRequestException when no fields provided', async () => {
       mockRepo.findOne.mockResolvedValue(mockUnit);
-      await expect(service.updateUnit('unit-1', {})).rejects.toThrow(BadRequestException);
+      await expect(service.updateUnit('unit-1', {})).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -113,13 +123,17 @@ describe('OrganizationService', () => {
     it('throws ConflictException when sub-units exist', async () => {
       const unitWithChildren = { ...mockUnit, children: [{ id: 'child-1' }] };
       mockRepo.findOne.mockResolvedValue(unitWithChildren);
-      await expect(service.deleteUnit('unit-1')).rejects.toThrow(ConflictException);
+      await expect(service.deleteUnit('unit-1')).rejects.toThrow(
+        ConflictException,
+      );
       expect(mockRepo.remove).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when unit not found', async () => {
       mockRepo.findOne.mockResolvedValue(null);
-      await expect(service.deleteUnit('nonexistent')).rejects.toThrow(NotFoundException);
+      await expect(service.deleteUnit('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -137,7 +151,9 @@ describe('OrganizationService', () => {
     it('throws NotFoundException when position not found after update', async () => {
       mockRepo.update.mockResolvedValue({ affected: 0 });
       mockRepo.findOne.mockResolvedValue(null);
-      await expect(service.updatePosition('bad-id', { name: 'x' })).rejects.toThrow(NotFoundException);
+      await expect(
+        service.updatePosition('bad-id', { name: 'x' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

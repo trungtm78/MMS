@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { useUtcServerClock, VN_NEW_YEAR_0030 } from '../../test/support/clock';
 
 const mockDataSource = { query: jest.fn() };
 const mockGateway = { broadcastNotification: jest.fn() };
@@ -22,6 +23,46 @@ describe('ComplianceAlertsService', () => {
     jest.clearAllMocks();
   });
 
+  describe('Vietnamese training year', () => {
+    describe('just after Vietnamese new year', () => {
+      useUtcServerClock(VN_NEW_YEAR_0030);
+
+      it('treats the year end as a year away', async () => {
+        await service.checkComplianceAlerts();
+
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('on the last Vietnamese day of the year', () => {
+      // 31 December 2026 01:00 in Vietnam, still 30 December in UTC
+      useUtcServerClock(new Date('2026-12-30T18:00:00Z'));
+
+      it('reports no days left for that year', async () => {
+        mockDataSource.query
+          .mockResolvedValueOnce([
+            {
+              militiaId: 'uuid-1',
+              militiaName: 'A',
+              unitCode: 'KP1',
+              totalDays: '8',
+            },
+          ])
+          .mockResolvedValueOnce([]);
+
+        await service.checkComplianceAlerts();
+
+        const calls = mockDataSource.query.mock.calls as unknown[][];
+        expect(calls[0][1]).toEqual([2026]);
+        const summary = JSON.parse((calls[1][1] as string[])[0]) as {
+          year: number;
+          daysUntilYearEnd: number;
+        };
+        expect(summary).toMatchObject({ year: 2026, daysUntilYearEnd: 0 });
+      });
+    });
+  });
+
   describe('checkComplianceAlerts', () => {
     it('skips DB query when year-end is more than 60 days away (mid-June)', async () => {
       jest.useFakeTimers().setSystemTime(new Date('2026-06-15'));
@@ -36,7 +77,12 @@ describe('ComplianceAlertsService', () => {
       jest.useFakeTimers().setSystemTime(new Date('2026-11-15'));
 
       mockDataSource.query.mockResolvedValueOnce([
-        { militiaId: 'uuid-1', militiaName: 'Nguyễn Văn A', unitCode: 'KP1', totalDays: '8' },
+        {
+          militiaId: 'uuid-1',
+          militiaName: 'Nguyễn Văn A',
+          unitCode: 'KP1',
+          totalDays: '8',
+        },
       ]);
 
       await service.checkComplianceAlerts();
@@ -61,7 +107,9 @@ describe('ComplianceAlertsService', () => {
 
     it('does not throw when DB query fails', async () => {
       jest.useFakeTimers().setSystemTime(new Date('2026-12-01'));
-      mockDataSource.query.mockRejectedValueOnce(new Error('DB connection failed'));
+      mockDataSource.query.mockRejectedValueOnce(
+        new Error('DB connection failed'),
+      );
 
       await expect(service.checkComplianceAlerts()).resolves.not.toThrow();
       jest.useRealTimers();

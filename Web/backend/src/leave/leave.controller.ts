@@ -11,12 +11,13 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { LeaveService } from './leave.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { JwtPayload } from '../auth/auth.service';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ReviewLeaveDto {
   @IsIn(['approve', 'reject'])
@@ -24,6 +25,7 @@ export class ReviewLeaveDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   reason?: string;
 }
 
@@ -43,11 +45,13 @@ export class LeaveController {
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('mine') mine?: string,
   ) {
     return this.leaveService.listLeaveRequests(req.user, {
       status,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      mine: mine === 'true' ? true : undefined,
     });
   }
 
@@ -62,11 +66,24 @@ export class LeaveController {
     return this.leaveService.createLeaveRequest(req.user, dto);
   }
 
+  /**
+   * GET /leave/types — the active leave types a request may use, for any signed-in user.
+   * Declared before leave/:id, which would otherwise take "types" for an id.
+   */
+  @Get('leave/types')
+  @UseGuards(JwtAuthGuard)
+  async listLeaveTypes() {
+    return this.leaveService.listLeaveTypes();
+  }
+
   /** GET /leave/:id — get single leave request */
   @Get('leave/:id')
   @UseGuards(JwtAuthGuard)
-  async getLeaveRequest(@Param('id') id: string) {
-    return this.leaveService.getLeaveRequest(id);
+  async getLeaveRequest(
+    @Request() req: AuthRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.leaveService.getLeaveRequest(req.user, id);
   }
 
   /** PATCH /leave/:id/review — approve or reject a leave request */
@@ -75,10 +92,15 @@ export class LeaveController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reviewLeaveRequest(
     @Request() req: AuthRequest,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewLeaveDto,
   ) {
-    await this.leaveService.reviewLeaveRequest(req.user, id, dto.action, dto.reason);
+    await this.leaveService.reviewLeaveRequest(
+      req.user,
+      id,
+      dto.action,
+      dto.reason,
+    );
   }
 
   /** GET /leave-balances — get own leave balances */
@@ -104,7 +126,7 @@ export class LeaveController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async approveFromApprovals(
     @Request() req: AuthRequest,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason?: string,
   ) {
     await this.leaveService.reviewLeaveRequest(req.user, id, 'approve', reason);
@@ -116,7 +138,7 @@ export class LeaveController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async rejectFromApprovals(
     @Request() req: AuthRequest,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason?: string,
   ) {
     await this.leaveService.reviewLeaveRequest(req.user, id, 'reject', reason);
@@ -128,7 +150,7 @@ export class LeaveController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async cancelLeaveRequest(
     @Request() req: AuthRequest,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.leaveService.cancelLeaveRequest(req.user, id);
   }

@@ -29,22 +29,22 @@ export class Task {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 50, unique: true })
+  @Column({ type: 'varchar', length: 50, unique: true })
   code: string;
 
-  @Column({ length: 255 })
+  @Column({ type: 'varchar', length: 255 })
   title: string;
 
   @Column({ type: 'text', nullable: true, default: null })
   description: string | null;
 
-  @Column({ length: 50 })
+  @Column({ type: 'varchar', length: 50 })
   type: TaskType;
 
-  @Column({ length: 20, default: 'medium' })
+  @Column({ type: 'varchar', length: 20, default: 'medium' })
   priority: TaskPriority;
 
-  @Column({ length: 20, default: 'pending' })
+  @Column({ type: 'varchar', length: 20, default: 'pending' })
   status: TaskStatus;
 
   @Column({ type: 'timestamptz', nullable: true, default: null })

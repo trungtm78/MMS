@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Zap, X, Plus, Users, ClipboardList, BarChart3,
   Clock, FileCheck, Activity, ArrowUpRight,
 } from 'lucide-react'
+import type { TranslationKey } from '@/i18n/types'
 
 interface Action {
   id: string
-  label: string
-  description: string
+  label: TranslationKey
+  description: TranslationKey
   icon: React.ElementType
   color: string
   bgColor: string
@@ -16,17 +18,18 @@ interface Action {
 }
 
 const ACTIONS: Action[] = [
-  { id: 'new-task',     label: 'Giao việc mới',        description: 'Tạo và giao nhiệm vụ mới',       icon: Plus,         color: '#C62828', bgColor: '#FEF2F2', path: '/tasks/new' },
-  { id: 'militia-list', label: 'Danh sách DQTV',        description: 'Quản lý nhân sự',                icon: Users,        color: '#2E7D32', bgColor: '#F0FDF4', path: '/militia' },
-  { id: 'task-list',    label: 'Danh sách công việc',   description: 'Xem và quản lý nhiệm vụ',        icon: ClipboardList, color: '#1F3A5F', bgColor: '#EFF6FF', path: '/tasks/list' },
-  { id: 'reports',      label: 'Báo cáo & Thống kê',    description: 'Xuất báo cáo thống kê',          icon: BarChart3,    color: '#F57C00', bgColor: '#FFF7ED', path: '/reports/attendance' },
-  { id: 'timesheet',    label: 'Chấm công',              description: 'Quản lý chấm công',              icon: Clock,        color: '#0F766E', bgColor: '#F0FDFA', path: '/timesheet' },
-  { id: 'approvals',    label: 'Duyệt đơn từ',           description: 'Phê duyệt đơn từ',               icon: FileCheck,    color: '#7C3AED', bgColor: '#F5F3FF', path: '/approvals' },
-  { id: 'kpi',          label: 'Dashboard Chỉ tiêu',    description: 'Theo dõi Chỉ tiêu KPI',          icon: Activity,     color: '#C62828', bgColor: '#FEF2F2', path: '/kpi/dashboard' },
-  { id: 'payroll',      label: 'Bảng lương',             description: 'Lương và KPI',                   icon: BarChart3,    color: '#2E7D32', bgColor: '#F0FDF4', path: '/payroll' },
+  { id: 'new-task',     label: 'layout.quickActions.actions.newTask.label',     description: 'layout.quickActions.actions.newTask.description',     icon: Plus,          color: '#C62828', bgColor: '#FEF2F2', path: '/tasks/new' },
+  { id: 'militia-list', label: 'layout.quickActions.actions.militiaList.label', description: 'layout.quickActions.actions.militiaList.description', icon: Users,         color: '#2E7D32', bgColor: '#F0FDF4', path: '/militia' },
+  { id: 'task-list',    label: 'layout.quickActions.actions.taskList.label',    description: 'layout.quickActions.actions.taskList.description',    icon: ClipboardList, color: '#1F3A5F', bgColor: '#EFF6FF', path: '/tasks/list' },
+  { id: 'reports',      label: 'layout.quickActions.actions.reports.label',     description: 'layout.quickActions.actions.reports.description',     icon: BarChart3,     color: '#F57C00', bgColor: '#FFF7ED', path: '/reports/attendance' },
+  { id: 'timesheet',    label: 'layout.quickActions.actions.timesheet.label',   description: 'layout.quickActions.actions.timesheet.description',   icon: Clock,         color: '#0F766E', bgColor: '#F0FDFA', path: '/timesheet' },
+  { id: 'approvals',    label: 'layout.quickActions.actions.approvals.label',   description: 'layout.quickActions.actions.approvals.description',   icon: FileCheck,     color: '#7C3AED', bgColor: '#F5F3FF', path: '/approvals' },
+  { id: 'kpi',          label: 'layout.quickActions.actions.kpi.label',         description: 'layout.quickActions.actions.kpi.description',         icon: Activity,      color: '#C62828', bgColor: '#FEF2F2', path: '/kpi/dashboard' },
+  { id: 'payroll',      label: 'layout.quickActions.actions.payroll.label',     description: 'layout.quickActions.actions.payroll.description',     icon: BarChart3,     color: '#2E7D32', bgColor: '#F0FDF4', path: '/payroll' },
 ]
 
 export function QuickActionsWidget() {
+  const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -46,16 +49,18 @@ export function QuickActionsWidget() {
                 <Zap size={18} className="text-[#F4F269]" />
               </div>
               <div>
-                <h3 className="font-semibold text-sm">Thao tác nhanh</h3>
-                <p className="text-xs text-white/70">Truy cập nhanh các chức năng</p>
+                <h3 className="font-semibold text-sm">{t('layout.quickActions.panel.title')}</h3>
+                <p className="text-xs text-white/70">{t('layout.quickActions.panel.subtitle')}</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
+              aria-label={t('common.actions.close')}
               className="w-7 h-7 flex items-center justify-center hover:bg-white/20 rounded-lg transition-colors"
               data-testid="quick-actions-close"
             >
-              <X size={16} />
+              <X size={16} aria-hidden="true" />
             </button>
           </div>
 
@@ -77,8 +82,8 @@ export function QuickActionsWidget() {
                     <Icon size={18} style={{ color: action.color }} />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className="text-sm font-medium text-[#0F172A] group-hover:text-[#C62828] transition-colors">{action.label}</p>
-                    <p className="text-xs text-[#64748B]">{action.description}</p>
+                    <p className="text-sm font-medium text-[#0F172A] group-hover:text-[#C62828] transition-colors">{t(action.label)}</p>
+                    <p className="text-xs text-[#64748B]">{t(action.description)}</p>
                   </div>
                   <ArrowUpRight size={15} className="text-[#64748B] group-hover:text-[#C62828] transition-colors" />
                 </button>
@@ -88,7 +93,7 @@ export function QuickActionsWidget() {
 
           <div className="px-4 py-2 bg-[#F8FAFC] border-t border-[#E2E8F0] rounded-b-2xl">
             <p className="text-xs text-[#64748B] text-center">
-              Bấm vào để điều hướng nhanh
+              {t('layout.quickActions.panel.hint')}
             </p>
           </div>
         </div>
@@ -101,7 +106,7 @@ export function QuickActionsWidget() {
         className={`w-14 h-14 rounded-full shadow-xl hover:shadow-2xl flex items-center justify-center transition-all hover:scale-105 ${
           isOpen ? 'bg-[#64748B]' : 'bg-[#C62828]'
         } text-white`}
-        title="Thao tác nhanh"
+        title={t('layout.quickActions.fab.title')}
       >
         {isOpen ? <X size={22} /> : <Zap size={22} className="text-[#F4F269]" />}
       </button>

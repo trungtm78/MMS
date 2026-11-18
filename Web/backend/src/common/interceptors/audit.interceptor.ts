@@ -137,10 +137,7 @@ export class AuditInterceptor implements NestInterceptor {
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<AuthRequest>();
     const method = req.method.toUpperCase();
     const pathname = (req.path ?? req.url).split('?')[0];
@@ -156,10 +153,12 @@ export class AuditInterceptor implements NestInterceptor {
 
     // Capture request metadata synchronously before the handler runs
     const ip =
-      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
+      (req.headers['x-forwarded-for'] as string | undefined)
+        ?.split(',')[0]
+        ?.trim() ??
       req.socket?.remoteAddress ??
       null;
-    const userAgent = (req.headers['user-agent'] as string | undefined) ?? null;
+    const userAgent = req.headers['user-agent'] ?? null;
     const requestId =
       (req.headers['x-request-id'] as string | undefined) ?? null;
 

@@ -1,38 +1,53 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_strings.dart';
-import '../../../core/constants/api_constants.dart';
-import '../../../core/network/dio_client.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../../../l10n/error_texts.dart';
+import '../../../l10n/l10n.dart';
 import '../../../shared/services/websocket_service.dart';
+import '../../../shared/utils/api_failure.dart';
 import '../../../shared/widgets/app_header.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../chat_texts.dart';
+import '../repositories/chat_repository.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
 
-  const ChatScreen({super.key, required this.conversationId});
+  /// Conversation title from the list screen, when known
+  final String? title;
+
+  const ChatScreen({super.key, required this.conversationId, this.title});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
-  final List<Map<String, dynamic>> _messages = [];
+  List<Map<String, dynamic>> _messages = [];
   bool _loading = true;
+  String? _loadError;
+  bool _sending = false;
   bool _remoteTyping = false;
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   String? _myUserId;
   StreamSubscription<WsMessage>? _wsSub;
   Timer? _typingTimer;
+  Timer? _remoteTypingTimer;
+
+  // Read once while the screen is alive: dispose() must not use ref
+  late final WebSocketService _ws;
+  late final ChatRepository _repo;
 
   @override
   void initState() {
     super.initState();
+    _ws = ref.read(webSocketServiceProvider);
+    _repo = ref.read(chatRepositoryProvider);
     _init();
   }
 
@@ -43,36 +58,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _connectWebSocket();
   }
 
-  // ─── WebSocket ────────────────────────────────────────────────────────────
+  // ─── WebSocket: receive broadcasts, join the room ─────────────────────────
 
   void _connectWebSocket() {
-    final ws = ref.read(webSocketServiceProvider);
+    if (!mounted) return;
+    final ws = _ws;
     ws.connect().then((_) => ws.joinConversation(widget.conversationId));
 
     _wsSub = ws.stream.listen((msg) {
       if (!mounted) return;
       switch (msg.event) {
         case WsEvent.messageReceived:
-          final data = msg.data as Map<String, dynamic>?;
-          if (data != null && data['conversationId'] == widget.conversationId) {
-            setState(() {
-              // Remove optimistic copy if present
-              _messages.removeWhere((m) =>
-                  m['pending'] == true && m['content'] == data['content']);
-              _messages.add(data);
-            });
+          final data = msg.data;
+          if (data is Map && data['conversationId'] == widget.conversationId) {
+            final message = Map<String, dynamic>.from(data);
+            setState(() => _messages = mergeMessage(_messages, message));
             _scrollToBottom();
-            ws.markRead(widget.conversationId);
+            final senderId = message['senderId'] ?? message['sender_id'];
+            // A message from someone else is read at once while the chat is open
+            if (senderId != null && senderId != _myUserId) {
+              _setRemoteTyping(false);
+              _markRead();
+            }
           }
+          break;
+        case WsEvent.error:
+          // Refusals of chat:join arrive as their backend code, an unanswered join as a timeout
+          final refusal = msg.data;
+          if (refusal is ApiFailure) _showError(refusal.text(context.l10n, flow: ErrorFlow.chatAck));
           break;
         case WsEvent.userTyping:
-          final d = msg.data as Map<String, dynamic>?;
-          if (d != null && d['userId'] != _myUserId) {
-            setState(() => _remoteTyping = true);
-          }
-          break;
         case WsEvent.userStoppedTyping:
-          setState(() => _remoteTyping = false);
+          // chat:typing {conversationId, userId, typing}: other rooms and my own echo are ignored
+          final typing = typingStateFor(msg, conversationId: widget.conversationId, myUserId: _myUserId);
+          if (typing != null) _setRemoteTyping(typing);
           break;
         default:
           break;
@@ -80,70 +99,99 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  // ─── HTTP fallback: load initial messages ─────────────────────────────────
+  // ─── HTTP: history ────────────────────────────────────────────────────────
 
   Future<void> _loadMessages() async {
+    if (mounted) setState(() { _loading = true; _loadError = null; });
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      final url = ApiConstants.messages.replaceFirst(
-        '{id}',
-        widget.conversationId,
-      );
-      final res = await dio.get(url);
-      final data = (res.data['data'] as List?) ?? [];
+      final history = await _repo.messages(widget.conversationId);
+      if (!mounted) return;
+      setState(() {
+        // Keep anything received while the history was loading
+        var merged = history;
+        for (final m in _messages) {
+          merged = mergeMessage(merged, m);
+        }
+        _messages = merged;
+        _loading = false;
+      });
+      _scrollToBottom();
+      _markRead();
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _messages.addAll(data.cast<Map<String, dynamic>>());
+          _loadError = chatErrorText(context.l10n, e);
           _loading = false;
         });
-        _scrollToBottom();
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
-  // ─── Send message via WebSocket ───────────────────────────────────────────
+  // ─── Read marker ──────────────────────────────────────────────────────────
 
-  void _sendMessage() {
-    final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
-    _msgCtrl.clear();
+  /// POST /chat/conversations/:id/read so the list's unread badge clears. Best effort:
+  /// a failure only leaves the badge, so it must not interrupt the chat.
+  Future<void> _markRead() async {
+    if (!mounted) return;
+    try {
+      await _repo.markRead(widget.conversationId);
+    } catch (e) {
+      // The next open marks the conversation read again
+      debugPrint('[Chat] Marking ${widget.conversationId} read failed: $e');
+    }
+  }
 
-    // Optimistic update
-    setState(() {
-      _messages.add({
-        'id': 'tmp_${DateTime.now().millisecondsSinceEpoch}',
-        'senderId': _myUserId,
-        'sender_id': _myUserId,
-        'content': text,
-        'sentAt': DateTime.now().toIso8601String(),
-        'pending': true,
+  /// Shows the typing indicator; hides it again when no typing_stop arrives (the sender left)
+  void _setRemoteTyping(bool typing) {
+    _remoteTypingTimer?.cancel();
+    if (typing) {
+      _remoteTypingTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _remoteTyping = false);
       });
-    });
-    _scrollToBottom();
+    }
+    if (_remoteTyping != typing) setState(() => _remoteTyping = typing);
+  }
 
-    // Send via WebSocket
-    ref.read(webSocketServiceProvider).sendMessage(
-          conversationId: widget.conversationId,
-          content: text,
-        );
+  // ─── Send: REST, so failures are reported ─────────────────────────────────
+
+  Future<void> _sendMessage() async {
+    if (_sending || _msgCtrl.text.trim().isEmpty) return;
+    setState(() => _sending = true);
+    try {
+      final saved = await _repo.sendMessage(widget.conversationId, _msgCtrl.text);
+      if (!mounted) return;
+      _msgCtrl.clear();
+      setState(() => _messages = mergeMessage(_messages, saved));
+      _scrollToBottom();
+    } on ChatException catch (e) {
+      // The draft stays in the input so it can be sent again
+      if (!mounted) return;
+      _showError(chatErrorText(context.l10n, e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
 
     // Stop typing indicator
     _typingTimer?.cancel();
-    ref.read(webSocketServiceProvider).stopTyping(widget.conversationId);
+    _ws.stopTyping(widget.conversationId);
   }
 
   // ─── Typing indicator ─────────────────────────────────────────────────────
 
   void _onTextChanged(String _) {
-    final ws = ref.read(webSocketServiceProvider);
+    final ws = _ws;
     ws.startTyping(widget.conversationId);
     _typingTimer?.cancel();
     _typingTimer = Timer(const Duration(seconds: 2), () {
       ws.stopTyping(widget.conversationId);
     });
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
   }
 
   void _scrollToBottom() {
@@ -162,7 +210,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _wsSub?.cancel();
     _typingTimer?.cancel();
-    ref.read(webSocketServiceProvider).leaveConversation(widget.conversationId);
+    _remoteTypingTimer?.cancel();
+    _ws.leaveConversation(widget.conversationId);
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -170,36 +219,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
-      appBar: AppHeader(title: AppStrings.commanderKV, showBack: true),
+      appBar: AppHeader(title: widget.title ?? l10n.chatScreenTitleFallback, showBack: true),
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      controller: _scrollCtrl,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _messages.length,
-                      itemBuilder: (ctx, i) {
-                        final msg = _messages[i];
-                        final senderId = msg['senderId'] as String? ??
-                            msg['sender_id'] as String?;
-                        final isMe = senderId == _myUserId;
-                        return _MessageBubble(msg: msg, isMe: isMe);
-                      },
-                    ),
+                  : _loadError != null
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                child: Text(_loadError!,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: AppColors.error)),
+                              ),
+                              const SizedBox(height: 12),
+                              ElevatedButton(onPressed: _loadMessages, child: Text(l10n.chatScreenRetryButton)),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollCtrl,
+                          padding: const EdgeInsets.all(12),
+                          itemCount: _messages.length,
+                          itemBuilder: (ctx, i) {
+                            final msg = _messages[i];
+                            final senderId = msg['senderId'] as String? ??
+                                msg['sender_id'] as String?;
+                            final isMe = senderId == _myUserId;
+                            return _MessageBubble(msg: msg, isMe: isMe);
+                          },
+                        ),
             ),
             // Typing indicator
             if (_remoteTyping)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Đang nhập...',
-                    style: TextStyle(
+                    l10n.chatScreenTypingIndicator,
+                    style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 12,
                       fontStyle: FontStyle.italic,
@@ -219,20 +285,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _msgCtrl,
-                      decoration: const InputDecoration(
-                        hintText: AppStrings.typeMessage,
+                      decoration: InputDecoration(
+                        hintText: l10n.chatScreenMessageHint,
                         border: InputBorder.none,
                       ),
-                      maxLines: null,
+                      minLines: 1,
+                      maxLines: 5,
+                      // ChatService.MAX_MESSAGE_LENGTH (Web/backend/src/chat/chat.service.ts)
+                      maxLength: ChatRepository.maxMessageLength,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      buildCounter: (
+                        BuildContext context, {
+                        required int currentLength,
+                        required bool isFocused,
+                        required int? maxLength,
+                      }) =>
+                          maxLength != null && currentLength > maxLength - 200
+                              ? Text('$currentLength/$maxLength',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary))
+                              : null,
                       textInputAction: TextInputAction.send,
                       onChanged: _onTextChanged,
                       onSubmitted: (_) => _sendMessage(),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: AppColors.primary),
-                    onPressed: _sendMessage,
-                  ),
+                  _sending
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.send, color: AppColors.primary),
+                          onPressed: _sendMessage,
+                        ),
                 ],
               ),
             ),

@@ -17,7 +17,7 @@ export class Session {
   @Column({ name: 'device_id', type: 'uuid', nullable: true })
   deviceId: string | null;
 
-  @Column({ name: 'refresh_token_hash', length: 500 })
+  @Column({ name: 'refresh_token_hash', type: 'varchar', length: 255 })
   refreshTokenHash: string;
 
   @Column({ name: 'expires_at', type: 'timestamptz' })

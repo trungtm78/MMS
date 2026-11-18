@@ -1,0 +1,54 @@
+{
+  "unitType": {
+    "dai_doi": "Đại đội",
+    "trung_doi": "Trung đội",
+    "tieu_doi": "Tiểu đội"
+  },
+  "page": {
+    "header": {
+      "title": "Tổ chức biên chế",
+      "subtitle": "UBND Phường Phú Định – Cơ cấu tổ chức DQTV"
+    },
+    "summary": {
+      "capacity": "Tổng biên chế",
+      "members": "Thực tế",
+      "units": "Số đơn vị"
+    }
+  },
+  "tree": {
+    "load": {
+      "error": "Không thể tải cơ cấu tổ chức."
+    },
+    "empty": {
+      "title": "Chưa có đơn vị nào"
+    },
+    "unit": {
+      "commander": "CHT: {{name}}",
+      "capacity": "Biên chế",
+      "noMemberCount": "Chưa có số liệu quân số"
+    }
+  },
+  "addUnit": {
+    "form": {
+      "action": "Thêm đơn vị",
+      "title": "Thêm đơn vị mới"
+    },
+    "fields": {
+      "type": "Loại đơn vị",
+      "name": "Tên đơn vị",
+      "capacity": "Biên chế (người)"
+    },
+    "placeholders": {
+      "name": "VD: Trung đội 1",
+      "capacity": "VD: 30"
+    },
+    "validation": {
+      "nameRequired": "Vui lòng nhập tên đơn vị",
+      "capacityInvalid": "Vui lòng nhập biên chế hợp lệ"
+    },
+    "submit": {
+      "success": "Đã thêm đơn vị mới",
+      "error": "Không thể thêm đơn vị"
+    }
+  }
+}

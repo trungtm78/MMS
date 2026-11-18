@@ -1,15 +1,28 @@
 import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useTranslation } from 'react-i18next'
 import { Search, X } from 'lucide-react'
 import { searchMilitia } from '@/api/militia'
+import type { TranslationKey } from '@/i18n/types'
+import { describeApiError } from '@/lib/api-error'
+
+const STATUS_DISPLAY: Readonly<Record<string, { label: TranslationKey; className: string }>> = {
+  active:   { label: 'militia.status.active',   className: 'bg-green-100 text-green-700' },
+  reserve:  { label: 'militia.status.reserve',  className: 'bg-yellow-100 text-yellow-700' },
+  inactive: { label: 'militia.status.inactive', className: 'bg-gray-100 text-gray-600' },
+  leave:    { label: 'militia.status.leave',    className: 'bg-blue-100 text-blue-700' },
+}
+
+const UNKNOWN_STATUS_CLASS = 'bg-gray-100 text-gray-600'
 
 export function MilitiaSearchPage() {
+  const { t } = useTranslation()
   const [searchTerm, setSearchTerm] = useState('')
   const [submittedTerm, setSubmittedTerm] = useState('')
   const [unitFilter, setUnitFilter] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['militia-search', submittedTerm, unitFilter],
     queryFn: () => searchMilitia({ q: submittedTerm, unitCode: unitFilter || undefined, limit: 50 }),
     enabled: hasSearched,
@@ -29,20 +42,12 @@ export function MilitiaSearchPage() {
 
   const results = data?.data ?? []
 
-  const getStatusInfo = (status: string) => {
-    switch (status) {
-      case 'active':   return { label: 'Đang hoạt động', class: 'bg-green-100 text-green-700' }
-      case 'inactive': return { label: 'Đã xuất ngũ',    class: 'bg-gray-100 text-gray-600' }
-      default:         return { label: status,            class: 'bg-gray-100 text-gray-600' }
-    }
-  }
-
   return (
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-screen" data-testid="militia-search-page">
       {/* Page title */}
       <div>
-        <h1 className="text-2xl font-bold text-[#C62828]">Tìm kiếm Dân Quân Tự Vệ</h1>
-        <p className="text-sm text-[#64748B] mt-1">Tra cứu thông tin dân quân theo nhiều tiêu chí</p>
+        <h1 className="text-2xl font-bold text-[#C62828]">{t('militia.search.header.title')}</h1>
+        <p className="text-sm text-[#64748B] mt-1">{t('militia.search.header.subtitle')}</p>
       </div>
 
       {/* Search panel */}
@@ -50,14 +55,15 @@ export function MilitiaSearchPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
-                Tìm kiếm nhanh
+              <label htmlFor="militia-search-term" className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
+                {t('militia.search.filters.term')}
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" size={18} aria-hidden="true" />
                 <input
+                  id="militia-search-term"
                   type="text"
-                  placeholder="Nhập họ tên, mã DQTV..."
+                  placeholder={t('militia.search.filters.termPlaceholder')}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -67,12 +73,13 @@ export function MilitiaSearchPage() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
-                Đơn vị
+              <label htmlFor="militia-search-unit" className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
+                {t('militia.search.filters.unit')}
               </label>
               <input
+                id="militia-search-unit"
                 type="text"
-                placeholder="Mã đơn vị..."
+                placeholder={t('militia.search.filters.unitPlaceholder')}
                 value={unitFilter}
                 onChange={e => setUnitFilter(e.target.value)}
                 className="w-full h-12 px-4 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] text-sm text-[#0F172A] placeholder-[#64748B]"
@@ -87,16 +94,16 @@ export function MilitiaSearchPage() {
               className="px-6 py-2.5 border border-[#E2E8F0] text-[#64748B] rounded-lg hover:bg-[#F8FAFC] text-sm font-medium flex items-center gap-2 transition-colors"
               data-testid="reset-search-btn"
             >
-              <X size={15} />
-              Đặt lại
+              <X size={15} aria-hidden="true" />
+              {t('militia.form.actions.reset')}
             </button>
             <button
               onClick={handleSearch}
               className="bg-[#C62828] text-white hover:bg-[#A91D1D] rounded-lg px-6 py-2.5 flex items-center gap-2 text-sm font-medium transition-colors shadow-sm"
               data-testid="search-btn"
             >
-              <Search size={16} />
-              Tìm kiếm
+              <Search size={16} aria-hidden="true" />
+              {t('common.actions.search')}
             </button>
           </div>
         </div>
@@ -110,11 +117,13 @@ export function MilitiaSearchPage() {
         >
           <div className="px-6 py-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
             <h3 className="text-base font-semibold text-[#0F172A]">
-              Kết quả tìm kiếm
+              {t('militia.search.results.title')}
             </h3>
-            <span className="text-sm text-[#64748B]">
-              {isLoading ? '...' : `${results.length} bản ghi`}
-            </span>
+            {!isError && (
+              <span className="text-sm text-[#64748B]">
+                {isLoading ? '...' : t('militia.search.results.count', { total: results.length })}
+              </span>
+            )}
           </div>
 
           {isLoading ? (
@@ -130,18 +139,29 @@ export function MilitiaSearchPage() {
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            // A refused or failed search is not "no results"
+            <div className="p-6">
+              <p role="alert" className="text-sm text-[#C62828]">
+                {describeApiError(error, {
+                  scope: 'militia.search',
+                  statuses: { 403: 'militia.search.load.forbidden' },
+                  fallback: 'militia.search.load.error',
+                })}
+              </p>
+            </div>
           ) : results.length === 0 ? (
             <div className="py-16 flex flex-col items-center justify-center" data-testid="empty-state">
               <div className="w-20 h-20 bg-[#F8FAFC] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#E2E8F0]">
-                <Search size={32} className="text-[#64748B]" />
+                <Search size={32} className="text-[#64748B]" aria-hidden="true" />
               </div>
-              <h3 className="text-base font-medium text-[#0F172A] mb-2">Không tìm thấy kết quả</h3>
-              <p className="text-sm text-[#64748B]">Vui lòng thử lại với từ khóa khác</p>
+              <h3 className="text-base font-medium text-[#0F172A] mb-2">{t('militia.search.empty.title')}</h3>
+              <p className="text-sm text-[#64748B]">{t('militia.search.empty.hint')}</p>
             </div>
           ) : (
             <div className="divide-y divide-[#E2E8F0] p-4 space-y-2">
               {results.map(result => {
-                const statusInfo = getStatusInfo(result.status)
+                const status = STATUS_DISPLAY[result.status]
                 return (
                   <div
                     key={result.id}
@@ -159,20 +179,23 @@ export function MilitiaSearchPage() {
                           <div>
                             <h4 className="text-base font-semibold text-[#0F172A]">{result.fullName}</h4>
                             <p className="text-sm text-[#64748B]">
-                              Mã:{' '}
-                              <span className="font-semibold text-[#1F3A5F]">{result.militiaCode}</span>
+                              <Trans
+                                i18nKey="militia.search.results.code"
+                                values={{ code: result.militiaCode }}
+                                components={{ strong: <span className="font-semibold text-[#1F3A5F]" /> }}
+                              />
                             </p>
                           </div>
                           <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ml-2 ${statusInfo.class}`}
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ml-2 ${status?.className ?? UNKNOWN_STATUS_CLASS}`}
                           >
-                            {statusInfo.label}
+                            {status ? t(status.label) : result.status}
                           </span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs text-[#64748B]">
                           <span className="truncate">{result.unitName ?? result.unitCode}</span>
-                          <span className="truncate">{result.rank ?? '—'}</span>
-                          <span className="truncate">{result.phone ?? '—'}</span>
+                          <span className="truncate">{result.rank ?? t('common.states.none')}</span>
+                          <span className="truncate">{result.phone ?? t('common.states.none')}</span>
                         </div>
                       </div>
                     </div>

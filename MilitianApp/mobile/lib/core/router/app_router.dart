@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/auth/models/login_response.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
-import '../../features/auth/screens/mfa_setup_screen.dart';
+import '../../features/auth/screens/mfa_enroll_screen.dart';
 import '../../features/auth/screens/recovery_codes_screen.dart';
+import '../../features/profile/screens/security_screen.dart';
+import '../../features/profile/screens/change_password_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/attendance/screens/checkin_screen.dart';
 import '../../features/tasks/screens/tasks_list_screen.dart';
@@ -27,18 +31,29 @@ import '../../shared/widgets/main_shell.dart';
 import 'routes.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // One router for the app's lifetime: a new GoRouter restarts at the splash screen, so
+  // rebuilding it on every AuthState (loading, errors, second-factor steps) would drop the
+  // user out of the sign-in flow. The redirect re-runs when the signed-in flag changes.
+  final signedIn = ValueNotifier<bool>(ref.read(authStateProvider).isAuthenticated);
+  ref.listen<AuthState>(
+    authStateProvider,
+    (previous, next) => signedIn.value = next.isAuthenticated,
+  );
+  ref.onDispose(signedIn.dispose);
 
   return GoRouter(
     initialLocation: Routes.splash,
+    refreshListenable: signedIn,
     redirect: (context, state) {
-      final isLoggedIn = authState.isAuthenticated;
+      final isLoggedIn = signedIn.value;
       final isAuthRoute = state.matchedLocation == Routes.login ||
           state.matchedLocation == Routes.otpVerify ||
           state.matchedLocation == Routes.mfaSetup ||
           state.matchedLocation == Routes.recoveryCodes;
 
-      if (!isLoggedIn && !isAuthRoute) return Routes.login;
+      // Open to signed-out users without sending signed-in users away
+      final isPublic = isAuthRoute || state.matchedLocation == Routes.forgotPassword;
+      if (!isLoggedIn && !isPublic) return Routes.login;
       if (isLoggedIn && state.matchedLocation == Routes.login) {
         return Routes.home;
       }
@@ -54,25 +69,28 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
+        path: Routes.forgotPassword,
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
         path: Routes.otpVerify,
-        builder: (context, state) {
-          final tempToken = state.extra as String? ?? '';
-          return OtpScreen(tempToken: tempToken);
-        },
+        builder: (context, state) => otpScreenFromExtra(state.extra),
       ),
       GoRoute(
         path: Routes.mfaSetup,
-        builder: (context, state) {
-          final tempToken = state.extra as String? ?? '';
-          return MfaSetupScreen(tempToken: tempToken);
-        },
+        builder: (context, state) => mfaEnrollScreenFromExtra(state.extra),
       ),
       GoRoute(
         path: Routes.recoveryCodes,
-        builder: (context, state) {
-          final codes = state.extra as List<String>? ?? [];
-          return RecoveryCodesScreen(codes: codes);
-        },
+        builder: (context, state) => recoveryCodesScreenFromExtra(state.extra),
+      ),
+      GoRoute(
+        path: Routes.security,
+        builder: (context, state) => const SecurityScreen(),
+      ),
+      GoRoute(
+        path: Routes.changePassword,
+        builder: (context, state) => const ChangePasswordScreen(),
       ),
       // Main shell with bottom nav
       ShellRoute(
@@ -151,7 +169,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: ':conversationId',
             builder: (context, state) {
               final id = state.pathParameters['conversationId']!;
-              return ChatScreen(conversationId: id);
+              final title = state.extra;
+              return ChatScreen(conversationId: id, title: title is String ? title : null);
             },
           ),
         ],
@@ -159,6 +178,33 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+/// MFA_REQUIRED sign-in step; [extra] is the LoginResponse from the login screen or its
+/// mfaToken.
+Widget otpScreenFromExtra(Object? extra) {
+  if (extra is LoginResponse) {
+    return OtpScreen(
+      mfaToken: extra.mfaToken ?? '',
+      methods: extra.methods.isEmpty ? MfaMethod.all : extra.methods,
+    );
+  }
+  return OtpScreen(mfaToken: extra is String ? extra : '');
+}
+
+/// MFA_SETUP_REQUIRED sign-in step; [extra] is the LoginResponse or its mfaToken.
+Widget mfaEnrollScreenFromExtra(Object? extra) => MfaEnrollScreen(
+      mfaToken: extra is LoginResponse ? extra.mfaToken ?? '' : (extra is String ? extra : ''),
+    );
+
+/// [extra] is a [RecoveryCodesArgs] or a plain list of codes.
+Widget recoveryCodesScreenFromExtra(Object? extra) {
+  if (extra is RecoveryCodesArgs) {
+    return RecoveryCodesScreen(codes: extra.codes, completesLogin: extra.completesLogin);
+  }
+  return RecoveryCodesScreen(
+    codes: extra is List ? extra.whereType<String>().toList() : const [],
+  );
+}
 
 // Splash screen — redirects based on auth state once provider resolves
 class SplashScreen extends ConsumerStatefulWidget {
@@ -176,8 +222,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _navigate() async {
-    // Give the auth provider time to read from secure storage
-    await Future.delayed(const Duration(milliseconds: 300));
+    try {
+      // Leave once the stored session has been checked, however long secure storage takes
+      await ref.read(authStateProvider.notifier).ready;
+    } catch (e) {
+      // An unreadable stored session counts as signed out
+      debugPrint('[Splash] stored session check failed: $e');
+    }
     if (!mounted) return;
     final isAuthenticated = ref.read(authStateProvider).isAuthenticated;
     if (isAuthenticated) {

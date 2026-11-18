@@ -1,0 +1,77 @@
+{
+  "page": {
+    "header": {
+      "title": "Tài Liệu Hướng Dẫn",
+      "subtitle": "Hướng dẫn sử dụng hệ thống MMS cho DQTV"
+    },
+    "search": {
+      "placeholder": "Tìm kiếm trong tài liệu...",
+      "empty": "Không tìm thấy kết quả cho \"{{query}}\""
+    },
+    "section": {
+      "articleCount": "{{count}} bài hướng dẫn"
+    }
+  },
+  "sections": {
+    "attendance": {
+      "title": "Hướng dẫn chấm công",
+      "articles": {
+        "checkIn": {
+          "title": "Cách chấm công vào đầu ca",
+          "content": "Mở ứng dụng MMS → chọn \"Chấm công\" → nhấn \"Điểm danh vào\" → xác nhận vị trí GPS. Hệ thống sẽ ghi nhận thời gian vào ca tự động."
+        },
+        "checkOut": {
+          "title": "Cách chấm công ra cuối ca",
+          "content": "Vào mục \"Chấm công\" → nhấn \"Điểm danh ra\" trước khi kết thúc ca. Đảm bảo bật GPS để hệ thống xác nhận vị trí."
+        },
+        "missedCheckIn": {
+          "title": "Xử lý khi quên chấm công",
+          "content": "Liên hệ trực tiếp với chỉ huy đơn vị để bổ sung điểm danh thủ công. Chỉ được bổ sung trong vòng 24 giờ sau ca làm việc."
+        }
+      }
+    },
+    "tasks": {
+      "title": "Hướng dẫn báo cáo nhiệm vụ",
+      "articles": {
+        "submitReport": {
+          "title": "Cách tạo báo cáo nhiệm vụ",
+          "content": "Vào \"Nhiệm vụ\" → chọn nhiệm vụ cần báo cáo → nhấn \"Nộp báo cáo\" → điền đầy đủ nội dung thực hiện, kết quả và đính kèm ảnh/video nếu có."
+        },
+        "updateProgress": {
+          "title": "Cập nhật tiến độ nhiệm vụ",
+          "content": "Mở nhiệm vụ → nhấn \"Cập nhật tiến độ\" → chọn % hoàn thành → thêm ghi chú nếu cần. Nên cập nhật ít nhất 1 lần/ngày với nhiệm vụ dài ngày."
+        }
+      }
+    },
+    "kpi": {
+      "title": "Hướng dẫn xem KPI",
+      "articles": {
+        "personalScore": {
+          "title": "Xem điểm KPI cá nhân",
+          "content": "Vào \"Chỉ tiêu KPI\" để xem điểm tổng hợp của bạn theo tháng/quý. Điểm được tính dựa trên: chấm công (40%), hoàn thành nhiệm vụ (40%), huấn luyện (20%)."
+        },
+        "ratingScale": {
+          "title": "Hiểu kết quả đánh giá",
+          "content": "Xuất sắc: 90-100 | Giỏi: 80-89 | Khá: 70-79 | Trung bình: 60-69 | Cần cải thiện: < 60."
+        }
+      }
+    },
+    "faq": {
+      "title": "Câu hỏi thường gặp",
+      "articles": {
+        "forgotPassword": {
+          "title": "Quên mật khẩu phải làm gì?",
+          "content": "Nhấn \"Quên mật khẩu\" ở màn hình đăng nhập → nhập email đăng ký → kiểm tra email để nhận link đặt lại mật khẩu."
+        },
+        "gps": {
+          "title": "Ứng dụng không nhận GPS?",
+          "content": "Kiểm tra: 1) Bật GPS (Cài đặt → Vị trí → Bật). 2) Cấp quyền vị trí cho ứng dụng MMS. 3) Đứng nơi thoáng không bị che khuất."
+        },
+        "notifications": {
+          "title": "Không nhận được thông báo?",
+          "content": "Vào Cài đặt điện thoại → Ứng dụng → MMS → Thông báo → Bật tất cả. Sau đó kiểm tra lại trong Cài đặt MMS → Thông báo."
+        }
+      }
+    }
+  }
+}

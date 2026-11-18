@@ -1,14 +1,18 @@
 // Central configuration — no hardcoded secrets
+
+// Shared with the migration CLI so both reach the same database by default
+export const databaseConfig = (env: NodeJS.ProcessEnv = process.env) => ({
+  host: env.DB_HOST || 'localhost',
+  port: parseInt(env.DB_PORT || '5433', 10),
+  username: env.DB_USER || 'postgres',
+  password: env.DB_PASSWORD || 'postgres',
+  database: env.DB_NAME || 'MMS',
+});
+
 export default () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   apiPrefix: process.env.API_PREFIX || 'api/v1/mms_core',
-  database: {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5433', 10),
-    username: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    database: process.env.DB_NAME || 'MMS',
-  },
+  database: databaseConfig(),
   jwt: {
     secret: process.env.JWT_SECRET || 'change-me-in-production',
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES || '15m',
@@ -22,6 +26,8 @@ export default () => ({
     loginLimit: 5, // max login attempts — US-W001 BR: lockout after 5
   },
   cors: {
-    origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(s => s.trim()),
+    origin: (process.env.CORS_ORIGIN || 'http://localhost:5173')
+      .split(',')
+      .map((s) => s.trim()),
   },
 });

@@ -1,13 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/api_constants.dart';
+import '../../../core/network/session_events.dart';
+import '../../../core/network/token_refresher.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../l10n/l10n.dart';
+import '../../../shared/errors/app_failure.dart';
 import '../../../shared/widgets/app_header.dart';
+import '../chat_labels.dart';
+import '../chat_socket.dart';
 import '../models/chat_models.dart';
 import '../providers/chat_provider.dart';
+import '../typing.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final String conversationId;
@@ -20,59 +28,240 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  final List<ChatMessage> _messages = [];
+  List<ChatMessage> _messages = [];
   bool _loadedInitial = false;
   bool _sending = false;
-  io.Socket? _socket;
+  ChatSocket? _socket;
   String? _myUserId;
+
+  /// True once chat:join succeeded; the gateway rejects typing signals before that (not_joined)
+  bool _joined = false;
+  late final TypingEmitter _typingEmitter;
+  late final TypingIndicator _typingIndicator;
+
+  /// Access token the current socket was opened with
+  String? _socketToken;
+  bool _renewing = false;
+
+  /// Renewals since the last successful join; stops a loop if every new token is refused too
+  int _renewals = 0;
+  static const _maxRenewals = 3;
+
+  /// Waiting before connecting again while the server cannot check sessions
+  Timer? _retryTimer;
+  int _unavailableRetries = 0;
+  static const _maxUnavailableRetries = 5;
 
   @override
   void initState() {
     super.initState();
+    _typingEmitter = TypingEmitter(onChanged: _emitTyping);
+    _typingIndicator = TypingIndicator(
+      conversationId: widget.conversationId,
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     _loadMyUserId();
     _connectSocket();
+    _markRead();
+  }
+
+  /// POST /chat/conversations/:id/read, so the list's unread badge clears
+  Future<void> _markRead() async {
+    try {
+      await ref.read(chatApiProvider).markRead(widget.conversationId);
+    } on ChatException catch (e) {
+      // Failing to move the read marker must not interrupt the conversation
+      debugPrint('Marking conversation ${widget.conversationId} read failed: ${e.failure}');
+    }
   }
 
   @override
   void dispose() {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
-    _socket?.emit('chat:leave', {'conversationId': widget.conversationId});
-    _socket?.disconnect();
+    _retryTimer?.cancel();
+    // Tell the others typing stopped, then leave every room by disconnecting
+    _typingEmitter.dispose();
+    _typingIndicator.dispose();
+    _socket?.dispose();
     super.dispose();
   }
 
   Future<void> _loadMyUserId() async {
     final storage = ref.read(secureStorageProvider);
     final uid = await storage.getUserId();
+    _typingIndicator.myUserId = uid;
     if (mounted) setState(() => _myUserId = uid);
   }
 
+  /// typing_start / typing_stop {conversationId} (notifications.gateway.ts)
+  void _emitTyping(bool typing) {
+    if (!_joined) return;
+    _socket?.emit(typing ? 'typing_start' : 'typing_stop', {'conversationId': widget.conversationId});
+  }
+
+  /// Participants from the conversation list, then the sender name on their messages
+  String _displayNameOf(AppLocalizations l10n, String userId, List<Conversation>? conversations) {
+    for (final conversation in conversations ?? const <Conversation>[]) {
+      if (conversation.id != widget.conversationId) continue;
+      for (final participant in conversation.participants) {
+        if (participant.id == userId) return participant.displayName;
+      }
+    }
+    for (final message in _messages.reversed) {
+      final name = message.senderName?.trim();
+      if (message.senderId == userId && name != null && name.isNotEmpty) return name;
+    }
+    return l10n.chatScreenTypingSomeone;
+  }
+
   Future<void> _connectSocket() async {
-    final storage = ref.read(secureStorageProvider);
+    final SecureStorageService storage = ref.read(secureStorageProvider);
     final token = await storage.getAccessToken();
+    if (token == null || !mounted) return;
+
+    // Participant names for the typing indicator (usually cached by the conversation list)
+    ref.read(conversationsProvider);
+    _openSocket(token);
+  }
+
+  void _openSocket(String token) {
+    final socket = ref.read(chatSocketFactoryProvider)(token);
+    _socket = socket;
+    _socketToken = token;
+
+    // Runs again after every reconnect: rooms do not survive a disconnect. Nothing waits for
+    // the acknowledgement, which never comes when the server ends the session first.
+    socket.onConnect(() {
+      socket.emitWithAck(
+        'chat:join',
+        {'conversationId': widget.conversationId},
+        (response) {
+          if (!identical(_socket, socket)) return;
+          // Expired or revoked session: renew, then reconnect
+          if (response is Map && response['error'] == 'session_expired') {
+            _joined = false;
+            _renewSocket();
+            return;
+          }
+          final error = chatAckError(response);
+          if (error != null) {
+            _joined = false;
+            _showFailure(error);
+            return;
+          }
+          _joined = true;
+          _renewals = 0;
+          _unavailableRetries = 0;
+          // Typing that began before the room was joined
+          if (_typingEmitter.isTyping) _emitTyping(true);
+        },
+      );
+    });
+
+    // The server tells an open socket its session ended ({reason: token_expired |
+    // session_revoked}), then disconnects it
+    socket.on('session_expired', (_) {
+      if (!identical(_socket, socket)) return;
+      _joined = false;
+      _renewSocket();
+    });
+
+    // A refused handshake: socket_io_client 2.x reports the server's refusal as 'error';
+    // 'connect_error' carries transport failures, which socket.io retries by itself
+    socket.on('connect_error', (data) => _onRefused(socket, data));
+    socket.on('error', (data) => _onRefused(socket, data));
+
+    socket.on('disconnect', (reason) {
+      if (!identical(_socket, socket)) return;
+      _joined = false;
+      // Stop events sent meanwhile are lost; do not keep showing stale typing
+      _typingIndicator.clear();
+      // Fallback for servers that close the socket without saying why; dropped connections
+      // reconnect on their own
+      if (reason == 'io server disconnect') _renewSocket();
+    });
+
+    socket.on('chat:typing', (data) {
+      if (mounted) _typingIndicator.handle(data);
+    });
+
+    socket.on('chat:message', (data) {
+      if (!mounted || data is! Map) return;
+      final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
+      if (msg.conversationId != null && msg.conversationId != widget.conversationId) return;
+      // The message they were typing has arrived
+      _typingIndicator.clearUser(msg.senderId);
+      setState(() => _messages = mergeChatMessage(_messages, msg));
+      _scrollToBottom();
+      // Seen while the conversation is open
+      if (msg.senderId != _myUserId) _markRead();
+    });
+  }
+
+  /// Handshake refusals (Web/backend/src/notifications/notifications.gateway.ts:29-34, 73-111)
+  void _onRefused(ChatSocket socket, Object? data) {
+    if (!identical(_socket, socket) || !mounted) return;
+    final reason = data is Map ? data['message'] : null;
+    switch (reason) {
+      case 'invalid_token' || 'session_revoked':
+        _joined = false;
+        _renewSocket();
+      case 'missing_token':
+        _dropSocket();
+        ref.read(sessionEventsProvider).end('missing_token');
+      case 'authentication_unavailable':
+        _retryLater();
+    }
+  }
+
+  void _dropSocket() {
+    final socket = _socket;
+    _socket = null;
+    _joined = false;
+    // Disposed outside the socket's own event callback
+    if (socket != null) scheduleMicrotask(socket.dispose);
+  }
+
+  /// The server could not check the session: connect again later, with growing delays, still
+  /// signed in
+  void _retryLater() {
+    final token = _socketToken;
+    _dropSocket();
+    if (token == null || _unavailableRetries >= _maxUnavailableRetries) return;
+    final delay = Duration(seconds: 1 << _unavailableRetries);
+    _unavailableRetries++;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay, () {
+      if (mounted) _openSocket(token);
+    });
+  }
+
+  /// Renews the access token through the shared refresher (one refresh with any HTTP 401) and
+  /// reconnects with it. When the refresh was refused the refresher has ended the session and the
+  /// router shows the login screen: no reconnect then. When it got no answer (offline, 5xx, 429) the
+  /// session is kept and the socket connects again later.
+  Future<void> _renewSocket() async {
+    if (_renewing || _renewals >= _maxRenewals || !mounted) return;
+    _renewing = true;
+    _renewals++;
+    final String? token;
+    try {
+      token = await ref.read(renewSessionProvider)(staleAccessToken: _socketToken);
+    } on RefreshUnavailable {
+      _renewing = false;
+      if (mounted) _retryLater();
+      return;
+    }
+    _renewing = false;
+    if (!mounted) return;
+    // Disposed only now, outside the old socket's own event callbacks
+    _socket?.dispose();
+    _socket = null;
     if (token == null) return;
-
-    _socket = io.io(
-      ApiConstants.wsUrl,
-      io.OptionBuilder()
-          .setTransports(['websocket'])
-          .setAuth({'token': token})
-          .build(),
-    );
-
-    _socket!.onConnect((_) {
-      _socket!.emit('chat:join', {'conversationId': widget.conversationId});
-    });
-
-    _socket!.on('chat:message', (data) {
-      if (!mounted) return;
-      try {
-        final msg = ChatMessage.fromJson(data as Map<String, dynamic>);
-        setState(() => _messages.add(msg));
-        _scrollToBottom();
-      } catch (_) {}
-    });
+    _openSocket(token);
   }
 
   void _scrollToBottom() {
@@ -87,30 +276,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  void _showFailure(AppFailure failure) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(failureText(context.l10n, failure)), backgroundColor: AppColors.error),
+    );
+  }
+
+  /// Sends over REST only. The backend broadcasts the stored message as chat:message,
+  /// so emitting chat:send as well would store it twice.
   Future<void> _sendMessage() async {
-    final text = _msgCtrl.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (_sending || _msgCtrl.text.trim().isEmpty) return;
+    _typingEmitter.stop();
     setState(() => _sending = true);
 
     try {
-      final dio = ref.read(dioProvider);
-      final url = ApiConstants.conversationMessages
-          .replaceAll('{id}', widget.conversationId);
-      await dio.post(url, data: {'content': text});
+      final msg = await ref.read(chatApiProvider).sendMessage(widget.conversationId, _msgCtrl.text);
+      if (!mounted) return;
       _msgCtrl.clear();
-
-      // Also emit via socket for real-time
-      _socket?.emit('chat:send', {
-        'conversationId': widget.conversationId,
-        'content': text,
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Lỗi: $e'), backgroundColor: AppColors.error),
-        );
-      }
+      setState(() => _messages = mergeChatMessage(_messages, msg));
+      _scrollToBottom();
+    } on ChatException catch (e) {
+      // The draft stays in the input so it can be sent again
+      _showFailure(e.failure);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -118,7 +306,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final msgAsync = ref.watch(chatMessagesProvider(widget.conversationId));
+
+    final typingIds = _typingIndicator.userIds;
+    String? typingText;
+    if (typingIds.isNotEmpty) {
+      final conversations = ref.watch(conversationsProvider).valueOrNull;
+      typingText = typingIndicatorText(l10n, [for (final id in typingIds) _displayNameOf(l10n, id, conversations)]);
+    }
 
     // Populate messages on first load
     if (!_loadedInitial) {
@@ -126,12 +322,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (!_loadedInitial) {
           _loadedInitial = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() => _messages
-                ..clear()
-                ..addAll(msgs));
-              _scrollToBottom();
+            if (!mounted) return;
+            // Keep anything sent or received while the history was loading
+            var merged = List<ChatMessage>.of(msgs);
+            for (final m in _messages) {
+              merged = mergeChatMessage(merged, m);
             }
+            setState(() => _messages = merged);
+            _scrollToBottom();
           });
         }
       });
@@ -140,9 +338,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        title: 'Trò chuyện',
+        title: l10n.chatScreenTitle,
         showBack: true,
         action: IconButton(
+          tooltip: l10n.chatScreenRefresh,
           icon: const Icon(Icons.refresh),
           onPressed: () {
             ref.invalidate(chatMessagesProvider(widget.conversationId));
@@ -156,12 +355,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             loading: () => const Center(
               child: CircularProgressIndicator(color: AppColors.navy),
             ),
-            error: (e, _) => Center(child: Text('Lỗi tải tin nhắn: $e')),
+            error: (e, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(l10n.chatScreenLoadFailed(failureText(l10n, AppFailure.from(e))),
+                    textAlign: TextAlign.center),
+              ),
+            ),
             data: (_) {
               if (_messages.isEmpty) {
-                return const Center(
-                  child: Text('Chưa có tin nhắn',
-                      style: TextStyle(color: AppColors.textSecondary)),
+                return Center(
+                  child: Text(l10n.chatScreenEmpty, style: const TextStyle(color: AppColors.textSecondary)),
                 );
               }
               return ListView.builder(
@@ -177,13 +381,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             },
           ),
         ),
+        if (typingText != null)
+          Semantics(
+            liveRegion: true,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Text(
+                typingText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ),
         // Input bar
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.06),
+                color: Colors.black.withValues(alpha: 0.06),
                 blurRadius: 6,
                 offset: const Offset(0, -2),
               ),
@@ -199,10 +421,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: _msgCtrl,
-                maxLines: null,
+                onChanged: _typingEmitter.onInput,
+                // Grow up to 5 lines, then scroll inside the field instead of pushing the screen
+                minLines: 1,
+                maxLines: 5,
+                // ChatService.MAX_MESSAGE_LENGTH (Web/backend/src/chat/chat.service.ts:23)
+                maxLength: ChatApi.maxMessageLength,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                buildCounter: (
+                  BuildContext context, {
+                  required int currentLength,
+                  required bool isFocused,
+                  required int? maxLength,
+                }) =>
+                    maxLength != null && currentLength > maxLength - 200
+                        ? Text(l10n.chatScreenCharacterCount(currentLength, maxLength),
+                            style: const TextStyle(fontSize: 11, color: AppColors.textMuted))
+                        : null,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
-                  hintText: 'Nhập tin nhắn...',
+                  hintText: l10n.chatScreenInputHint,
                   hintStyle: const TextStyle(color: AppColors.textMuted),
                   filled: true,
                   fillColor: AppColors.background,
@@ -216,22 +454,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            Material(
-              color: AppColors.navy,
-              borderRadius: BorderRadius.circular(24),
-              child: InkWell(
+            Semantics(
+              button: true,
+              label: l10n.chatScreenSend,
+              child: Material(
+                color: AppColors.navy,
                 borderRadius: BorderRadius.circular(24),
-                onTap: _sending ? null : _sendMessage,
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: _sending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.send, color: Colors.white, size: 20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: _sending ? null : _sendMessage,
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: _sending
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send, color: Colors.white, size: 20),
+                  ),
                 ),
               ),
             ),
@@ -249,12 +490,9 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({required this.message, required this.isMe});
 
   String _formatTime(String iso) {
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return '';
-    }
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -292,7 +530,7 @@ class _MessageBubble extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),

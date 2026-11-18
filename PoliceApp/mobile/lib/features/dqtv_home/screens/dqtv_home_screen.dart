@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/router/routes.dart';
 import '../../../shared/widgets/app_header.dart';
+import '../../../shared/widgets/app_logo.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class DQTVHomeScreen extends ConsumerStatefulWidget {
@@ -82,8 +83,7 @@ class _DQTVHomeScreenState extends ConsumerState<DQTVHomeScreen> {
                           const SizedBox(height: 4),
                           Text(today, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                         ])),
-                        const CircleAvatar(radius: 24, backgroundColor: AppColors.navy,
-                            child: Icon(Icons.shield, color: Colors.white)),
+                        const AppLogo(height: 56),
                       ]),
                     ),
                   ),
@@ -217,7 +217,7 @@ class _TaskItem extends StatelessWidget {
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: AppColors.taskStatusColor(status).withOpacity(0.12),
+            color: AppColors.taskStatusColor(status).withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(AppColors.taskStatusLabel(status),

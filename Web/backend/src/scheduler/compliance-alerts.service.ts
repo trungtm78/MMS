@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { businessDate } from '../common/time/business-date';
 
 @Injectable()
 export class ComplianceAlertsService {
@@ -18,23 +19,31 @@ export class ComplianceAlertsService {
     this.logger.log('Running compliance alerts check...');
 
     try {
-      const year = new Date().getFullYear();
-      // Year-end: days remaining in current year
-      const yearEnd = new Date(year, 11, 31);
-      const now = new Date();
-      const daysUntilYearEnd = Math.ceil(
-        (yearEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+      // The training year is the Vietnamese calendar year; count whole calendar days
+      // from today to 31 December (0 on the last day)
+      const today = businessDate();
+      const year = today.year;
+      const daysUntilYearEnd = Math.round(
+        (Date.UTC(year, 11, 31) - Date.UTC(year, today.month - 1, today.day)) /
+          86_400_000,
       );
 
       // Only alert if < 60 days until year end
       if (daysUntilYearEnd > 60) {
-        this.logger.log(`Year-end ${daysUntilYearEnd} days away — skipping compliance alerts`);
+        this.logger.log(
+          `Year-end ${daysUntilYearEnd} days away — skipping compliance alerts`,
+        );
         return;
       }
 
       // DQTV with totalDays < 12 this year (at-risk of not meeting 15-day requirement)
       const atRisk = await this.dataSource.query<
-        { militiaId: string; militiaName: string; unitCode: string; totalDays: string }[]
+        {
+          militiaId: string;
+          militiaName: string;
+          unitCode: string;
+          totalDays: string;
+        }[]
       >(
         `SELECT
            mp.id             AS "militiaId",

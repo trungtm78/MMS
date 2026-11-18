@@ -11,6 +11,7 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -73,20 +74,28 @@ export class KpiController {
     @Body() dto: EvaluateDto,
     @Request() req: { user: JwtPayload },
   ) {
-    return this.kpiService.submitEvaluation(dto, { sub: req.user.sub, role: req.user.role });
+    return this.kpiService.submitEvaluation(dto, req.user);
   }
 
   // GET /kpi/current?userId=&month=&year=
   @Get('current')
-  @Roles('dqtv_member', 'dqtv', 'ca_officer', 'system_admin', 'police_ward', 'police_area')
+  @Roles(
+    'dqtv_member',
+    'dqtv',
+    'ca_officer',
+    'system_admin',
+    'police_ward',
+    'police_area',
+  )
   async getCurrent(
-    @Request() req: { user: { sub: string } },
-    @Query('userId') userId?: string,
+    @Request() req: { user: JwtPayload },
+    @Query('userId', new ParseUUIDPipe({ optional: true })) userId?: string,
     @Query('month', new DefaultValuePipe(0), ParseIntPipe) month = 0,
     @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
   ) {
     const targetUserId = userId ?? req.user.sub;
     return this.kpiService.getCurrentScore(
+      req.user,
       targetUserId,
       month > 0 ? month : undefined,
       year > 0 ? year : undefined,
@@ -95,13 +104,20 @@ export class KpiController {
 
   // GET /kpi/history?userId=
   @Get('history')
-  @Roles('dqtv_member', 'dqtv', 'ca_officer', 'system_admin', 'police_ward', 'police_area')
+  @Roles(
+    'dqtv_member',
+    'dqtv',
+    'ca_officer',
+    'system_admin',
+    'police_ward',
+    'police_area',
+  )
   async getHistory(
-    @Request() req: { user: { sub: string } },
-    @Query('userId') userId?: string,
+    @Request() req: { user: JwtPayload },
+    @Query('userId', new ParseUUIDPipe({ optional: true })) userId?: string,
   ) {
     const targetUserId = userId ?? req.user.sub;
-    return this.kpiService.getHistory(targetUserId);
+    return this.kpiService.getHistory(req.user, targetUserId);
   }
 
   // GET /kpi/summary-report?periodId=&unitCode=
@@ -109,7 +125,7 @@ export class KpiController {
   @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
   async getSummaryReport(
     @Request() req: { user: JwtPayload },
-    @Query('periodId') periodId: string,
+    @Query('periodId', ParseUUIDPipe) periodId: string,
     @Query('unitCode') unitCode?: string,
   ) {
     return this.kpiService.getSummaryReport(req.user, periodId, unitCode);
@@ -120,7 +136,7 @@ export class KpiController {
   @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
   async exportKpi(
     @Request() req: { user: JwtPayload },
-    @Query('periodId') periodId: string,
+    @Query('periodId', ParseUUIDPipe) periodId: string,
     @Query('unitCode') unitCode: string | undefined,
     @Res() res: Response,
   ) {

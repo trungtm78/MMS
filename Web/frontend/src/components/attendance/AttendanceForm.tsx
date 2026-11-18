@@ -1,8 +1,10 @@
 // US-SS-07: AttendanceForm — record attendance with SmartSelect militia
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import type { TFunction } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CalendarCheck } from 'lucide-react'
@@ -10,18 +12,35 @@ import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { militiaApi } from '@/api/militia'
 import { attendanceApi } from '@/api/attendance'
+import type { TranslationKey } from '@/i18n/types'
+import { describeApiError } from '@/lib/api-error'
+import { todayInVietnam } from '@/lib/dates'
 import type { SmartSelectOption, MilitiaSearchItem } from '@/types'
 
-const schema = z.object({
-  militiaId: z.string().uuid('Vui lòng chọn cán bộ dân quân'),
-  workDate: z.string().min(1, 'Ngày chấm công là bắt buộc'),
-  status: z.enum(['present', 'absent', 'late', 'half_day'], {
-    required_error: 'Trạng thái là bắt buộc',
-  }),
-  note: z.string().optional(),
-})
+const STATUSES = ['present', 'absent', 'late', 'half_day'] as const
 
-type FormValues = z.infer<typeof schema>
+const STATUS_OPTION_LABEL = {
+  present: 'attendance.form.statusOptions.present',
+  absent: 'attendance.form.statusOptions.absent',
+  late: 'attendance.form.statusOptions.late',
+  half_day: 'attendance.form.statusOptions.halfDay',
+} as const satisfies Record<(typeof STATUSES)[number], TranslationKey>
+
+function createSchema(t: TFunction) {
+  const militiaRequired = t('attendance.form.validation.militiaRequired')
+  const workDateRequired = t('attendance.form.validation.workDateRequired')
+  return z.object({
+    // No militia chosen yet is undefined, a cleared choice is '': both get the same text
+    militiaId: z.string({ required_error: militiaRequired }).uuid(militiaRequired),
+    workDate: z.string({ required_error: workDateRequired }).min(1, workDateRequired),
+    status: z.enum(STATUSES, {
+      required_error: t('attendance.form.validation.statusRequired'),
+    }),
+    note: z.string().optional(),
+  })
+}
+
+type FormValues = z.infer<ReturnType<typeof createSchema>>
 
 function toSmartSelectOption(m: MilitiaSearchItem): SmartSelectOption {
   return {
@@ -37,9 +56,11 @@ interface AttendanceFormProps {
 }
 
 export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [militiaId, setMilitiaId] = useState('')
   const [militiaQuery, setMilitiaQuery] = useState('')
+  const schema = useMemo(() => createSchema(t), [t])
 
   const { data: militiaOptions = [], isFetching: militiaLoading } = useQuery({
     queryKey: ['militia-search', militiaQuery],
@@ -55,26 +76,21 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { status: 'present', workDate: new Date().toISOString().slice(0, 10) },
+    defaultValues: { status: 'present', workDate: todayInVietnam() },
   })
 
   const recordMutation = useMutation({
     mutationFn: attendanceApi.record,
     onSuccess: () => {
-      toast.success('Ghi nhận chấm công thành công')
-      reset({ status: 'present', workDate: new Date().toISOString().slice(0, 10) })
+      toast.success(t('attendance.form.record.success'))
+      reset({ status: 'present', workDate: todayInVietnam() })
       setMilitiaId('')
       setMilitiaQuery('')
       queryClient.invalidateQueries({ queryKey: ['attendance-report'] })
       onSuccess?.()
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      if (msg === 'attendance_already_recorded') {
-        toast.error('Dân quân này đã được chấm công cho ngày đã chọn.')
-      } else {
-        toast.error('Có lỗi xảy ra. Vui lòng thử lại.')
-      }
+      toast.error(describeApiError(err, { scope: 'attendance.record', fallback: 'attendance.form.record.error' }))
     },
   })
 
@@ -108,8 +124,8 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
           <CalendarCheck size={20} className="text-[#C62828]" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-[#0F172A]">Ghi nhận chấm công</h2>
-          <p className="text-xs text-[#64748B]">Điền thông tin chấm công cho DQTV</p>
+          <h2 className="text-lg font-bold text-[#0F172A]">{t('attendance.form.header.title')}</h2>
+          <p className="text-xs text-[#64748B]">{t('attendance.form.header.subtitle')}</p>
         </div>
       </div>
 
@@ -117,8 +133,8 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
         {/* Militia SmartSelect */}
         <SmartSelect
           name="militia"
-          label="Cán bộ dân quân *"
-          placeholder="Tìm theo tên, mã hoặc SĐT..."
+          label={t('attendance.form.fields.militia')}
+          placeholder={t('attendance.form.fields.militiaPlaceholder')}
           value={militiaId}
           onChange={(id) => handleMilitiaChange(id)}
           onClear={handleMilitiaClear}
@@ -133,7 +149,7 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
         {/* Work date */}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="attendance-date" className="text-sm font-bold text-[#C62828]">
-            Ngày chấm công *
+            {t('attendance.form.fields.workDate')}
           </label>
           <input
             id="attendance-date"
@@ -150,7 +166,7 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
         {/* Status */}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="attendance-status" className="text-sm font-bold text-[#C62828]">
-            Trạng thái *
+            {t('attendance.form.fields.status')}
           </label>
           <select
             id="attendance-status"
@@ -158,20 +174,19 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
             className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
             {...register('status')}
           >
-            <option value="present">Có mặt</option>
-            <option value="absent">Vắng mặt</option>
-            <option value="late">Đi trễ</option>
-            <option value="half_day">Nửa ngày</option>
+            {STATUSES.map((status) => (
+              <option key={status} value={status}>{t(STATUS_OPTION_LABEL[status])}</option>
+            ))}
           </select>
         </div>
 
         {/* Note */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="attendance-note" className="text-sm font-bold text-[#C62828]">Ghi chú</label>
+          <label htmlFor="attendance-note" className="text-sm font-bold text-[#C62828]">{t('attendance.form.fields.note')}</label>
           <textarea
             id="attendance-note"
             rows={2}
-            placeholder="Ghi chú thêm..."
+            placeholder={t('attendance.form.fields.notePlaceholder')}
             className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828]"
             {...register('note')}
           />
@@ -181,7 +196,7 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
       {/* Success indicator */}
       {recordMutation.isSuccess && (
         <div data-testid="attendance-create-success" className="text-sm text-[#2E7D32] font-medium bg-[#E8F5E9] px-4 py-3 rounded-lg border border-green-200">
-          Ghi nhận chấm công thành công!
+          {t('attendance.form.record.successBanner')}
         </div>
       )}
 
@@ -191,14 +206,14 @@ export function AttendanceForm({ onSuccess }: AttendanceFormProps) {
           onClick={() => { reset(); setMilitiaId('') }}
           className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] hover:text-[#C62828] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
-          Đặt lại
+          {t('attendance.form.actions.reset')}
         </button>
         <Button
           type="submit"
           data-testid="attendance-submit-btn"
           loading={recordMutation.isPending}
         >
-          Ghi nhận
+          {t('attendance.form.actions.submit')}
         </Button>
       </div>
     </form>

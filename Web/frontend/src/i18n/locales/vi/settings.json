@@ -1,0 +1,261 @@
+{
+  "mfa": {
+    "section": {
+      "heading": "Xác thực hai lớp",
+      "description": "Ngoài mật khẩu, mỗi lần đăng nhập cần thêm mã từ ứng dụng xác thực trên điện thoại.",
+      "loadError": "Không thể tải trạng thái xác thực hai lớp",
+      "statusLabel": "Trạng thái:",
+      "enabled": "Đang bật",
+      "disabled": "Chưa bật",
+      "enabledSince": "Bật từ ngày {{date}}",
+      "recoveryRemaining": "Còn {{count}} mã khôi phục chưa dùng",
+      "requiredEnabled": "Vai trò của bạn bắt buộc sử dụng xác thực hai lớp nên không thể tắt.",
+      "requiredDisabled": "Vai trò của bạn bắt buộc sử dụng xác thực hai lớp. Hãy bật ngay."
+    },
+    "lowCodes": {
+      "none": "Bạn đã dùng hết mã khôi phục. Hãy tạo bộ mã mới.",
+      "some": "Bạn chỉ còn {{count}} mã khôi phục. Hãy tạo bộ mã mới."
+    },
+    "setup": {
+      "idle": "Bật xác thực hai lớp",
+      "pending": "Đang chuẩn bị...",
+      "error": "Không thể bắt đầu thiết lập xác thực hai lớp"
+    },
+    "enable": {
+      "title": "Bật xác thực hai lớp",
+      "submit": "Xác nhận",
+      "submitting": "Đang xác nhận...",
+      "done": "Hoàn tất",
+      "expired": "Phiên thiết lập đã hết hạn hoặc bị đóng. Hãy đóng hộp thoại và bắt đầu lại.",
+      "success": "Đã bật xác thực hai lớp",
+      "error": "Không thể xác nhận mã. Vui lòng thử lại."
+    },
+    "regenerate": {
+      "open": "Tạo lại mã khôi phục",
+      "title": "Tạo lại mã khôi phục",
+      "description": "Các mã khôi phục cũ sẽ không dùng được nữa. Nhập mã 6 chữ số từ ứng dụng xác thực để tạo bộ mã mới.",
+      "submit": "Tạo mã mới",
+      "submitting": "Đang tạo...",
+      "done": "Hoàn tất",
+      "success": "Đã tạo bộ mã khôi phục mới",
+      "error": "Không thể tạo mã khôi phục mới"
+    },
+    "disable": {
+      "open": "Tắt xác thực hai lớp",
+      "title": "Tắt xác thực hai lớp",
+      "description": "Tài khoản sẽ chỉ còn được bảo vệ bằng mật khẩu. Nhập mã từ ứng dụng xác thực hoặc một mã khôi phục để xác nhận.",
+      "submit": "Tắt",
+      "submitting": "Đang tắt...",
+      "success": "Đã tắt xác thực hai lớp",
+      "error": "Không thể tắt xác thực hai lớp"
+    }
+  },
+  "password": {
+    "page": {
+      "heading": "Đổi Mật Khẩu",
+      "description": "Đảm bảo tài khoản của bạn được bảo mật tốt"
+    },
+    "fields": {
+      "current": "Mật khẩu hiện tại",
+      "new": "Mật khẩu mới",
+      "confirm": "Xác nhận mật khẩu mới"
+    },
+    "strength": {
+      "weak": "Yếu",
+      "medium": "Trung bình",
+      "strong": "Mạnh"
+    },
+    "requirements": {
+      "minLength": "Ít nhất 8 ký tự",
+      "uppercase": "Có chữ hoa",
+      "lowercase": "Có chữ thường",
+      "digit": "Có số",
+      "special": "Có ký tự đặc biệt"
+    },
+    "validation": {
+      "currentRequired": "Vui lòng nhập mật khẩu hiện tại",
+      "newRequired": "Vui lòng nhập mật khẩu mới",
+      "newTooShort": "Mật khẩu phải có ít nhất 8 ký tự",
+      "newSameAsCurrent": "Mật khẩu mới phải khác mật khẩu hiện tại",
+      "confirmRequired": "Vui lòng xác nhận mật khẩu mới",
+      "confirmMismatch": "Mật khẩu xác nhận không khớp"
+    },
+    "change": {
+      "idle": "Đổi mật khẩu",
+      "pending": "Đang xử lý...",
+      "success": "Đổi mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.",
+      "error": "Đổi mật khẩu thất bại"
+    }
+  },
+  "profile": {
+    "page": {
+      "heading": "Thông Tin Cá Nhân",
+      "description": "Quản lý thông tin tài khoản của bạn"
+    },
+    "form": {
+      "fullName": "Họ và tên",
+      "email": "Email",
+      "phone": "Số điện thoại"
+    },
+    "info": {
+      "username": "Tài khoản",
+      "email": "Email",
+      "phone": "Điện thoại",
+      "unit": "Đơn vị",
+      "roles": "Vai trò",
+      "status": "Trạng thái"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "inactive": "Không hoạt động"
+    },
+    "update": {
+      "idle": "Lưu thay đổi",
+      "success": "Cập nhật thông tin thành công",
+      "error": "Cập nhật thất bại"
+    },
+    "security": {
+      "heading": "Bảo mật tài khoản"
+    }
+  },
+  "system": {
+    "page": {
+      "heading": "Cài Đặt Hệ Thống",
+      "description": "Cấu hình chung cho toàn bộ hệ thống MMS",
+      "loadError": "Không thể tải cài đặt hệ thống."
+    },
+    "fields": {
+      "sessionTimeoutMinutes": "Thời gian hết phiên (phút)",
+      "passwordMinLength": "Độ dài mật khẩu tối thiểu",
+      "maxLoginAttempts": "Số lần đăng nhập sai tối đa",
+      "gpsRetentionDays": "Lưu giữ GPS (ngày)",
+      "minWageRegion1": "Lương tối thiểu vùng I (VNĐ)",
+      "trainingDailyAllowanceRate": "Hệ số phụ cấp huấn luyện/ngày"
+    },
+    "card": {
+      "view": "Thông số hệ thống",
+      "edit": "Chỉnh sửa cài đặt hệ thống"
+    },
+    "edit": {
+      "cancel": "Huỷ"
+    },
+    "save": {
+      "error": "Không thể lưu cài đặt. Vui lòng thử lại.",
+      "confirmTitle": "Xác nhận lưu cài đặt",
+      "confirmDescription": "Thao tác này sẽ thay đổi cấu hình toàn bộ hệ thống MMS. Bạn chắc chắn muốn tiếp tục?",
+      "confirmLabel": "Xác nhận lưu"
+    }
+  },
+  "notifications": {
+    "page": {
+      "heading": "Cài Đặt Thông Báo",
+      "description": "Quản lý các loại thông báo bạn muốn nhận",
+      "loadError": "Không thể tải cài đặt thông báo.",
+      "defaults": "Đang dùng cài đặt mặc định",
+      "updatedAt": "Cập nhật lần cuối lúc {{time}}"
+    },
+    "channels": {
+      "heading": "Kênh nhận thông báo",
+      "inApp": {
+        "label": "Trong ứng dụng",
+        "description": "Hộp thư thông báo trong hệ thống MMS, luôn lưu mọi thông báo đã gửi"
+      },
+      "push": {
+        "label": "Thông báo đẩy",
+        "description": "Thông báo hiện trên điện thoại qua ứng dụng MMS"
+      },
+      "email": {
+        "label": "Email",
+        "description": "Gửi thông báo tới địa chỉ email của tài khoản"
+      }
+    },
+    "categories": {
+      "heading": "Loại thông báo",
+      "taskAssigned": {
+        "label": "Nhiệm vụ mới",
+        "description": "Nhận thông báo khi được giao nhiệm vụ mới"
+      },
+      "taskOverdue": {
+        "label": "Nhiệm vụ quá hạn",
+        "description": "Cảnh báo khi nhiệm vụ sắp hoặc đã quá hạn"
+      },
+      "attendanceReminder": {
+        "label": "Nhắc nhở chấm công",
+        "description": "Nhắc nhở chấm công đầu và cuối ngày"
+      },
+      "leaveApproval": {
+        "label": "Đơn nghỉ phép",
+        "description": "Thông báo khi đơn nghỉ phép được duyệt / từ chối"
+      },
+      "systemAnnouncements": {
+        "label": "Thông báo hệ thống",
+        "description": "Tin tức và cập nhật từ hệ thống MMS"
+      },
+      "sosAlerts": {
+        "label": "Cảnh báo SOS",
+        "description": "Cảnh báo khẩn cấp SOS từ các thành viên"
+      }
+    },
+    "mandatory": {
+      "badge": "Bắt buộc"
+    },
+    "save": {
+      "success": "Đã lưu cài đặt thông báo",
+      "error": "Lưu thất bại, vui lòng thử lại"
+    }
+  },
+  "kpiTargets": {
+    "page": {
+      "heading": "Chỉ Tiêu KPI",
+      "description": "Cài đặt ngưỡng đánh giá hiệu suất cho DQTV",
+      "sectionTitle": "Ngưỡng KPI theo kỳ đánh giá",
+      "loadError": "Không thể tải chỉ tiêu KPI.",
+      "readOnly": "Chỉ quản trị viên hệ thống được thay đổi chỉ tiêu KPI."
+    },
+    "version": {
+      "defaults": "Đang dùng chỉ tiêu mặc định",
+      "effectiveFrom": "Áp dụng từ {{date}}",
+      "updatedBy": "Cập nhật lúc {{time}} bởi {{name}}",
+      "updated": "Cập nhật lúc {{time}}"
+    },
+    "fields": {
+      "minAttendanceDays": {
+        "label": "Số ngày chấm công tối thiểu",
+        "description": "Ngày làm việc yêu cầu mỗi tháng"
+      },
+      "minTasksCompleted": {
+        "label": "Số nhiệm vụ hoàn thành tối thiểu",
+        "description": "Số nhiệm vụ cần hoàn thành mỗi kỳ"
+      },
+      "maxOverdueTasks": {
+        "label": "Số nhiệm vụ quá hạn tối đa",
+        "description": "Giới hạn nhiệm vụ được phép quá hạn"
+      },
+      "minTrainingHours": {
+        "label": "Giờ huấn luyện tối thiểu",
+        "description": "Tổng giờ huấn luyện yêu cầu mỗi năm"
+      },
+      "evaluationPeriod": {
+        "label": "Chu kỳ đánh giá",
+        "description": "Tần suất đánh giá KPI cho DQTV"
+      }
+    },
+    "periods": {
+      "monthly": "Hàng tháng",
+      "quarterly": "Hàng quý",
+      "yearly": "Hàng năm"
+    },
+    "validation": {
+      "minAttendanceDays": "Phải từ 1 đến 31 ngày",
+      "minTasksCompleted": "Phải từ 0 đến 100 nhiệm vụ",
+      "maxOverdueTasks": "Phải từ 0 đến 20 nhiệm vụ",
+      "minTrainingHours": "Phải từ 0 đến 500 giờ",
+      "integer": "Phải là số nguyên"
+    },
+    "save": {
+      "idle": "Lưu chỉ tiêu",
+      "success": "Đã lưu chỉ tiêu KPI",
+      "error": "Lưu thất bại"
+    }
+  }
+}

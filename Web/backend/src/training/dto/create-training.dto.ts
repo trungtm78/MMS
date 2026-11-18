@@ -10,13 +10,23 @@ import {
   Max,
 } from 'class-validator';
 
+export const TRAINING_TYPES = [
+  'military',
+  'political',
+  'fire',
+  'first_aid',
+  'other',
+] as const;
+
+export const TRAINING_RESULTS = ['pass', 'fail', 'not_evaluated'] as const;
+
 export class CreateTrainingDto {
   @IsUUID()
   @IsNotEmpty()
   militiaId: string;
 
   @IsString()
-  @IsIn(['military', 'political', 'fire', 'first_aid', 'other'])
+  @IsIn(TRAINING_TYPES)
   trainingType: string;
 
   @IsDateString()
@@ -40,7 +50,7 @@ export class CreateTrainingDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['pass', 'fail', 'not_evaluated'])
+  @IsIn(TRAINING_RESULTS)
   result?: string;
 
   @IsOptional()

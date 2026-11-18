@@ -1,36 +1,75 @@
-import 'dart:async';
 import 'package:dio/dio.dart';
 import '../constants/api_constants.dart';
 import '../storage/secure_storage_service.dart';
+import 'session_events.dart';
+import 'token_refresher.dart';
 
 /// Auth interceptor with queued refresh:
-/// - Concurrent 401s wait for the in-flight refresh and then retry with the new token
-/// - Refresh uses a SEPARATE Dio with no interceptors so it cannot pick up the stale Authorization
-/// - On refresh failure, all queued retries fail and storage is cleared
+/// - 401s (expired or revoked access tokens, e.g. session_revoked) renew the token through one
+///   shared [TokenRefresher] and retry with it
+/// - Each request is retried at most once; a second 401 goes back to the caller
+/// - 401s from auth endpoints (bad credentials/OTP) never trigger a refresh
+/// - A refused refresh clears the session and reports it through [SessionEvents]; a refresh without
+///   a definitive answer (offline, timeout, 5xx, 408, 429) keeps the session and the original request
+///   fails with that cause, so the caller can retry
 class AuthInterceptor extends Interceptor {
   final Dio dio;
   final SecureStorageService storage;
 
-  /// Single in-flight refresh future. Concurrent 401s await this.
-  Completer<String?>? _refreshCompleter;
+  /// Also used by the chat socket, so HTTP and socket renewals share one refresh
+  final TokenRefresher refresher;
 
-  /// Plain Dio without interceptors, used only for /auth/refresh.
-  late final Dio _refreshDio = Dio(BaseOptions(
-    baseUrl: ApiConstants.baseUrl,
-    connectTimeout: ApiConstants.connectTimeout,
-    receiveTimeout: ApiConstants.receiveTimeout,
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-  ));
+  AuthInterceptor({
+    required this.dio,
+    required this.storage,
+    Dio? refreshDio,
+    SessionEvents? sessionEvents,
+  }) : refresher = TokenRefresher(
+          storage: storage,
+          refreshDio: refreshDio ?? _plainDio(),
+          sessionEvents: sessionEvents,
+        );
 
-  AuthInterceptor({required this.dio, required this.storage});
+  static Dio _plainDio() => Dio(BaseOptions(
+        baseUrl: ApiConstants.baseUrl,
+        connectTimeout: ApiConstants.connectTimeout,
+        receiveTimeout: ApiConstants.receiveTimeout,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ));
+
+  /// Marks a request that was already retried after a refresh.
+  static const _retriedKey = 'auth_retried';
+
+  /// Sign-in routes: they take no Bearer, and their 401 means a wrong password, code or
+  /// challenge — never an expired session (contract T15).
+  static const _publicAuthPaths = [
+    ApiConstants.login,
+    ApiConstants.refreshToken,
+    ApiConstants.verifyMfa,
+    ApiConstants.mfaEnroll,
+    ApiConstants.mfaEnrollConfirm,
+    ApiConstants.mfaLegacyLogin,
+  ];
+
+  static bool isPublicAuthPath(String path) => _publicAuthPaths.any(path.endsWith);
+
+  /// 401s that reject an MFA code or challenge rather than the access token. Bearer MFA
+  /// routes answer a wrong code with 401 invalid_code (Web/backend/src/auth/mfa/mfa.service.ts:650-662);
+  /// refreshing and resending would count the same code twice towards the lock.
+  static const _mfaCodeRejections = {'invalid_code', 'mfa_token_invalid'};
+
+  static bool _rejectsMfaCode(DioException err) {
+    final body = err.response?.data;
+    return body is Map && _mfaCodeRejections.contains(body['message']);
+  }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     final token = await storage.getAccessToken();
-    if (token != null) {
+    if (token != null && !isPublicAuthPath(options.path)) {
       options.headers['Authorization'] = 'Bearer $token';
     }
     handler.next(options);
@@ -38,76 +77,70 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode != 401) {
+    final options = err.requestOptions;
+    if (err.response?.statusCode != 401 ||
+        options.extra[_retriedKey] == true ||
+        isPublicAuthPath(options.path) ||
+        _rejectsMfaCode(err)) {
       handler.next(err);
       return;
     }
 
-    // Don't loop on the refresh endpoint itself
-    if (err.requestOptions.path.contains(ApiConstants.refreshToken)) {
+    final String? newToken;
+    try {
+      newToken = await refresher.renew(staleAccessToken: _bearerOf(options));
+    } on RefreshUnavailable catch (unavailable) {
+      // The session is kept: fail with what stopped the refresh (offline, 5xx, 429), which the caller
+      // words as a retryable failure, not with the 401 that would read as a lost session
+      handler.next(_retryable(options, unavailable.cause));
+      return;
+    } catch (_) {
+      handler.next(err);
+      return;
+    }
+    if (newToken == null) {
       handler.next(err);
       return;
     }
 
     try {
-      final newToken = await _ensureRefresh();
-      if (newToken == null) {
-        handler.next(err);
-        return;
-      }
-
-      final retryOptions = err.requestOptions;
-      retryOptions.headers['Authorization'] = 'Bearer $newToken';
-      final retryResponse = await dio.fetch(retryOptions);
-      handler.resolve(retryResponse);
+      options.extra[_retriedKey] = true;
+      options.headers['Authorization'] = 'Bearer $newToken';
+      // A FormData body can only be sent once; retry with a fresh copy
+      final body = options.data;
+      if (body is FormData) options.data = body.clone();
+      handler.resolve(await dio.fetch(options));
+    } on DioException catch (retryErr) {
+      handler.next(retryErr);
     } catch (_) {
       handler.next(err);
     }
   }
 
-  /// Returns a new access token, or null if refresh failed.
-  /// Concurrent callers share the same in-flight refresh.
-  Future<String?> _ensureRefresh() async {
-    if (_refreshCompleter != null) {
-      return _refreshCompleter!.future;
-    }
+  /// The failure of [options] when its refresh got no definitive answer: the refresh's error type and,
+  /// for an HTTP failure (5xx, 429), its status and body, on the caller's own request.
+  static DioException _retryable(RequestOptions options, DioException cause) {
+    final response = cause.response;
+    return DioException(
+      requestOptions: options,
+      type: cause.type,
+      error: cause.error,
+      message: cause.message,
+      response: response == null
+          ? null
+          : Response<dynamic>(
+              requestOptions: options,
+              statusCode: response.statusCode,
+              statusMessage: response.statusMessage,
+              data: response.data,
+              headers: response.headers,
+            ),
+    );
+  }
 
-    final completer = Completer<String?>();
-    _refreshCompleter = completer;
-
-    try {
-      final refreshToken = await storage.getRefreshToken();
-      if (refreshToken == null) {
-        completer.complete(null);
-        return null;
-      }
-
-      final response = await _refreshDio.post(
-        ApiConstants.refreshToken,
-        data: {'refreshToken': refreshToken},
-      );
-
-      final newAccessToken = response.data['accessToken'] as String?;
-      final newRefreshToken = response.data['refreshToken'] as String?;
-      if (newAccessToken == null) {
-        await storage.clearTokens();
-        completer.complete(null);
-        return null;
-      }
-
-      await storage.saveAccessToken(newAccessToken);
-      if (newRefreshToken != null) {
-        await storage.saveRefreshToken(newRefreshToken);
-      }
-
-      completer.complete(newAccessToken);
-      return newAccessToken;
-    } catch (_) {
-      await storage.clearTokens();
-      completer.complete(null);
-      return null;
-    } finally {
-      _refreshCompleter = null;
-    }
+  /// The access token a request was sent with
+  static String? _bearerOf(RequestOptions options) {
+    final header = options.headers['Authorization'];
+    return header is String && header.startsWith('Bearer ') ? header.substring(7) : null;
   }
 }

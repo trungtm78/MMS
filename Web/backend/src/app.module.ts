@@ -4,16 +4,27 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { CacheModule } from '@nestjs/cache-manager';
+import { throttlerModuleOptions } from './common/throttler/throttler-options';
 import { TerminusModule } from '@nestjs/terminus';
-import Redis from 'ioredis';
-import { redisInsStore } from 'cache-manager-ioredis-yet';
 import configuration from './config/configuration';
 import { User } from './database/entities/user.entity';
 import { Session } from './database/entities/refresh-token.entity';
 import { AuditLog } from './database/entities/audit-log.entity';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
+import { AuthStateModule } from './auth/auth-state.module';
+import { createHmac } from 'crypto';
+import { MfaAdminController, MfaController } from './auth/mfa/mfa.controller';
+import { MFA_SECRET_KEY, MfaService } from './auth/mfa/mfa.service';
+import {
+  MFA_CHALLENGE_KEY,
+  MfaChallengeService,
+} from './auth/mfa/mfa-challenge.service';
+import { mfaKeyFromEnv } from './auth/mfa/mfa-secret-crypto';
+import {
+  LOGIN_ATTEMPT_KEY,
+  LoginAttemptsService,
+} from './auth/login-attempts.service';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
@@ -43,11 +54,11 @@ import { OrganizationModule } from './organization/organization.module';
 import { WeaponsModule } from './weapons/weapons.module';
 import { ExemptionModule } from './exemption/exemption.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
-import { MilitiaProfile } from './militia/militia.entity';
-import { Task } from './tasks/task.entity';
-import { TaskAssignment } from './tasks/task-assignment.entity';
-import { AttendanceRecord } from './attendance/attendance.entity';
+import { RewardsModule } from './rewards/rewards.module';
+import { SettingsModule } from './settings/settings.module';
+import { CustomReportsModule } from './reports/custom-reports.module';
 import { SeederService } from './database/seeder.service';
+import { buildTypeOrmOptions } from './database/typeorm.options';
 
 @Module({
   imports: [
@@ -57,50 +68,16 @@ import { SeederService } from './database/seeder.service';
       envFilePath: '.env',
     }),
 
-    CacheModule.registerAsync({
-      isGlobal: true,
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
-        // Create client manually so we control error handling; falls back to in-memory
-        const client = new Redis({
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD') || undefined,
-          connectTimeout: 2000,
-          maxRetriesPerRequest: 0,
-          lazyConnect: true,
-          retryStrategy: () => null,
-        });
-        client.on('error', () => undefined);
-        try {
-          await client.connect();
-          return { store: redisInsStore(client), ttl: 300_000 };
-        } catch {
-          client.disconnect();
-          return { ttl: 300_000 };
-        }
-      },
-      inject: [ConfigService],
-    }),
-
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get('database.host'),
-        port: config.get('database.port'),
-        username: config.get('database.username'),
-        password: config.get('database.password'),
-        database: config.get('database.database'),
-        entities: [User, Session, AuditLog, MilitiaProfile, Task, TaskAssignment, AttendanceRecord],
-        synchronize: false,
-        logging: process.env.NODE_ENV === 'development',
-        extra: { min: 2, max: 20, idleTimeoutMillis: 30000 },
-      }),
+      useFactory: buildTypeOrmOptions,
       inject: [ConfigService],
     }),
 
     TypeOrmModule.forFeature([User, Session, AuditLog]),
+
+    // Session checks behind JwtAuthGuard, which many feature modules provide
+    AuthStateModule,
 
     JwtModule.registerAsync({
       global: true,
@@ -112,7 +89,11 @@ import { SeederService } from './database/seeder.service';
       inject: [ConfigService],
     }),
 
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // Counters shared through Redis in production, so replicas enforce one limit; process
+    // memory elsewhere. Startup fails when the selected store cannot be used.
+    ThrottlerModule.forRootAsync({
+      useFactory: () => throttlerModuleOptions(process.env),
+    }),
 
     TerminusModule,
     HealthModule,
@@ -141,12 +122,41 @@ import { SeederService } from './database/seeder.service';
     WeaponsModule,
     ExemptionModule,
     RecruitmentModule,
+    RewardsModule,
+    SettingsModule,
+    CustomReportsModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, MfaController, MfaAdminController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     AuthService,
+    MfaService,
+    MfaChallengeService,
+    // Fails at startup in production without a valid MFA_ENCRYPTION_KEY
+    {
+      provide: MFA_SECRET_KEY,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        mfaKeyFromEnv(process.env, config.get<string>('jwt.secret') ?? ''),
+    },
+    // Challenge tokens are hashed with a key derived from, but distinct from, the
+    // encryption key
+    {
+      provide: MFA_CHALLENGE_KEY,
+      inject: [MFA_SECRET_KEY],
+      useFactory: (key: Buffer) =>
+        createHmac('sha256', key).update('mfa-challenge-token').digest(),
+    },
+    LoginAttemptsService,
+    // Sign-in failure counters are keyed by an HMAC of the submitted name, with another key
+    // derived from the MFA key
+    {
+      provide: LOGIN_ATTEMPT_KEY,
+      inject: [MFA_SECRET_KEY],
+      useFactory: (key: Buffer) =>
+        createHmac('sha256', key).update('login-attempt-name').digest(),
+    },
     JwtAuthGuard,
     RolesGuard,
     SeederService,

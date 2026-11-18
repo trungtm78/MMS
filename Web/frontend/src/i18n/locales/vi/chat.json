@@ -1,0 +1,64 @@
+{
+  "list": {
+    "title": "Tin nhắn",
+    "newConversation": "Tạo cuộc trò chuyện mới",
+    "empty": "Chưa có cuộc trò chuyện nào",
+    "start": "Bắt đầu chat",
+    "noLastMessage": "Chưa có tin nhắn",
+    "unread": "{{count}} tin nhắn chưa đọc"
+  },
+  "conversation": {
+    "untitledDirect": "Chat 1-1",
+    "untitledGroup": "Nhóm chat",
+    "participantsAndMore": "{{names}} và {{count}} người khác",
+    "typeGroup": "Nhóm",
+    "typeDirect": "Chat riêng",
+    "selectPrompt": "← Chọn một cuộc trò chuyện để bắt đầu",
+    "empty": "Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện!",
+    "typing": "{{names}} đang nhập…",
+    "typingSomeone": "Có người đang nhập…"
+  },
+  "composer": {
+    "placeholder": "Nhập tin nhắn...",
+    "label": "Nội dung tin nhắn",
+    "send": "Gửi tin nhắn"
+  },
+  "send": {
+    "error": {
+      "fallback": "Không thể gửi tin nhắn. Vui lòng thử lại.",
+      "ackTimeout": "Máy chủ không phản hồi. Vui lòng thử lại.",
+      "connectionLost": "Mất kết nối trước khi máy chủ xác nhận. Hãy kiểm tra tin nhắn đã hiện trong cuộc trò chuyện chưa rồi gửi lại nếu cần."
+    }
+  },
+  "join": {
+    "error": {
+      "fallback": "Không thể tham gia cuộc trò chuyện"
+    }
+  },
+  "connection": {
+    "error": {
+      "sessionLost": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+    }
+  },
+  "create": {
+    "dialog": {
+      "title": "Cuộc trò chuyện mới"
+    },
+    "form": {
+      "titleLabel": "Tên nhóm (tuỳ chọn)",
+      "titlePlaceholder": "Để trống cho chat 1-1...",
+      "participantsLabel": "Thành viên",
+      "participantsPlaceholder": "Tìm theo họ tên hoặc tên đăng nhập...",
+      "searchHint": "Nhập ít nhất {{min}} ký tự để tìm người",
+      "pickedLabel": "Thành viên đã chọn",
+      "removePerson": "Bỏ {{name}}",
+      "participantsRequired": "Nhập ít nhất một thành viên"
+    },
+    "submit": {
+      "pending": "Đang tạo...",
+      "success": "Đã tạo cuộc trò chuyện",
+      "existing": "Đã mở lại cuộc trò chuyện sẵn có với người này",
+      "error": "Không thể tạo cuộc trò chuyện"
+    }
+  }
+}

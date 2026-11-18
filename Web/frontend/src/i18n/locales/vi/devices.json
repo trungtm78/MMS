@@ -1,0 +1,60 @@
+{
+  "sessions": {
+    "page": {
+      "heading": "Quản lý thiết bị & Phiên đăng nhập",
+      "description": "UBND Phường Phú Định – Kiểm soát truy cập thiết bị",
+      "account": "Tài khoản: {{name}}",
+      "loadError": "Không thể tải danh sách phiên đăng nhập.",
+      "empty": "Không có phiên nào",
+      "pageInfo": "Trang {{page}}/{{pages}} · {{total}} phiên"
+    },
+    "columns": {
+      "device": "Thiết bị",
+      "ip": "IP",
+      "lastActive": "Hoạt động gần nhất",
+      "expiresAt": "Hết hạn lúc",
+      "security": "Xác thực",
+      "actions": "Thao tác"
+    },
+    "deviceType": {
+      "desktop": "Máy tính",
+      "mobile": "Điện thoại",
+      "tablet": "Máy tính bảng",
+      "unknown": "Thiết bị khác"
+    },
+    "badges": {
+      "current": "Phiên hiện tại",
+      "mfa": "Xác thực hai lớp",
+      "passwordOnly": "Chỉ mật khẩu"
+    },
+    "lastActive": {
+      "justNow": "Vừa xong",
+      "minutes": "{{count}} phút trước",
+      "hours": "{{count}} giờ trước",
+      "signedInAt": "Đăng nhập lúc {{time}}"
+    },
+    "revoke": {
+      "button": "Thu hồi",
+      "title": "Xác nhận thu hồi?",
+      "description": "Thiết bị {{device}} sẽ bị đăng xuất ngay.",
+      "confirm": "Xác nhận thu hồi",
+      "success": "Đã thu hồi phiên thiết bị",
+      "error": "Không thể thu hồi phiên"
+    },
+    "revokeCurrent": {
+      "button": "Đăng xuất",
+      "title": "Đăng xuất khỏi trình duyệt này?",
+      "description": "Đây là phiên bạn đang dùng. Sau khi thu hồi, bạn sẽ phải đăng nhập lại.",
+      "confirm": "Đăng xuất"
+    },
+    "revokeOthers": {
+      "button": "Đăng xuất các thiết bị khác",
+      "title": "Đăng xuất các thiết bị khác?",
+      "description": "Mọi thiết bị khác đang đăng nhập tài khoản này sẽ bị đăng xuất ngay. Thiết bị bạn đang dùng vẫn giữ đăng nhập.",
+      "confirm": "Đăng xuất các thiết bị khác",
+      "success": "Đã đăng xuất {{count}} thiết bị khác",
+      "none": "Không có thiết bị nào khác đang đăng nhập",
+      "error": "Không thể đăng xuất các thiết bị khác"
+    }
+  }
+}

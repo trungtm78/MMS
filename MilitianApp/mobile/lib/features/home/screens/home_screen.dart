@@ -8,6 +8,7 @@ import '../../../core/constants/api_constants.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/router/routes.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../tasks/repositories/tasks_repository.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -425,72 +426,50 @@ class _StatItem extends StatelessWidget {
 
 // ─── Pending Tasks Card ───────────────────────────────────────────────────────
 
-class _PendingTasksCard extends ConsumerStatefulWidget {
+/// The "Chờ" tab count of the task list (waitingTaskCountProvider): the member's not-started
+/// tasks whose deadline has not passed. GET /tasks answers {data, total, page, limit}; it has no
+/// `pagination` object and is not scoped to the caller.
+class _PendingTasksCard extends ConsumerWidget {
   final BuildContext ctx;
   const _PendingTasksCard(this.ctx);
 
   @override
-  ConsumerState<_PendingTasksCard> createState() => _PendingTasksCardState();
-}
-
-class _PendingTasksCardState extends ConsumerState<_PendingTasksCard> {
-  int _pendingCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      final res = await dio.get(
-        ApiConstants.tasks,
-        queryParameters: {'status': 'pending', 'limit': 1},
-      );
-      if (mounted) {
-        final total = res.data['pagination']?['total'] as int? ?? 0;
-        setState(() => _pendingCount = total);
-      }
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: ListTile(
-          leading: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.warning.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.assignment_late,
-              color: AppColors.warning,
-              size: 22,
-            ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pendingCount = ref.watch(waitingTaskCountProvider).valueOrNull ?? 0;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-          title: const Text(
-            AppStrings.pendingTasks,
-            style: TextStyle(fontWeight: FontWeight.w700),
+        ],
+      ),
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.warning.withOpacity(0.1),
+            shape: BoxShape.circle,
           ),
-          subtitle: Text('$_pendingCount nhiệm vụ chờ xử lý'),
-          trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-          onTap: () => widget.ctx.go(Routes.tasks),
+          child: const Icon(
+            Icons.assignment_late,
+            color: AppColors.warning,
+            size: 22,
+          ),
         ),
-      );
+        title: const Text(
+          AppStrings.pendingTasks,
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text('$pendingCount nhiệm vụ chờ xử lý'),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+        onTap: () => ctx.go(Routes.tasks),
+      ),
+    );
+  }
 }

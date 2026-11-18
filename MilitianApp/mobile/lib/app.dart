@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/constants/app_colors.dart';
 import 'features/auth/providers/auth_provider.dart';
+import 'l10n/l10n.dart';
 import 'shared/services/push_notification_service.dart';
 import 'shared/services/websocket_service.dart';
 
@@ -57,7 +58,10 @@ class _AppState extends ConsumerState<App> {
     });
 
     return MaterialApp.router(
-      title: 'Dân Quân Tự Vệ',
+      onGenerateTitle: (context) => context.l10n.appTitle,
+      locale: const Locale('vi'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       routerConfig: router,
       // Provide navigatorKey so push notification service can route

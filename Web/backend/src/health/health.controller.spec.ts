@@ -1,13 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthController } from './health.controller';
-import { HealthCheckService, TypeOrmHealthIndicator, MemoryHealthIndicator } from '@nestjs/terminus';
+import {
+  HealthCheckService,
+  TypeOrmHealthIndicator,
+  MemoryHealthIndicator,
+} from '@nestjs/terminus';
 
-const mockHealthCheck = jest.fn();
-const mockDbPingCheck = jest.fn();
-const mockMemoryCheckHeap = jest.fn();
+type HealthIndicatorFn = () => unknown;
 
 const mockHealthCheckService = {
-  check: jest.fn(),
+  check: jest.fn<unknown, [indicators: HealthIndicatorFn[]]>(),
 };
 
 const mockTypeOrmHealthIndicator = {
@@ -26,7 +28,10 @@ describe('HealthController', () => {
       controllers: [HealthController],
       providers: [
         { provide: HealthCheckService, useValue: mockHealthCheckService },
-        { provide: TypeOrmHealthIndicator, useValue: mockTypeOrmHealthIndicator },
+        {
+          provide: TypeOrmHealthIndicator,
+          useValue: mockTypeOrmHealthIndicator,
+        },
         { provide: MemoryHealthIndicator, useValue: mockMemoryHealthIndicator },
       ],
     }).compile();
@@ -47,6 +52,22 @@ describe('HealthController', () => {
 
       expect(result).toEqual(healthResult);
       expect(mockHealthCheckService.check).toHaveBeenCalled();
+    });
+
+    it('checks the database ping and a 300 MiB heap ceiling', async () => {
+      await controller.check();
+
+      const [indicators] = mockHealthCheckService.check.mock.calls[0];
+      expect(indicators).toHaveLength(2);
+      indicators.forEach((indicator) => indicator());
+
+      expect(mockTypeOrmHealthIndicator.pingCheck).toHaveBeenCalledWith(
+        'database',
+      );
+      expect(mockMemoryHealthIndicator.checkHeap).toHaveBeenCalledWith(
+        'memory_heap',
+        300 * 1024 * 1024,
+      );
     });
 
     it('propagates error when database check fails', () => {

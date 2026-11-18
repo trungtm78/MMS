@@ -14,12 +14,14 @@ export class GpsRetentionService {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 90);
     try {
-      const result = await this.dataSource.query(
-        `DELETE FROM gps_points WHERE captured_at < $1::timestamptz`,
-        [cutoff.toISOString()],
-      );
+      // The Postgres driver answers a DELETE without RETURNING with [rows, rowCount]
+      const [, deleted] = await this.dataSource.query<
+        [unknown[], number | null]
+      >(`DELETE FROM gps_points WHERE captured_at < $1::timestamptz`, [
+        cutoff.toISOString(),
+      ]);
       this.logger.log(
-        `GPS retention: deleted ${result[1] ?? 0} rows older than 90 days`,
+        `GPS retention: deleted ${deleted ?? 0} rows older than 90 days`,
       );
     } catch (err) {
       this.logger.error('GPS retention: failed to purge old GPS points', err);

@@ -1,0 +1,121 @@
+{
+  "header": {
+    "menu": {
+      "open": "Mở menu"
+    },
+    "logo": {
+      "alt": "Bảo vệ An ninh Trật tự",
+      "fallback": "MMS"
+    },
+    "title": {
+      "full": "HỆ THỐNG QUẢN LÝ LỰC LƯỢNG BẢO VỆ AN NINH TRẬT TỰ",
+      "slogan": "Giữ vững bình yên, vững vàng cơ sở",
+      "short": "QUẢN LÝ ANTT"
+    },
+    "connection": {
+      "online": "Kết nối real-time hoạt động",
+      "reconnecting": "Đang kết nối lại..."
+    },
+    "sos": {
+      "badge": "{{total}} SOS"
+    },
+    "notifications": {
+      "label": "Thông báo",
+      "labelWithUnread": "Thông báo ({{total}} chưa đọc)"
+    },
+    "user": {
+      "initialFallback": "U"
+    },
+    "userMenu": {
+      "profile": "Thông tin cá nhân",
+      "settings": "Cài đặt",
+      "logout": "Đăng xuất"
+    }
+  },
+  "footer": {
+    "authority": {
+      "name": "ỦY BAN NHÂN DÂN PHƯỜNG PHÚ ĐỊNH"
+    },
+    "contact": {
+      "addressLabel": "Địa chỉ:",
+      "address": "Số 184 đường Lưu Hữu Phước, phường Phú Định, TP.HCM",
+      "phoneLabel": "Điện thoại:",
+      "phone": "0283. 5359502",
+      "emailLabel": "Email:",
+      "email": "phudinh@tphcm.gov.vn",
+      "fanpageLabel": "Fanpage:",
+      "fanpage": "facebook.com/phudinh",
+      "zaloLabel": "Zalo Official:",
+      "zalo": "oa.zalo.me/ubndphuongphudinh"
+    },
+    "regulation": {
+      "title": "\"Quý chế quản lý, vận hành và khai thác Hệ thống quản lý Lực lượng bảo vệ an ninh trật tự\""
+    },
+    "certification": {
+      "alt": "NCSC.vn - Website đạt chứng nhận tin nhiệm mạng"
+    }
+  },
+  "forbidden": {
+    "page": {
+      "title": "Không có quyền truy cập",
+      "description": "Bạn không có quyền xem trang này. Vui lòng liên hệ quản trị viên nếu cần hỗ trợ."
+    }
+  },
+  "quickActions": {
+    "fab": {
+      "title": "Thao tác nhanh"
+    },
+    "panel": {
+      "title": "Thao tác nhanh",
+      "subtitle": "Truy cập nhanh các chức năng",
+      "hint": "Bấm vào để điều hướng nhanh"
+    },
+    "actions": {
+      "newTask": {
+        "label": "Giao việc mới",
+        "description": "Tạo và giao nhiệm vụ mới"
+      },
+      "militiaList": {
+        "label": "Danh sách DQTV",
+        "description": "Quản lý nhân sự"
+      },
+      "taskList": {
+        "label": "Danh sách công việc",
+        "description": "Xem và quản lý nhiệm vụ"
+      },
+      "reports": {
+        "label": "Báo cáo & Thống kê",
+        "description": "Xuất báo cáo thống kê"
+      },
+      "timesheet": {
+        "label": "Chấm công",
+        "description": "Quản lý chấm công"
+      },
+      "approvals": {
+        "label": "Duyệt đơn từ",
+        "description": "Phê duyệt đơn từ"
+      },
+      "kpi": {
+        "label": "Dashboard Chỉ tiêu",
+        "description": "Theo dõi Chỉ tiêu KPI"
+      },
+      "payroll": {
+        "label": "Bảng lương",
+        "description": "Lương và KPI"
+      }
+    }
+  },
+  "routeBoundary": {
+    "loading": {
+      "page": "Đang tải trang…"
+    },
+    "chunkError": {
+      "title": "Không tải được trang này.",
+      "description": "Ứng dụng có thể vừa được cập nhật hoặc kết nối mạng bị gián đoạn. Hãy tải lại trang."
+    },
+    "renderError": {
+      "title": "Trang này gặp lỗi khi hiển thị.",
+      "description": "Hãy tải lại trang. Nếu lỗi vẫn lặp lại, vui lòng báo quản trị viên."
+    }
+  }
+}

@@ -1,8 +1,20 @@
 import {
-  Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Request,
-  UseGuards, HttpCode, HttpStatus, UsePipes, ValidationPipe,
-  DefaultValuePipe, ParseIntPipe,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  UsePipes,
+  ValidationPipe,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { RecruitmentService } from './recruitment.service';
 import { CreateApplicationDto } from './dto/create-application.dto';

@@ -6,7 +6,7 @@ Task: TASK-2026-001 | Date: 2026-03-08
 | A-001 | Thêm bước "DB Schema Verification" vào 05_MAIN_BUILD_EXECUTE.md Phase 0 | PLAN | Next sprint | Promt_Lib/05_MAIN_BUILD_EXECUTE.md | OPEN |
 | A-002 | Thêm ESLint rule `@typescript-eslint/consistent-type-imports: error` vào FE eslint.config.js | BUILD | Next task | Web/frontend/eslint.config.js | OPEN |
 | A-003 | Template DTO phải include class-validator decorators từ đầu — update scaffolding guide | BUILD | Next task | docs/technical/02_SPEC_v1.0.md | OPEN |
-| A-004 | Migrate in-memory lockout sang Redis khi deploy multi-instance | BUILD | Production | Web/backend/src/auth/auth.service.ts | OPEN |
+| A-004 | Migrate in-memory lockout sang Redis khi deploy multi-instance | BUILD | Production | Web/backend/src/auth/login-attempts.service.ts | DONE — counters in Postgres (migration 030, atomic slot per attempt, shared by every replica) |
 | A-005 | Implement silent refresh E2E test với clock mocking (Playwright `page.clock`) | BUILD | Next sprint | Web/frontend/tests/e2e/specs/auth-role-scope.spec.ts | OPEN |
 | A-006 | Provide DB schema dump (pg_dump --schema-only) khi bắt đầu mọi build task | HUMAN | Pre-task | docs/technical/erd.md | OPEN |
 | A-007 | Add test user credentials to spec (seeded users + passwords) | PLAN | Next spec | docs/technical/02_SPEC_v1.0.md | OPEN |

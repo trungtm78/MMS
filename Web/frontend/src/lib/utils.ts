@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import i18n from '@/i18n'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -14,5 +15,5 @@ export function formatDateTime(dateStr: string): string {
 }
 
 export function formatMonth(month: number, year: number): string {
-  return `Tháng ${month}/${year}`
+  return i18n.t('ui.dates.month.label', { month, year })
 }

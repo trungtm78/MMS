@@ -1,6 +1,7 @@
 // US-SS-09: PayrollKpiFilter — filter by unit + militia for KPI/Payroll
 import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { SmartSelect } from '@/components/ui/SmartSelect'
 import { Button } from '@/components/ui/Button'
 import { militiaApi } from '@/api/militia'
@@ -38,6 +39,7 @@ interface PayrollKpiFilterProps {
 }
 
 export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
+  const { t } = useTranslation()
   const [unitId, setUnitId] = useState('')
   const [unitQuery, setUnitQuery] = useState('')
   const [militiaId, setMilitiaId] = useState('')
@@ -111,12 +113,12 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
       data-testid="payroll-kpi-filter"
       className="bg-white border border-slate-200 rounded-xl p-4 space-y-4"
     >
-      <h3 className="text-sm font-semibold text-slate-700">Lọc KPI / Lương</h3>
+      <h3 className="text-sm font-semibold text-slate-700">{t('payroll.kpiFilter.header.title')}</h3>
 
       <div className="grid grid-cols-2 gap-3">
         {/* Month */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="payroll-month" className="text-sm font-medium text-slate-700">Tháng</label>
+          <label htmlFor="payroll-month" className="text-sm font-medium text-slate-700">{t('payroll.kpiFilter.fields.month')}</label>
           <select
             id="payroll-month"
             data-testid="payroll-month-select"
@@ -125,14 +127,14 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
             className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>Tháng {m}</option>
+              <option key={m} value={m}>{t('payroll.kpiFilter.fields.monthOption', { month: m })}</option>
             ))}
           </select>
         </div>
 
         {/* Year */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="payroll-year" className="text-sm font-medium text-slate-700">Năm</label>
+          <label htmlFor="payroll-year" className="text-sm font-medium text-slate-700">{t('common.filters.year')}</label>
           <select
             id="payroll-year"
             data-testid="payroll-year-select"
@@ -150,8 +152,8 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
       {/* Unit SmartSelect */}
       <SmartSelect
         name="unit"
-        label="Đơn vị / Khu phố"
-        placeholder="Tất cả đơn vị..."
+        label={t('payroll.kpiFilter.fields.unit')}
+        placeholder={t('payroll.kpiFilter.fields.unitPlaceholder')}
         value={unitId}
         onChange={(id) => handleUnitChange(id)}
         onClear={handleUnitClear}
@@ -163,8 +165,8 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
       {/* Militia SmartSelect — filtered by unit */}
       <SmartSelect
         name="militia"
-        label="Cán bộ dân quân"
-        placeholder={unitId ? 'Lọc theo dân quân...' : 'Chọn đơn vị trước...'}
+        label={t('payroll.kpiFilter.fields.militia')}
+        placeholder={t(unitId ? 'payroll.kpiFilter.fields.militiaPlaceholder' : 'payroll.kpiFilter.fields.militiaPlaceholderNoUnit')}
         value={militiaId}
         onChange={(id) => handleMilitiaChange(id)}
         onClear={handleMilitiaClear}
@@ -175,7 +177,7 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
 
       <div className="flex gap-3 pt-2">
         <Button type="button" variant="secondary" onClick={handleReset} className="flex-1">
-          Xoá lọc
+          {t('payroll.kpiFilter.actions.reset')}
         </Button>
         <Button
           type="button"
@@ -183,7 +185,7 @@ export function PayrollKpiFilter({ onFilter }: PayrollKpiFilterProps) {
           onClick={handleApply}
           className="flex-1"
         >
-          Áp dụng
+          {t('payroll.kpiFilter.actions.apply')}
         </Button>
       </div>
     </div>

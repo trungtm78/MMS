@@ -1,0 +1,265 @@
+{
+  "page": {
+    "header": {
+      "title": "Khen thưởng – Kỷ luật",
+      "subtitle": "Quyết định khen thưởng, kỷ luật Dân quân tự vệ và đơn kháng cáo"
+    },
+    "tabs": {
+      "label": "Loại quyết định",
+      "rewards": "Khen thưởng",
+      "discipline": "Kỷ luật"
+    }
+  },
+  "codes": {
+    "forms": {
+      "chien_si_thi_dua_toan_quoc": "Chiến sĩ thi đua toàn quốc",
+      "chien_si_thi_dua_toan_quan": "Chiến sĩ thi đua toàn quân",
+      "chien_si_thi_dua_co_so": "Chiến sĩ thi đua cơ sở",
+      "chien_si_tien_tien": "Chiến sĩ tiên tiến",
+      "huan_chuong": "Huân chương",
+      "huy_chuong": "Huy chương",
+      "danh_hieu_vinh_du_nha_nuoc": "Danh hiệu vinh dự nhà nước",
+      "giai_thuong_nha_nuoc": "Giải thưởng Hồ Chí Minh, Giải thưởng Nhà nước",
+      "ky_niem_chuong": "Kỷ niệm chương \"Vì sự nghiệp vũ trang quần chúng\"",
+      "bang_khen": "Bằng khen",
+      "giay_khen": "Giấy khen"
+    },
+    "authorities": {
+      "state": "Chủ tịch nước",
+      "prime_minister": "Thủ tướng Chính phủ",
+      "ministry_of_defence": "Bộ trưởng Bộ Quốc phòng",
+      "ministry_or_province": "Bộ, ban, ngành, tỉnh",
+      "military_region": "Thủ trưởng cấp quân khu, quân chủng",
+      "provincial_military_command": "Thủ trưởng Bộ Chỉ huy quân sự, Bộ Chỉ huy Bộ đội biên phòng tỉnh",
+      "district": "Chủ tịch UBND cấp huyện",
+      "commune": "Chủ tịch UBND cấp xã"
+    },
+    "bases": {
+      "achievement": "Thành tích thường xuyên",
+      "ad_hoc": "Đột xuất",
+      "thematic": "Theo chuyên đề",
+      "contribution": "Quá trình cống hiến"
+    },
+    "disciplineForms": {
+      "khien_trach": "Khiển trách",
+      "canh_cao": "Cảnh cáo",
+      "giang_chuc": "Giáng chức",
+      "cach_chuc": "Cách chức",
+      "tuoc_danh_hieu": "Tước danh hiệu Dân quân tự vệ"
+    },
+    "disciplineStatuses": {
+      "active": "Hiệu lực",
+      "appealed": "Đang kháng cáo",
+      "overturned": "Đã hủy"
+    },
+    "appealOutcomes": {
+      "upheld": "Giữ nguyên quyết định",
+      "overturned": "Hủy quyết định"
+    }
+  },
+  "report": {
+    "header": {
+      "title": "Khen thưởng & Kỷ luật",
+      "subtitle": "Báo cáo theo TT 57/2020/TT-BQP"
+    },
+    "filters": {
+      "title": "Bộ lọc",
+      "from": "Từ ngày",
+      "to": "Đến ngày",
+      "kind": "Loại",
+      "unitCode": "Mã đơn vị",
+      "unitCodePlaceholder": "VD: DV01"
+    },
+    "kinds": {
+      "all": "Tất cả",
+      "reward": "Khen thưởng",
+      "discipline": "Kỷ luật"
+    },
+    "months": {
+      "title": "Thống kê theo tháng",
+      "label": "{{month}}/{{year}}",
+      "rewards": "KT: {{total}}",
+      "discipline": "KL: {{total}}"
+    },
+    "tabs": {
+      "reward": "Khen thưởng ({{total}})",
+      "discipline": "Kỷ luật ({{total}})"
+    },
+    "table": {
+      "index": "STT",
+      "fullName": "Họ tên",
+      "militiaCode": "Mã DQTV",
+      "unitName": "Đơn vị",
+      "form": "Hình thức",
+      "content": "Nội dung",
+      "issuedBy": "Người ký",
+      "decisionDate": "Ngày QĐ",
+      "status": "Trạng thái"
+    },
+    "load": {
+      "loading": "Đang tải báo cáo",
+      "error": "Không thể tải dữ liệu."
+    },
+    "export": {
+      "idle": "Xuất Excel",
+      "pending": "Đang xuất...",
+      "error": "Không thể xuất báo cáo"
+    }
+  },
+  "memberPicker": {
+    "field": {
+      "label": "DQTV",
+      "placeholder": "Tìm theo tên hoặc mã DQTV"
+    }
+  },
+  "list": {
+    "create": {
+      "button": "Tạo quyết định khen thưởng"
+    },
+    "table": {
+      "militia": "DQTV",
+      "form": "Hình thức",
+      "authority": "Cấp ra QĐ",
+      "decisionNumber": "Số QĐ",
+      "criteria": "Tiêu chí",
+      "issuedDate": "Ngày QĐ"
+    },
+    "load": {
+      "loading": "Đang tải danh sách khen thưởng",
+      "empty": "Chưa có quyết định khen thưởng nào",
+      "error": "Không thể tải danh sách khen thưởng."
+    }
+  },
+  "create": {
+    "dialog": {
+      "title": "Tạo quyết định khen thưởng"
+    },
+    "fields": {
+      "form": "Hình thức khen thưởng",
+      "formPlaceholder": "-- Chọn hình thức --",
+      "authority": "Cấp ra quyết định",
+      "authorityPlaceholder": "-- Chọn cấp --",
+      "authorityHint": "Chỉ hiện các cấp có thẩm quyền trao hình thức đã chọn vào ngày quyết định.",
+      "issuedDate": "Ngày quyết định",
+      "basis": "Căn cứ khen thưởng",
+      "basisPlaceholder": "-- Không ghi --",
+      "decisionNumber": "Số quyết định",
+      "decisionNumberPlaceholder": "VD: 12/QĐ-UBND",
+      "criteria": "Tiêu chí",
+      "criteriaPlaceholder": "Nêu thành tích, tiêu chí khen thưởng..."
+    },
+    "validation": {
+      "militiaRequired": "Vui lòng chọn DQTV",
+      "formRequired": "Vui lòng chọn hình thức khen thưởng",
+      "authorityRequired": "Vui lòng chọn cấp ra quyết định",
+      "issuedDateRequired": "Vui lòng chọn ngày quyết định"
+    },
+    "submit": {
+      "idle": "Tạo quyết định",
+      "pending": "Đang lưu...",
+      "success": "Đã tạo quyết định khen thưởng",
+      "error": "Không thể tạo quyết định khen thưởng"
+    }
+  },
+  "discipline": {
+    "list": {
+      "create": {
+        "button": "Tạo quyết định kỷ luật"
+      },
+      "load": {
+        "loading": "Đang tải danh sách kỷ luật",
+        "empty": "Chưa có quyết định kỷ luật nào",
+        "error": "Không thể tải danh sách kỷ luật."
+      },
+      "row": {
+        "decisionDate": "Ngày QĐ {{date}}",
+        "decisionNumber": "Số {{number}}",
+        "issuedBy": "Người ký: {{name}}",
+        "appealRounds": "Đã kháng cáo {{rounds}}/{{max}} lần"
+      },
+      "actions": {
+        "appeal": "Kháng cáo",
+        "decide": "Giải quyết kháng cáo"
+      }
+    },
+    "create": {
+      "dialog": {
+        "title": "Tạo quyết định kỷ luật"
+      },
+      "fields": {
+        "form": "Hình thức kỷ luật",
+        "formPlaceholder": "-- Chọn hình thức --",
+        "commandOnlyHint": "Hình thức này chỉ áp dụng với người giữ chức vụ chỉ huy.",
+        "violation": "Hành vi vi phạm",
+        "violationPlaceholder": "Mô tả hành vi vi phạm...",
+        "violationDate": "Ngày vi phạm",
+        "decisionDate": "Ngày quyết định",
+        "decisionNumber": "Số quyết định",
+        "decisionNumberPlaceholder": "VD: 05/QĐ-UBND",
+        "issuedBy": "Người ký",
+        "issuedByPlaceholder": "VD: Chủ tịch UBND phường"
+      },
+      "validation": {
+        "militiaRequired": "Vui lòng chọn DQTV",
+        "formRequired": "Vui lòng chọn hình thức kỷ luật",
+        "violationRequired": "Vui lòng nhập hành vi vi phạm",
+        "decisionDateRequired": "Vui lòng chọn ngày quyết định"
+      },
+      "submit": {
+        "idle": "Tạo quyết định",
+        "pending": "Đang lưu...",
+        "success": "Đã tạo quyết định kỷ luật",
+        "error": "Không thể tạo quyết định kỷ luật"
+      }
+    },
+    "appeal": {
+      "dialog": {
+        "title": "Kháng cáo quyết định kỷ luật",
+        "description": "{{name}} · {{form}} · Ngày QĐ {{date}}"
+      },
+      "fields": {
+        "reason": "Lý do kháng cáo",
+        "reasonPlaceholder": "Nêu căn cứ, lý do kháng cáo...",
+        "filedDate": "Ngày nộp đơn",
+        "filedDateHint": "Để trống nếu đơn được nộp hôm nay."
+      },
+      "validation": {
+        "reasonRequired": "Vui lòng nhập lý do kháng cáo"
+      },
+      "submit": {
+        "idle": "Gửi kháng cáo",
+        "pending": "Đang gửi...",
+        "success": "Đã gửi đơn kháng cáo",
+        "error": "Không thể gửi đơn kháng cáo"
+      }
+    },
+    "decide": {
+      "dialog": {
+        "title": "Giải quyết kháng cáo",
+        "description": "{{name}} · {{form}} · Ngày QĐ {{date}}"
+      },
+      "openAppeal": {
+        "loading": "Đang tải đơn kháng cáo...",
+        "error": "Không thể tải nội dung đơn kháng cáo.",
+        "heading": "Đơn kháng cáo lần {{round}}, nộp ngày {{date}}",
+        "filedBy": "Người nộp: {{name}}"
+      },
+      "fields": {
+        "outcome": "Kết quả giải quyết",
+        "resolution": "Nội dung giải quyết",
+        "resolutionPlaceholder": "Nêu kết luận và căn cứ giải quyết...",
+        "decidedDate": "Ngày giải quyết",
+        "decidedDateHint": "Để trống nếu giải quyết hôm nay."
+      },
+      "validation": {
+        "resolutionRequired": "Vui lòng nhập nội dung giải quyết"
+      },
+      "submit": {
+        "idle": "Ghi nhận kết quả",
+        "pending": "Đang lưu...",
+        "success": "Đã ghi nhận kết quả giải quyết kháng cáo",
+        "error": "Không thể ghi nhận kết quả giải quyết kháng cáo"
+      }
+    }
+  }
+}

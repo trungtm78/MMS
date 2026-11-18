@@ -1,0 +1,286 @@
+{
+  "status": {
+    "active": "Đang hoạt động",
+    "reserve": "Dự bị",
+    "inactive": "Đã xuất ngũ",
+    "leave": "Nghỉ phép"
+  },
+  "form": {
+    "fields": {
+      "phone": "Số điện thoại"
+    },
+    "placeholders": {
+      "phone": "0909xxxxxx"
+    },
+    "validation": {
+      "phoneInvalid": "Số điện thoại không hợp lệ"
+    },
+    "actions": {
+      "reset": "Đặt lại"
+    },
+    "submit": {
+      "error": "Có lỗi xảy ra. Vui lòng thử lại."
+    }
+  },
+  "create": {
+    "header": {
+      "title": "Thêm Dân Quân Tự Vệ",
+      "subtitle": "Nhập thông tin cơ bản cho thành viên mới",
+      "back": "Quay lại danh sách"
+    },
+    "fields": {
+      "fullName": "Họ và tên *",
+      "militiaCode": "Mã DQTV *",
+      "unitCode": "Đơn vị *",
+      "dob": "Ngày sinh",
+      "gender": "Giới tính"
+    },
+    "placeholders": {
+      "fullName": "Nhập họ tên đầy đủ...",
+      "militiaCode": "VD: HCM-PHD-T12-0001",
+      "unitCode": "VD: KP1"
+    },
+    "gender": {
+      "placeholder": "-- Chọn giới tính --",
+      "male": "Nam",
+      "female": "Nữ"
+    },
+    "validation": {
+      "fullNameMin": "Họ tên tối thiểu {{min}} ký tự",
+      "fullNameMax": "Họ tên tối đa {{max}} ký tự",
+      "codeMin": "Mã DQTV tối thiểu {{min}} ký tự",
+      "codeMax": "Mã DQTV tối đa {{max}} ký tự",
+      "codeFormat": "Mã DQTV chỉ gồm chữ hoa, số và dấu gạch ngang",
+      "unitRequired": "Đơn vị là bắt buộc",
+      "dobInvalid": "Ngày sinh không hợp lệ"
+    },
+    "form": {
+      "submit": "Thêm DQTV"
+    },
+    "submit": {
+      "success": "Thêm dân quân tự vệ thành công",
+      "invalid": "Không thể thêm DQTV: mã đơn vị không tồn tại hoặc dữ liệu bị trùng. Vui lòng kiểm tra lại.",
+      "forbidden": "Bạn không có quyền thêm DQTV vào đơn vị này."
+    }
+  },
+  "edit": {
+    "dialog": {
+      "title": "Chỉnh sửa thông tin",
+      "save": "Lưu thay đổi",
+      "discardConfirm": "Bạn có thay đổi chưa lưu. Thoát không?"
+    },
+    "fields": {
+      "address": "Địa chỉ thường trú",
+      "rank": "Cấp bậc"
+    },
+    "placeholders": {
+      "address": "Nhập địa chỉ...",
+      "rank": "VD: Tiểu đội trưởng"
+    },
+    "validation": {
+      "addressMax": "Địa chỉ tối đa {{max}} ký tự",
+      "rankMax": "Cấp bậc tối đa {{max}} ký tự"
+    },
+    "submit": {
+      "success": "Cập nhật thành công"
+    }
+  },
+  "search": {
+    "header": {
+      "title": "Tìm kiếm Dân Quân Tự Vệ",
+      "subtitle": "Tra cứu thông tin dân quân theo nhiều tiêu chí"
+    },
+    "filters": {
+      "term": "Tìm kiếm nhanh",
+      "termPlaceholder": "Nhập họ tên, mã DQTV...",
+      "unit": "Đơn vị",
+      "unitPlaceholder": "Mã đơn vị..."
+    },
+    "results": {
+      "title": "Kết quả tìm kiếm",
+      "count": "{{total}} bản ghi",
+      "code": "Mã: <strong>{{code}}</strong>"
+    },
+    "empty": {
+      "title": "Không tìm thấy kết quả",
+      "hint": "Vui lòng thử lại với từ khóa khác"
+    },
+    "load": {
+      "forbidden": "Bạn không có quyền tra cứu DQTV của đơn vị này.",
+      "error": "Không thể tìm kiếm DQTV. Vui lòng thử lại."
+    }
+  },
+  "list": {
+    "header": {
+      "title": "Danh sách Dân Quân Tự Vệ",
+      "subtitle": "Quản lý thông tin toàn bộ dân quân tự vệ",
+      "add": "Thêm DQTV"
+    },
+    "filters": {
+      "title": "Bộ lọc tìm kiếm",
+      "searchPlaceholder": "Tên hoặc mã DQTV...",
+      "unit": "Đơn vị",
+      "status": "Trạng thái",
+      "allUnits": "Tất cả đơn vị",
+      "allStatuses": "Tất cả trạng thái"
+    },
+    "units": {
+      "kp1": "Khu phố 1",
+      "kp2": "Khu phố 2",
+      "kp3": "Khu phố 3",
+      "kp4": "Khu phố 4",
+      "kp5": "Khu phố 5",
+      "kp6": "Khu phố 6"
+    },
+    "columns": {
+      "index": "STT",
+      "code": "Mã DQTV",
+      "fullName": "Họ và tên",
+      "unit": "Đơn vị",
+      "rank": "Cấp bậc",
+      "phone": "Điện thoại",
+      "email": "Email",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    },
+    "load": {
+      "error": "Không thể tải danh sách. Vui lòng thử lại."
+    },
+    "empty": {
+      "noMatch": "Không tìm thấy kết quả phù hợp",
+      "noMatchHint": "Thử thay đổi bộ lọc tìm kiếm",
+      "noData": "Chưa có dữ liệu dân quân",
+      "noDataHint": "Nhấn \"Thêm DQTV\" để bắt đầu"
+    },
+    "pagination": {
+      "range": "Hiển thị <strong>{{from}}</strong> đến <strong>{{to}}</strong> trong tổng số <strong>{{total}}</strong> bản ghi",
+      "none": "Không có bản ghi",
+      "previous": "Trước",
+      "next": "Sau"
+    }
+  },
+  "profile": {
+    "header": {
+      "title": "Chi tiết Dân Quân Tự Vệ",
+      "subtitle": "Thông tin đầy đủ và lịch sử hoạt động",
+      "backToList": "Quay lại danh sách",
+      "code": "Mã DQTV: <strong>{{code}}</strong>"
+    },
+    "export": {
+      "action": "Xuất hồ sơ",
+      "error": "Không thể xuất hồ sơ. Vui lòng thử lại."
+    },
+    "load": {
+      "error": "Không thể tải thông tin. Vui lòng thử lại.",
+      "badRequest": "Đường dẫn hồ sơ không hợp lệ.",
+      "forbidden": "Bạn không có quyền xem hồ sơ này."
+    },
+    "tabs": {
+      "personal": "Hồ sơ cá nhân",
+      "history": "Quá trình công tác",
+      "training": "Huấn luyện",
+      "rewards": "Khen thưởng - Kỷ luật",
+      "documents": "Hồ sơ đính kèm",
+      "changelog": "Lịch sử chỉnh sửa",
+      "loadError": "Không thể tải dữ liệu. Vui lòng thử lại."
+    },
+    "personal": {
+      "code": "Mã DQTV",
+      "rank": "Cấp bậc",
+      "phone": "Điện thoại",
+      "email": "Email",
+      "unit": "Đơn vị",
+      "status": "Trạng thái",
+      "occupation": "Nghề nghiệp",
+      "education": "Trình độ học vấn",
+      "health": "Sức khỏe",
+      "bloodType": "Nhóm máu",
+      "permanentAddress": "Địa chỉ thường trú",
+      "judicial": "Lý lịch tư pháp"
+    },
+    "health": {
+      "good": "Tốt",
+      "average": "Trung bình",
+      "poor": "Kém"
+    },
+    "judicial": {
+      "clear": "Sạch",
+      "pending": "Đang xem xét",
+      "flagged": "Có vấn đề"
+    },
+    "history": {
+      "forbidden": "Bạn không có quyền xem quá trình công tác của hồ sơ này.",
+      "assignments": "Phân công CA–DQTV",
+      "noAssignments": "Chưa có phân công.",
+      "assignment": "CA: {{username}} — {{date}}",
+      "tasks": "Lịch sử nhiệm vụ",
+      "noTasks": "Chưa có nhiệm vụ nào."
+    },
+    "training": {
+      "compliance": "Năm {{year}}: {{days}}/{{required}} ngày — {{result}}",
+      "met": "Đạt ✓",
+      "notMet": "Chưa đạt ✗",
+      "empty": "Chưa có dữ liệu huấn luyện",
+      "columns": {
+        "type": "Loại",
+        "from": "Từ ngày",
+        "to": "Đến ngày",
+        "days": "Số ngày",
+        "location": "Địa điểm",
+        "result": "Kết quả"
+      },
+      "types": {
+        "military": "Quân sự",
+        "political": "Chính trị",
+        "fire": "PCCC",
+        "first_aid": "Sơ cứu",
+        "other": "Khác"
+      },
+      "results": {
+        "pass": "Đạt",
+        "fail": "Không đạt",
+        "not_evaluated": "Chưa đánh giá"
+      }
+    },
+    "rewards": {
+      "forbidden": "Bạn không có quyền xem khen thưởng - kỷ luật của hồ sơ này.",
+      "empty": "Chưa có khen thưởng / kỷ luật",
+      "reward": "Khen thưởng",
+      "discipline": "Kỷ luật"
+    },
+    "documents": {
+      "forbidden": "Bạn không có quyền xem tài liệu của hồ sơ này.",
+      "empty": "Chưa có tài liệu đính kèm",
+      "download": "Tải xuống",
+      "downloading": "Đang tải xuống...",
+      "downloadError": "Không thể tải tệp. Vui lòng thử lại.",
+      "details": "{{type}} · {{size}}",
+      "types": {
+        "pdf": "PDF",
+        "word": "Word",
+        "excel": "Excel",
+        "image": "Ảnh"
+      },
+      "size": {
+        "bytes": "{{value}} B",
+        "kilobytes": "{{value}} KB",
+        "megabytes": "{{value}} MB"
+      },
+      "upload": {
+        "label": "Thêm giấy tờ",
+        "hint": "Chọn tối đa {{max}} tệp: ảnh, PDF, Word hoặc Excel, mỗi tệp tối đa 10 MB.",
+        "uploading": "Đang tải lên...",
+        "tooMany": "Chỉ chọn tối đa {{max}} tệp mỗi lần.",
+        "fileProblem": "{{name}}: {{reason}}",
+        "success": "Đã thêm giấy tờ vào hồ sơ.",
+        "uploadError": "Không thể tải tệp lên. Vui lòng thử lại.",
+        "attachError": "Không thể thêm giấy tờ vào hồ sơ. Vui lòng thử lại."
+      }
+    },
+    "changelog": {
+      "forbidden": "Bạn không có quyền xem lịch sử chỉnh sửa của hồ sơ này.",
+      "empty": "Chưa có lịch sử chỉnh sửa",
+      "actor": "bởi {{name}}"
+    }
+  }
+}

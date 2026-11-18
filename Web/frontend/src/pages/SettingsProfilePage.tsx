@@ -1,10 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { User, Mail, Phone, Save, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { getProfile, updateProfile } from '@/api/profile'
+import { describeApiError } from '@/lib/api-error'
+import { heldRoles, roleLabel } from '@/lib/roles'
+import { MfaSecuritySection } from '@/components/settings/MfaSecuritySection'
 
 export function SettingsProfilePage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
 
@@ -27,10 +32,10 @@ export function SettingsProfilePage() {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] })
-      toast.success('Cập nhật thông tin thành công')
+      toast.success(t('settings.profile.update.success'))
       setIsEditing(false)
     },
-    onError: () => toast.error('Cập nhật thất bại'),
+    onError: (err: unknown) => toast.error(describeApiError(err, { fallback: 'settings.profile.update.error' })),
   })
 
   const handleStartEdit = () => {
@@ -49,26 +54,24 @@ export function SettingsProfilePage() {
   if (isLoading) {
     return (
       <div className="p-6 bg-[#F8FAFC] min-h-full">
-        <div className="text-center text-[#64748B] py-12 text-sm">Đang tải...</div>
+        <div className="text-center text-[#64748B] py-12 text-sm">{t('common.states.loading')}</div>
       </div>
     )
   }
 
-  const ROLE_LABELS: Record<string, string> = {
-    system_admin: 'Quản trị viên', office_staff: 'Văn phòng',
-    police_area: 'CA khu vực', police_ward: 'CA phường',
-    ubnd_leader: 'Lãnh đạo UBND', dqtv: 'Dân quân',
-  }
-
+  // Every role held, primary first; older responses carry only the primary role
+  const roles = heldRoles(profile)
+  const primaryRole = profile?.role ?? roles[0] ?? null
   const initial = profile?.fullName?.[0]?.toUpperCase() ?? '?'
+  const none = t('common.states.none')
 
   return (
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="settings-profile-page">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Thông Tin Cá Nhân</h1>
-          <p className="text-sm text-[#64748B] mt-1">Quản lý thông tin tài khoản của bạn</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">{t('settings.profile.page.heading')}</h1>
+          <p className="text-sm text-[#64748B] mt-1">{t('settings.profile.page.description')}</p>
         </div>
         {!isEditing && (
           <button
@@ -76,7 +79,7 @@ export function SettingsProfilePage() {
             className="bg-[#1F3A5F] text-white hover:bg-[#2d5380] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
             data-testid="edit-profile-btn"
           >
-            Chỉnh sửa
+            {t('common.actions.edit')}
           </button>
         )}
       </div>
@@ -93,14 +96,14 @@ export function SettingsProfilePage() {
             </div>
             <div className="pb-2">
               <h2 className="text-xl font-bold text-[#0F172A]">{profile?.fullName}</h2>
-              <p className="text-sm text-[#64748B]">{ROLE_LABELS[profile?.role ?? ''] ?? profile?.role}</p>
+              <p className="text-sm text-[#64748B]" data-testid="profile-primary-role">{roleLabel(primaryRole)}</p>
             </div>
           </div>
 
           {isEditing ? (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[#C62828] mb-1">Họ và tên</label>
+                <label className="block text-sm font-medium text-[#C62828] mb-1">{t('settings.profile.form.fullName')}</label>
                 <input
                   type="text"
                   value={formData.fullName}
@@ -110,7 +113,7 @@ export function SettingsProfilePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#C62828] mb-1">Email</label>
+                <label className="block text-sm font-medium text-[#C62828] mb-1">{t('settings.profile.form.email')}</label>
                 <input
                   type="email"
                   value={formData.email}
@@ -120,7 +123,7 @@ export function SettingsProfilePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#C62828] mb-1">Số điện thoại</label>
+                <label className="block text-sm font-medium text-[#C62828] mb-1">{t('settings.profile.form.phone')}</label>
                 <input
                   type="tel"
                   value={formData.phone}
@@ -135,7 +138,7 @@ export function SettingsProfilePage() {
                   className="border border-[#E2E8F0] text-[#64748B] hover:border-[#C62828] rounded-lg px-6 py-2.5 text-sm font-medium transition-colors"
                   data-testid="cancel-edit-btn"
                 >
-                  Hủy
+                  {t('common.actions.cancel')}
                 </button>
                 <button
                   onClick={() => mutation.mutate()}
@@ -144,27 +147,44 @@ export function SettingsProfilePage() {
                   data-testid="save-profile-btn"
                 >
                   <Save size={16} />
-                  {mutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                  {mutation.isPending ? t('common.actions.saving') : t('settings.profile.update.idle')}
                 </button>
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-6">
-              <InfoRow icon={<User size={16} />} label="Tài khoản" value={profile?.username ?? '—'} />
-              <InfoRow icon={<Mail size={16} />} label="Email" value={profile?.email ?? '—'} />
-              <InfoRow icon={<Phone size={16} />} label="Điện thoại" value={profile?.phone ?? '—'} />
-              <InfoRow icon={<CheckCircle size={16} />} label="Đơn vị" value={profile?.unitScope ?? '—'} />
-              <InfoRow icon={<CheckCircle size={16} />} label="Vai trò" value={ROLE_LABELS[profile?.role ?? ''] ?? '—'} />
-              <InfoRow icon={<CheckCircle size={16} />} label="Trạng thái" value={profile?.status === 'active' ? 'Hoạt động' : 'Không hoạt động'} />
+              <InfoRow icon={<User size={16} />} label={t('settings.profile.info.username')} value={profile?.username ?? none} />
+              <InfoRow icon={<Mail size={16} />} label={t('settings.profile.info.email')} value={profile?.email ?? none} />
+              <InfoRow icon={<Phone size={16} />} label={t('settings.profile.info.phone')} value={profile?.phone ?? none} />
+              <InfoRow icon={<CheckCircle size={16} />} label={t('settings.profile.info.unit')} value={profile?.unitScope ?? none} />
+              <InfoRow
+                icon={<CheckCircle size={16} />}
+                label={t('settings.profile.info.roles')}
+                value={roles.length ? roles.map(roleLabel).join(', ') : none}
+                testId="profile-roles"
+              />
+              <InfoRow
+                icon={<CheckCircle size={16} />}
+                label={t('settings.profile.info.status')}
+                value={profile?.status === 'active' ? t('settings.profile.status.active') : t('settings.profile.status.inactive')}
+              />
             </div>
           )}
         </div>
       </div>
+
+      <section
+        aria-labelledby="account-security-heading"
+        className="bg-white rounded-lg border border-[#E2E8F0] p-6 space-y-4"
+      >
+        <h2 id="account-security-heading" className="text-lg font-bold text-[#0F172A]">{t('settings.profile.security.heading')}</h2>
+        <MfaSecuritySection />
+      </section>
     </div>
   )
 }
 
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function InfoRow({ icon, label, value, testId }: { icon: React.ReactNode; label: string; value: string; testId?: string }) {
   return (
     <div className="flex items-start gap-3">
       <div className="w-8 h-8 bg-[#FFF3E0] rounded-lg flex items-center justify-center text-[#C62828] flex-shrink-0 mt-0.5">
@@ -172,7 +192,7 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
       </div>
       <div>
         <p className="text-xs text-[#64748B]">{label}</p>
-        <p className="text-sm font-medium text-[#0F172A] mt-0.5">{value}</p>
+        <p className="text-sm font-medium text-[#0F172A] mt-0.5" data-testid={testId}>{value}</p>
       </div>
     </div>
   )

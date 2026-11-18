@@ -1,0 +1,387 @@
+{
+  "common": {
+    "network": "Không thể kết nối tới máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.",
+    "validation": "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại",
+    "validationDetails": "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại ({{details}})",
+    "throttled": "Bạn thao tác quá nhanh. Vui lòng đợi một lát rồi thử lại.",
+    "unexpected": "Đã có lỗi xảy ra. Vui lòng thử lại.",
+    "server": "Hệ thống đang gặp sự cố. Vui lòng thử lại sau.",
+    "forbidden": "Bạn không có quyền thực hiện thao tác này"
+  },
+  "auth": {
+    "login": {
+      "invalid_credentials": "Tên đăng nhập hoặc mật khẩu không đúng.",
+      "account_disabled": "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.",
+      "no_role_assigned": "Tài khoản chưa được phân quyền sử dụng hệ thống. Vui lòng liên hệ quản trị viên.",
+      "account_locked": "Tài khoản tạm thời bị khóa do nhập sai mật khẩu nhiều lần. Vui lòng thử lại sau 30 phút.",
+      "mfa_locked": "Xác thực hai lớp đang tạm khóa 15 phút do nhập sai mã nhiều lần. Vui lòng thử lại sau."
+    },
+    "mfa": {
+      "invalid_code": "Mã không đúng.",
+      "mfa_token_invalid": "Phiên xác thực đã hết hạn hoặc không còn hiệu lực. Vui lòng đăng nhập lại.",
+      "mfa_attempts_exceeded": "Bạn đã nhập sai mã quá số lần cho phép. Vui lòng đăng nhập lại.",
+      "mfa_locked": "Xác thực hai lớp đang tạm khóa 15 phút do nhập sai mã nhiều lần. Vui lòng thử lại sau.",
+      "mfa_already_enabled": "Xác thực hai lớp đã được bật cho tài khoản này.",
+      "mfa_not_enabled": "Xác thực hai lớp chưa được bật cho tài khoản này.",
+      "mfa_required_by_role": "Vai trò của bạn bắt buộc sử dụng xác thực hai lớp nên không thể tắt.",
+      "mfa_setup_not_started": "Chưa bắt đầu thiết lập. Vui lòng bắt đầu lại.",
+      "user_not_found": "Không tìm thấy tài khoản"
+    },
+    "session": {
+      "session_ended": "Phiên đăng nhập đã kết thúc, vui lòng đăng nhập lại",
+      "mfa_reauthentication_required": "Tài khoản cần xác thực hai lớp, vui lòng đăng nhập lại"
+    }
+  },
+  "settings": {
+    "password": {
+      "invalid_credentials": "Mật khẩu hiện tại không đúng"
+    },
+    "kpiTargets": {
+      "invalid_kpi_targets": "Chỉ tiêu nằm ngoài giới hạn cho phép. Vui lòng kiểm tra lại.",
+      "insufficient_role": "Chỉ quản trị hệ thống được thay đổi chỉ tiêu."
+    },
+    "notifications": {
+      "notification_preference_mandatory": "Không thể tắt thông báo bắt buộc. Cài đặt đã được khôi phục."
+    }
+  },
+  "reports": {
+    "custom": {
+      "invalid_dataset": "Loại báo cáo không hợp lệ.",
+      "group_by_not_supported": "Loại báo cáo này không hỗ trợ cách nhóm đã chọn.",
+      "status_not_supported": "Loại báo cáo này không hỗ trợ trạng thái đã chọn.",
+      "invalid_date": "Ngày không hợp lệ.",
+      "invalid_date_range": "Ngày bắt đầu phải trước hoặc trùng ngày kết thúc.",
+      "date_range_too_long": "Khoảng thời gian tối đa là 366 ngày.",
+      "invalid_group_by": "Loại báo cáo này không hỗ trợ cách nhóm đã chọn.",
+      "invalid_status": "Loại báo cáo này không hỗ trợ trạng thái đã chọn.",
+      "invalid_unit_code": "Mã đơn vị không hợp lệ.",
+      "invalid_limit": "Số dòng tối đa phải từ 1 đến 5000."
+    }
+  },
+  "devices": {
+    "sessions": {
+      "session_not_found": "Phiên đăng nhập này không còn hoạt động hoặc không thuộc tài khoản của bạn. Danh sách đã được cập nhật.",
+      "insufficient_role": "Chỉ quản trị hệ thống được xem phiên đăng nhập của tài khoản khác."
+    }
+  },
+  "admin": {
+    "unknown_role": "Vai trò không tồn tại trong hệ thống",
+    "unknown_unit": "Mã đơn vị không tồn tại",
+    "username_taken": "Tên đăng nhập đã được sử dụng",
+    "email_taken": "Email đã được sử dụng",
+    "cannot_change_own_account": "Bạn không thể tự thay đổi trạng thái hoặc vai trò của chính tài khoản mình",
+    "role_not_assignable": "Bạn không được phép cấp hoặc quản lý vai trò này",
+    "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý",
+    "unit_scope_violation": "Đơn vị nằm ngoài phạm vi quản lý của bạn",
+    "user_not_found": "Không tìm thấy tài khoản",
+    "invalid_status": "Trạng thái không hợp lệ",
+    "cannot_reset_own_mfa": "Bạn không thể tự đặt lại xác thực hai lớp của chính mình",
+    "insufficient_role": "Bạn không có quyền thực hiện thao tác này"
+  },
+  "leave": {
+    "create": {
+      "invalid_date": "Ngày nghỉ không hợp lệ. Vui lòng chọn lại ngày.",
+      "insufficient_leave_balance": "Số ngày phép còn lại không đủ cho đơn này.",
+      "invalid_date_range_no_working_days": "Khoảng thời gian đã chọn không có ngày làm việc.",
+      "leave_type_not_found": "Loại nghỉ phép không tồn tại.",
+      "leave_type_inactive": "Loại nghỉ phép này đã ngừng áp dụng. Vui lòng chọn loại khác."
+    },
+    "review": {
+      "leave_request_not_pending": "Đơn này đã được xử lý trước đó. Danh sách đã được cập nhật.",
+      "insufficient_leave_balance": "Người đề nghị không còn đủ số ngày phép để duyệt đơn này.",
+      "cannot_review_own_request": "Bạn không thể tự duyệt đơn nghỉ phép của chính mình.",
+      "leave_request_not_found": "Không tìm thấy đơn nghỉ phép, hoặc đơn không thuộc phạm vi của bạn.",
+      "insufficient_role_to_review": "Bạn không có quyền duyệt đơn nghỉ phép.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý."
+    },
+    "cancel": {
+      "leave_request_not_pending": "Đơn này đã được xử lý trước đó. Danh sách đã được cập nhật.",
+      "not_your_leave_request": "Bạn chỉ có thể hủy đơn của chính mình.",
+      "leave_request_not_found": "Không tìm thấy đơn nghỉ phép."
+    },
+    "approvals": {
+      "insufficient_role_to_view_approvals": "Bạn không có quyền xem danh sách phê duyệt.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý."
+    }
+  },
+  "exemptions": {
+    "militia_not_found": "Không tìm thấy DQTV đã chọn",
+    "unit_scope_violation": "DQTV không thuộc đơn vị bạn quản lý",
+    "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý",
+    "expiry_before_effective": "Ngày hết hạn phải bằng hoặc sau ngày hiệu lực",
+    "overlapping_active_exemption": "DQTV đã có quyết định còn hiệu lực trùng thời gian này",
+    "insufficient_role": "Bạn không có quyền thực hiện thao tác này",
+    "invalid_status_transition": "Quyết định đã hết hiệu lực hoặc đã bị thu hồi",
+    "exemption_not_found": "Không tìm thấy quyết định"
+  },
+  "notifications": {
+    "notification_not_found": "Thông báo không còn tồn tại"
+  },
+  "chat": {
+    "not_a_participant": "Bạn không phải thành viên của cuộc trò chuyện này",
+    "session_expired": "Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang hoặc đăng nhập lại.",
+    "unauthenticated": "Kết nối chưa được xác thực. Vui lòng tải lại trang hoặc đăng nhập lại.",
+    "invalid_conversation_id": "Cuộc trò chuyện không hợp lệ",
+    "message_too_long": "Tin nhắn không được vượt quá {{max}} ký tự",
+    "message_content_required": "Vui lòng nhập nội dung tin nhắn",
+    "participant_not_found": "Có người được chọn nằm ngoài phạm vi liên lạc của bạn. Vui lòng chọn lại."
+  },
+  "audit": {
+    "export": {
+      "date_range_exceeds_90_days": "Khoảng thời gian xuất tối đa là 90 ngày. Vui lòng chọn lại.",
+      "from_must_be_before_to": "Ngày bắt đầu phải trước hoặc trùng ngày kết thúc.",
+      "invalid_date": "Ngày không hợp lệ. Vui lòng chọn lại."
+    }
+  },
+  "militia": {
+    "profile": {
+      "militia_not_found": "Không tìm thấy hồ sơ DQTV này, hoặc bạn không có quyền xem hồ sơ.",
+      "unit_scope_violation": "Hồ sơ này thuộc đơn vị nằm ngoài phạm vi quản lý của bạn.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý. Vui lòng liên hệ quản trị viên."
+    },
+    "create": {
+      "militia_code_duplicate": "Mã dân quân đã tồn tại. Vui lòng dùng mã khác.",
+      "militia_cccd_duplicate": "Số CCCD đã được sử dụng cho DQTV khác.",
+      "unit_not_found": "Mã đơn vị không tồn tại.",
+      "unit_scope_violation": "Bạn chỉ được thêm DQTV vào đơn vị mình quản lý.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý."
+    },
+    "search": {
+      "unit_scope_violation": "Đơn vị này nằm ngoài phạm vi quản lý của bạn.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý."
+    },
+    "update": {
+      "no_fields_to_update": "Chưa có thay đổi nào để lưu.",
+      "militia_not_found": "Không tìm thấy hồ sơ DQTV này, hoặc bạn không có quyền sửa hồ sơ.",
+      "unit_scope_violation": "Hồ sơ này thuộc đơn vị nằm ngoài phạm vi quản lý của bạn."
+    },
+    "documents": {
+      "insufficient_role": "Bạn không có quyền thêm giấy tờ vào hồ sơ DQTV.",
+      "unit_scope_violation": "Hồ sơ này thuộc đơn vị nằm ngoài phạm vi quản lý của bạn.",
+      "militia_not_found": "Không tìm thấy hồ sơ DQTV này, hoặc bạn không có quyền xem hồ sơ."
+    }
+  },
+  "attendance": {
+    "record": {
+      "attendance_already_recorded": "Dân quân này đã được chấm công cho ngày đã chọn."
+    },
+    "timesheet": {
+      "invalid_month": "Tháng không hợp lệ. Vui lòng chọn lại tháng.",
+      "invalid_date": "Ngày không hợp lệ. Vui lòng chọn lại.",
+      "month_conflicts_with_range": "Chỉ chọn theo tháng hoặc theo khoảng ngày, không chọn cả hai.",
+      "incomplete_date_range": "Vui lòng chọn cả ngày bắt đầu và ngày kết thúc.",
+      "invalid_date_range": "Ngày bắt đầu phải trước hoặc trùng ngày kết thúc.",
+      "date_range_too_long": "Bảng chấm công chỉ xem được tối đa 62 ngày. Vui lòng chọn khoảng ngắn hơn.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý. Vui lòng liên hệ quản trị viên.",
+      "insufficient_role": "Bạn không có quyền xem bảng chấm công."
+    }
+  },
+  "tasks": {
+    "create": {
+      "militia_no_user_account": "Dân quân này chưa có tài khoản hệ thống. Vui lòng liên kết tài khoản trước khi giao việc.",
+      "militia_not_found": "Không tìm thấy dân quân đã chọn, hoặc dân quân nằm ngoài phạm vi giao việc của bạn."
+    },
+    "quickCreate": {
+      "militia_code_duplicate": "Mã dân quân đã tồn tại. Vui lòng dùng mã khác."
+    },
+    "report": {
+      "invalid_date": "Ngày không hợp lệ.",
+      "invalid_date_range": "Ngày bắt đầu phải trước hoặc trùng ngày kết thúc.",
+      "date_range_too_long": "Khoảng thời gian tối đa là 366 ngày."
+    },
+    "list": {
+      "invalid_status": "Trạng thái lọc không hợp lệ."
+    },
+    "detail": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ nằm ngoài phạm vi của bạn."
+    },
+    "update": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ nằm ngoài phạm vi của bạn. Danh sách đã được cập nhật.",
+      "task_cannot_be_edited_in_current_status": "Chỉ sửa được nhiệm vụ đang chờ tiếp nhận hoặc đã giao. Danh sách đã được cập nhật."
+    },
+    "cancel": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ nằm ngoài phạm vi của bạn. Danh sách đã được cập nhật.",
+      "task_cannot_be_cancelled": "Nhiệm vụ đã hoàn thành hoặc đã hủy nên không thể hủy. Danh sách đã được cập nhật."
+    },
+    "accept": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ không được giao cho bạn.",
+      "task_not_acceptable": "Nhiệm vụ này không còn ở trạng thái có thể tiếp nhận."
+    },
+    "progress": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ không được giao cho bạn.",
+      "task_closed": "Nhiệm vụ đã hoàn thành hoặc đã hủy nên không thể cập nhật tiến độ."
+    },
+    "submitReport": {
+      "task_not_found": "Không tìm thấy nhiệm vụ, hoặc nhiệm vụ không được giao cho bạn.",
+      "task_closed": "Nhiệm vụ đã hoàn thành hoặc đã hủy nên không thể gửi báo cáo."
+    }
+  },
+  "dashboard": {
+    "compliance": {
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý.",
+      "insufficient_role": "Bạn không có quyền xem bảng tuân thủ pháp định."
+    }
+  },
+  "gps": {
+    "live": {
+      "insufficient_role": "Bạn không có quyền xem vị trí DQTV.",
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý."
+    }
+  },
+  "assignments": {
+    "list": {
+      "insufficient_role": "Bạn không có quyền xem phân công của cán bộ này.",
+      "forbidden": "Bạn không có quyền xem phân công của cán bộ này."
+    },
+    "create": {
+      "assignment_already_exists": "DQTV đã được phân công cho cán bộ này.",
+      "insufficient_role": "Chỉ quản trị hệ thống được thêm phân công."
+    },
+    "remove": {
+      "assignment_not_found": "Phân công không còn tồn tại. Danh sách đã được cập nhật.",
+      "insufficient_role": "Chỉ quản trị hệ thống được xóa phân công."
+    }
+  },
+  "rewards": {
+    "list": {
+      "invalid_date_range": "Khoảng thời gian không hợp lệ: ngày bắt đầu phải trước hoặc trùng ngày kết thúc."
+    },
+    "create": {
+      "decision_date_in_future": "Ngày quyết định không được sau ngày hôm nay.",
+      "reward_authority_not_allowed": "Cấp ra quyết định này không có thẩm quyền trao hình thức khen thưởng đã chọn vào ngày quyết định.",
+      "militia_not_found": "Không tìm thấy DQTV đã chọn, hoặc DQTV nằm ngoài phạm vi quản lý của bạn.",
+      "insufficient_role": "Bạn không có quyền ra quyết định khen thưởng.",
+      "reward_not_found": "Không tìm thấy quyết định khen thưởng."
+    }
+  },
+  "discipline": {
+    "list": {
+      "invalid_date_range": "Khoảng thời gian không hợp lệ: ngày bắt đầu phải trước hoặc trùng ngày kết thúc."
+    },
+    "create": {
+      "decision_date_in_future": "Ngày quyết định không được sau ngày hôm nay.",
+      "violation_after_decision": "Ngày vi phạm không được sau ngày ra quyết định.",
+      "militia_not_found": "Không tìm thấy DQTV đã chọn, hoặc DQTV nằm ngoài phạm vi quản lý của bạn.",
+      "insufficient_role": "Bạn không có quyền ra quyết định kỷ luật."
+    },
+    "appeal": {
+      "appeal_date_in_future": "Ngày nộp đơn không được sau ngày hôm nay.",
+      "appeal_before_decision": "Ngày nộp đơn không được trước ngày ra quyết định.",
+      "appeal_already_open": "Quyết định này đang có đơn kháng cáo chờ giải quyết.",
+      "discipline_decision_overturned": "Quyết định này đã bị hủy nên không thể kháng cáo.",
+      "appeal_rounds_exhausted": "Đã hết số lần kháng cáo cho quyết định này.",
+      "discipline_decision_not_found": "Không tìm thấy quyết định kỷ luật.",
+      "invalid_status_transition": "Trạng thái của quyết định đã thay đổi. Danh sách đã được cập nhật."
+    },
+    "appealDecision": {
+      "decided_date_in_future": "Ngày giải quyết không được sau ngày hôm nay.",
+      "decided_before_filed": "Ngày giải quyết không được trước ngày nộp đơn kháng cáo.",
+      "no_open_appeal": "Quyết định này không có đơn kháng cáo đang chờ giải quyết.",
+      "discipline_decision_not_found": "Không tìm thấy quyết định kỷ luật.",
+      "insufficient_role": "Bạn không có quyền giải quyết kháng cáo.",
+      "invalid_status_transition": "Trạng thái của quyết định đã thay đổi. Danh sách đã được cập nhật."
+    }
+  },
+  "training": {
+    "plan": {
+      "unit_scope_violation": "Đơn vị nằm ngoài phạm vi quản lý của bạn.",
+      "unit_not_found": "Mã đơn vị không tồn tại.",
+      "training_plan_exists": "Đã có kế hoạch huấn luyện cùng năm, cùng loại cho đơn vị này.",
+      "training_plan_not_found": "Không tìm thấy kế hoạch huấn luyện.",
+      "insufficient_role": "Bạn không có quyền quản lý kế hoạch huấn luyện."
+    },
+    "planStatus": {
+      "training_plan_not_managed": "Kế hoạch này không thuộc phạm vi bạn quản lý.",
+      "invalid_status_transition": "Không thể chuyển kế hoạch sang trạng thái này. Danh sách đã được cập nhật.",
+      "training_plan_not_found": "Không tìm thấy kế hoạch huấn luyện."
+    },
+    "session": {
+      "session_end_before_start": "Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.",
+      "session_days_exceed_span": "Số ngày huấn luyện vượt quá số ngày của đợt.",
+      "session_outside_plan_year": "Đợt huấn luyện phải nằm trong năm của kế hoạch.",
+      "training_plan_not_managed": "Kế hoạch này không thuộc phạm vi bạn quản lý.",
+      "training_plan_completed": "Kế hoạch đã hoàn thành nên không thể thêm đợt huấn luyện.",
+      "training_plan_not_found": "Không tìm thấy kế hoạch huấn luyện.",
+      "training_session_not_found": "Không tìm thấy đợt huấn luyện."
+    },
+    "attendance": {
+      "militia_not_found": "Có thành viên không thuộc đợt huấn luyện này. Vui lòng tải lại danh sách.",
+      "training_plan_not_active": "Chỉ điểm danh được khi kế hoạch đang thực hiện.",
+      "training_session_not_started": "Đợt huấn luyện chưa bắt đầu nên chưa thể điểm danh.",
+      "training_session_not_found": "Không tìm thấy đợt huấn luyện."
+    },
+    "record": {
+      "training_record_managed_by_session": "Bản ghi này được tạo từ điểm danh đợt huấn luyện. Hãy sửa trong đợt huấn luyện."
+    },
+    "compliance": {
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý.",
+      "insufficient_role": "Bạn không có quyền xem báo cáo tuân thủ huấn luyện."
+    }
+  },
+  "weapons": {
+    "inventory": {
+      "ward_scope_required": "Chỉ tài khoản cấp phường mới được kiểm kê vũ khí.",
+      "inventory_count_mismatch": "Số lượng xác nhận không khớp với số vũ khí được đánh dấu có mặt.",
+      "observed_condition_without_found": "Chỉ ghi tình trạng cho vũ khí có mặt khi kiểm kê.",
+      "inventory_register_changed": "Danh sách vũ khí đã thay đổi trong lúc kiểm kê. Vui lòng tải lại và kiểm kê lại.",
+      "inventory_check_not_found": "Không tìm thấy phiếu kiểm kê."
+    }
+  },
+  "kpi": {
+    "dashboard": {
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý.",
+      "period_not_found": "Không tìm thấy kỳ lương đã chọn.",
+      "invalid_year": "Năm không hợp lệ. Vui lòng chọn lại.",
+      "invalid_month": "Tháng không hợp lệ. Vui lòng chọn lại."
+    },
+    "report": {
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý.",
+      "period_not_found": "Không tìm thấy kỳ lương đã chọn."
+    }
+  },
+  "sos": {
+    "alerts": {
+      "no_unit_scope": "Tài khoản của bạn chưa được gán đơn vị quản lý.",
+      "insufficient_role": "Bạn không có quyền xem cảnh báo SOS.",
+      "invalid_status": "Trạng thái lọc không hợp lệ.",
+      "invalid_severity": "Mức độ lọc không hợp lệ."
+    },
+    "resolve": {
+      "incident_not_found": "Không tìm thấy cảnh báo SOS. Danh sách đã được cập nhật.",
+      "invalid_status_transition": "Cảnh báo này đã được xử lý hoặc đã đóng. Danh sách đã được cập nhật.",
+      "assignee_not_found": "Người được phân công không tồn tại hoặc đã ngừng hoạt động."
+    },
+    "detail": {
+      "incident_not_found": "Không tìm thấy cảnh báo SOS, hoặc cảnh báo nằm ngoài phạm vi của bạn."
+    },
+    "list": {
+      "invalid_status": "Trạng thái lọc không hợp lệ.",
+      "invalid_severity": "Mức độ lọc không hợp lệ."
+    }
+  },
+  "recruitment": {
+    "statusChange": {
+      "application_not_found": "Không tìm thấy đơn đăng ký. Danh sách đã được cập nhật."
+    }
+  },
+  "files": {
+    "upload": {
+      "file_required": "Vui lòng chọn tệp để tải lên.",
+      "file_empty": "Tệp không có nội dung. Vui lòng chọn tệp khác.",
+      "file_field_invalid": "Yêu cầu tải tệp không hợp lệ. Vui lòng thử lại.",
+      "multipart_malformed": "Tệp bị lỗi trong khi gửi. Vui lòng thử lại.",
+      "file_too_large": "Tệp vượt quá dung lượng cho phép (tối đa 10 MB).",
+      "file_type_not_allowed": "Chỉ chấp nhận ảnh JPG, PNG, WebP, GIF, tệp PDF, Word (.docx) hoặc Excel (.xlsx)."
+    },
+    "download": {
+      "file_not_found": "Không tìm thấy tệp, hoặc bạn không có quyền xem tệp này."
+    },
+    "attach": {
+      "file_not_found": "Tệp đính kèm không tồn tại hoặc không do bạn tải lên. Vui lòng tải lại tệp.",
+      "duplicate_file_ids": "Có tệp đính kèm bị trùng. Vui lòng bỏ tệp trùng.",
+      "file_purpose_mismatch": "Tệp này được tải lên cho mục đích khác. Vui lòng tải lại tệp.",
+      "file_type_not_allowed": "Mục này chỉ nhận tệp ảnh.",
+      "file_already_attached": "Tệp này đã được đính kèm vào hồ sơ khác. Vui lòng tải lại tệp."
+    }
+  }
+}

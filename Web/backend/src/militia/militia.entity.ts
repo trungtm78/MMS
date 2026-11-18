@@ -18,10 +18,10 @@ export class MilitiaProfile {
   @Column({ name: 'user_id', type: 'uuid', nullable: true, default: null })
   userId: string | null;
 
-  @Column({ name: 'militia_code', length: 30, unique: true })
+  @Column({ name: 'militia_code', type: 'varchar', length: 50, unique: true })
   militiaCode: string;
 
-  @Column({ name: 'full_name', length: 100 })
+  @Column({ name: 'full_name', type: 'varchar', length: 255 })
   fullName: string;
 
   @Column({ type: 'varchar', length: 20, nullable: true, default: null })
@@ -51,7 +51,7 @@ export class MilitiaProfile {
   @Column({ name: 'join_date', type: 'date', nullable: true, default: null })
   joinDate: string | null;
 
-  @Column({ length: 20, default: 'active' })
+  @Column({ type: 'varchar', length: 20, default: 'active' })
   status: MilitiaStatus;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

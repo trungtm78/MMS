@@ -1,0 +1,37 @@
+{
+  "activityLog": {
+    "header": {
+      "title": "Nhật Ký Hoạt Động",
+      "subtitle": "Lịch sử toàn bộ thao tác trong hệ thống"
+    },
+    "export": {
+      "button": "Xuất nhật ký",
+      "filterTitle": "Bộ lọc xuất nhật ký (tối đa 90 ngày)",
+      "from": "Từ:",
+      "to": "Đến:",
+      "action": "Hành động:",
+      "actionPlaceholder": "VD: PATCH:militia",
+      "rangeRequired": "Vui lòng chọn khoảng thời gian trước khi xuất",
+      "sensitiveWarning": "Nhật ký kiểm toán chứa thông tin nhạy cảm. Chỉ xuất khi có yêu cầu chính thức.",
+      "error": "Xuất nhật ký thất bại."
+    },
+    "search": {
+      "placeholder": "Tìm theo tên người dùng, hành động hoặc đối tượng...",
+      "label": "Tìm kiếm nhật ký"
+    },
+    "table": {
+      "time": "Thời gian",
+      "actor": "Người dùng",
+      "action": "Hành động",
+      "entity": "Đối tượng",
+      "details": "Chi tiết",
+      "ip": "IP"
+    },
+    "list": {
+      "loadError": "Không thể tải nhật ký.",
+      "empty": "Chưa có nhật ký",
+      "systemActor": "Hệ thống",
+      "total": "Tổng <strong>{{total}}</strong> bản ghi"
+    }
+  }
+}

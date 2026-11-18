@@ -21,6 +21,14 @@ export interface UpdateUserDto {
   isActive?: boolean
 }
 
+// GET /users/search answers 400 below 2 characters once trimmed (users.controller.ts UserSearchQueryDto)
+export const USER_SEARCH_MIN_LENGTH = 2
+
+/** Whether `q` may be sent to GET /users/search: characters counted after trimming, as the backend does */
+export function isUserSearchQuery(q: string): boolean {
+  return Array.from(q.trim()).length >= USER_SEARCH_MIN_LENGTH
+}
+
 export const usersApi = {
   list: async (params?: { role?: string; page?: number; limit?: number }): Promise<PaginatedResponse<User>> => {
     const response = await client.get<PaginatedResponse<User>>('/users', { params })

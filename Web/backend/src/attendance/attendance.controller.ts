@@ -12,7 +12,6 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -27,6 +26,13 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttendanceService } from './attendance.service';
+import { businessDate } from '../common/time/business-date';
+import {
+  IsoDatePipe,
+  YearMonthPipe,
+  type YearMonth,
+} from '../common/pipes/query-pipes';
+import { resolveTimesheetRange } from './timesheet';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -65,16 +71,14 @@ export class LocationDto {
 }
 
 export class CheckInDto {
-  @IsOptional() @ValidateNested() @Type(() => LocationDto)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocationDto)
   location?: LocationDto;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   source?: string;
-}
-
-export class CheckOutDto {
-  @IsOptional() @ValidateNested() @Type(() => LocationDto)
-  location?: LocationDto;
 }
 
 @Controller('attendance')
@@ -91,12 +95,14 @@ export class AttendanceController {
   @Roles('system_admin', 'police_ward', 'police_area', 'office_staff')
   async getAttendanceSummary(
     @Request() req: { user: JwtPayload },
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query('from', IsoDatePipe) from?: string,
+    @Query('to', IsoDatePipe) to?: string,
     @Query('unitCode') unitCode?: string,
   ) {
-    const effectiveFrom = from ?? new Date().toISOString().slice(0, 8) + '01';
-    const effectiveTo = to ?? new Date().toISOString().slice(0, 10);
+    // Defaults to the Vietnamese month to date
+    const today = businessDate().isoDate;
+    const effectiveFrom = from ?? `${today.slice(0, 8)}01`;
+    const effectiveTo = to ?? today;
     return this.attendanceService.getAttendanceSummary(
       req.user,
       effectiveFrom,
@@ -111,21 +117,57 @@ export class AttendanceController {
   async exportAttendanceSummary(
     @Request() req: { user: JwtPayload },
     @Res() res: Response,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query('from', IsoDatePipe) from?: string,
+    @Query('to', IsoDatePipe) to?: string,
     @Query('unitCode') unitCode?: string,
   ) {
-    const effectiveFrom = from ?? new Date().toISOString().slice(0, 8) + '01';
-    const effectiveTo = to ?? new Date().toISOString().slice(0, 10);
+    // Defaults to the Vietnamese month to date
+    const today = businessDate().isoDate;
+    const effectiveFrom = from ?? `${today.slice(0, 8)}01`;
+    const effectiveTo = to ?? today;
     const workbook = await this.attendanceService.exportAttendanceSummary(
       req.user,
       effectiveFrom,
       effectiveTo,
       unitCode || undefined,
     );
-    const date = new Date().toISOString().slice(0, 10);
-    const filename = `DiemDanh_TongHop_${effectiveFrom}_${effectiveTo}_${unitCode ?? 'ToanBo'}_${date}.xlsx`;
+    const filename = `DiemDanh_TongHop_${effectiveFrom}_${effectiveTo}_${unitCode ?? 'ToanBo'}_${today}.xlsx`;
     await this.excelExportService.streamToResponse(workbook, res, filename);
+  }
+
+  // GET /attendance/timesheet?month=YYYY-MM | from=&to= (at most 62 days) &unitCode=&page=&limit=
+  // Day-by-day grid per member with totals by status, the current Vietnamese month by
+  // default. Staff see the members they manage (unitCode narrows only for ward-wide roles);
+  // militia members see only themselves.
+  @Get('timesheet')
+  @Roles(
+    'system_admin',
+    'police_ward',
+    'police_area',
+    'office_staff',
+    'ca_officer',
+    'dqtv',
+    'dqtv_member',
+  )
+  async getTimesheet(
+    @Request() req: { user: JwtPayload },
+    @Query('month', YearMonthPipe) month?: YearMonth,
+    @Query('from', IsoDatePipe) from?: string,
+    @Query('to', IsoDatePipe) to?: string,
+    @Query('unitCode') unitCode?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ) {
+    const range = resolveTimesheetRange(
+      { month, from, to },
+      businessDate().isoDate,
+    );
+    return this.attendanceService.getTimesheet(req.user, {
+      ...range,
+      unitCode: unitCode || undefined,
+      page,
+      limit,
+    });
   }
 
   // GET /attendance?date=&from=&to=&page=&limit= — paginated report
@@ -134,42 +176,46 @@ export class AttendanceController {
   @Get()
   async list(
     @Request() req: { user: JwtPayload },
-    @Query('date') date?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query('date', IsoDatePipe) date?: string,
+    @Query('from', IsoDatePipe) from?: string,
+    @Query('to', IsoDatePipe) to?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
-    return this.attendanceService.listAttendancePaginated(req.user, { date, from, to, page, limit });
+    return this.attendanceService.listAttendancePaginated(req.user, {
+      date,
+      from,
+      to,
+      page,
+      limit,
+    });
   }
 
   // POST /attendance — record attendance (admin)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async record(@Body() dto: CreateAttendanceDto) {
-    return this.attendanceService.record(dto);
+  async record(
+    @Request() req: { user: JwtPayload },
+    @Body() dto: CreateAttendanceDto,
+  ) {
+    return this.attendanceService.record(req.user, dto);
   }
 
   // POST /attendance/check-in — mobile self-service check-in
   @Post('check-in')
   @Roles('dqtv_member', 'dqtv', 'system_admin')
   @HttpCode(HttpStatus.CREATED)
-  async checkIn(
-    @Request() req: { user: JwtPayload },
-    @Body() dto: CheckInDto,
-  ) {
+  async checkIn(@Request() req: { user: JwtPayload }, @Body() dto: CheckInDto) {
     return this.attendanceService.checkIn(req.user.sub, dto);
   }
 
-  // POST /attendance/check-out — mobile self-service check-out
+  // POST /attendance/check-out — mobile self-service check-out. Clients may send a
+  // location, but check-out records only the time, so the request body is not read.
   @Post('check-out')
   @Roles('dqtv_member', 'dqtv', 'system_admin')
   @HttpCode(HttpStatus.OK)
-  async checkOut(
-    @Request() req: { user: JwtPayload },
-    @Body() dto: CheckOutDto,
-  ) {
-    return this.attendanceService.checkOut(req.user.sub, dto);
+  async checkOut(@Request() req: { user: JwtPayload }) {
+    return this.attendanceService.checkOut(req.user.sub);
   }
 
   // GET /attendance/today — today's status for current user

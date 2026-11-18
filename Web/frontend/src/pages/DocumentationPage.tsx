@@ -1,85 +1,70 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, BookOpen, HelpCircle, Search } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import type { TranslationKey } from '@/i18n/types'
+
+interface ArticleKeys {
+  title: TranslationKey
+  content: TranslationKey
+}
 
 interface Section {
   id: string
-  title: string
-  icon: React.ElementType
-  articles: { title: string; content: string }[]
+  title: TranslationKey
+  icon: LucideIcon
+  articles: readonly ArticleKeys[]
 }
 
-const SECTIONS: Section[] = [
+/** A help article with its texts read */
+interface Article {
+  title: string
+  content: string
+}
+
+// The guide, section by section; every text lives in docs.json (docs.sections.<section>)
+const SECTIONS: readonly Section[] = [
   {
     id: 'attendance',
-    title: 'Hướng dẫn chấm công',
+    title: 'docs.sections.attendance.title',
     icon: BookOpen,
     articles: [
-      {
-        title: 'Cách chấm công vào đầu ca',
-        content: 'Mở ứng dụng MMS → chọn "Chấm công" → nhấn "Điểm danh vào" → xác nhận vị trí GPS. Hệ thống sẽ ghi nhận thời gian vào ca tự động.',
-      },
-      {
-        title: 'Cách chấm công ra cuối ca',
-        content: 'Vào mục "Chấm công" → nhấn "Điểm danh ra" trước khi kết thúc ca. Đảm bảo bật GPS để hệ thống xác nhận vị trí.',
-      },
-      {
-        title: 'Xử lý khi quên chấm công',
-        content: 'Liên hệ trực tiếp với chỉ huy đơn vị để bổ sung điểm danh thủ công. Chỉ được bổ sung trong vòng 24 giờ sau ca làm việc.',
-      },
+      { title: 'docs.sections.attendance.articles.checkIn.title', content: 'docs.sections.attendance.articles.checkIn.content' },
+      { title: 'docs.sections.attendance.articles.checkOut.title', content: 'docs.sections.attendance.articles.checkOut.content' },
+      { title: 'docs.sections.attendance.articles.missedCheckIn.title', content: 'docs.sections.attendance.articles.missedCheckIn.content' },
     ],
   },
   {
     id: 'tasks',
-    title: 'Hướng dẫn báo cáo nhiệm vụ',
+    title: 'docs.sections.tasks.title',
     icon: BookOpen,
     articles: [
-      {
-        title: 'Cách tạo báo cáo nhiệm vụ',
-        content: 'Vào "Nhiệm vụ" → chọn nhiệm vụ cần báo cáo → nhấn "Nộp báo cáo" → điền đầy đủ nội dung thực hiện, kết quả và đính kèm ảnh/video nếu có.',
-      },
-      {
-        title: 'Cập nhật tiến độ nhiệm vụ',
-        content: 'Mở nhiệm vụ → nhấn "Cập nhật tiến độ" → chọn % hoàn thành → thêm ghi chú nếu cần. Nên cập nhật ít nhất 1 lần/ngày với nhiệm vụ dài ngày.',
-      },
+      { title: 'docs.sections.tasks.articles.submitReport.title', content: 'docs.sections.tasks.articles.submitReport.content' },
+      { title: 'docs.sections.tasks.articles.updateProgress.title', content: 'docs.sections.tasks.articles.updateProgress.content' },
     ],
   },
   {
     id: 'kpi',
-    title: 'Hướng dẫn xem KPI',
+    title: 'docs.sections.kpi.title',
     icon: BookOpen,
     articles: [
-      {
-        title: 'Xem điểm KPI cá nhân',
-        content: 'Vào "Chỉ tiêu KPI" để xem điểm tổng hợp của bạn theo tháng/quý. Điểm được tính dựa trên: chấm công (40%), hoàn thành nhiệm vụ (40%), huấn luyện (20%).',
-      },
-      {
-        title: 'Hiểu kết quả đánh giá',
-        content: 'Xuất sắc: 90-100 | Giỏi: 80-89 | Khá: 70-79 | Trung bình: 60-69 | Cần cải thiện: < 60.',
-      },
+      { title: 'docs.sections.kpi.articles.personalScore.title', content: 'docs.sections.kpi.articles.personalScore.content' },
+      { title: 'docs.sections.kpi.articles.ratingScale.title', content: 'docs.sections.kpi.articles.ratingScale.content' },
     ],
   },
   {
     id: 'faq',
-    title: 'Câu hỏi thường gặp',
+    title: 'docs.sections.faq.title',
     icon: HelpCircle,
     articles: [
-      {
-        title: 'Quên mật khẩu phải làm gì?',
-        content: 'Nhấn "Quên mật khẩu" ở màn hình đăng nhập → nhập email đăng ký → kiểm tra email để nhận link đặt lại mật khẩu.',
-      },
-      {
-        title: 'Ứng dụng không nhận GPS?',
-        content: 'Kiểm tra: 1) Bật GPS (Cài đặt → Vị trí → Bật). 2) Cấp quyền vị trí cho ứng dụng MMS. 3) Đứng nơi thoáng không bị che khuất.',
-      },
-      {
-        title: 'Không nhận được thông báo?',
-        content: 'Vào Cài đặt điện thoại → Ứng dụng → MMS → Thông báo → Bật tất cả. Sau đó kiểm tra lại trong Cài đặt MMS → Thông báo.',
-      },
+      { title: 'docs.sections.faq.articles.forgotPassword.title', content: 'docs.sections.faq.articles.forgotPassword.content' },
+      { title: 'docs.sections.faq.articles.gps.title', content: 'docs.sections.faq.articles.gps.content' },
+      { title: 'docs.sections.faq.articles.notifications.title', content: 'docs.sections.faq.articles.notifications.content' },
     ],
   },
 ]
 
-function AccordionItem({ article }: { article: { title: string; content: string } }) {
+function AccordionItem({ article }: { article: Article }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="border border-[#E2E8F0] rounded-lg overflow-hidden">
@@ -103,27 +88,27 @@ function AccordionItem({ article }: { article: { title: string; content: string 
 }
 
 export function DocumentationPage() {
+  const { t } = useTranslation()
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Client-side search filter
+  // Client-side search over the texts as the user reads them, regardless of case
+  const needle = searchQuery.toLowerCase()
   const filteredSections = SECTIONS.map((section) => ({
     ...section,
-    articles: searchQuery
-      ? section.articles.filter(
-          (a) =>
-            a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            a.content.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      : section.articles,
+    articles: section.articles
+      .map(({ title, content }): Article => ({ title: t(title), content: t(content) }))
+      .filter((article) =>
+        !needle || article.title.toLowerCase().includes(needle) || article.content.toLowerCase().includes(needle),
+      ),
   })).filter((s) => s.articles.length > 0 || !searchQuery)
 
   return (
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="documentation-page">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-[#0F172A]">Tài Liệu Hướng Dẫn</h1>
-        <p className="text-sm text-[#64748B] mt-1">Hướng dẫn sử dụng hệ thống MMS cho DQTV</p>
+        <h1 className="text-2xl font-bold text-[#0F172A]">{t('docs.page.header.title')}</h1>
+        <p className="text-sm text-[#64748B] mt-1">{t('docs.page.header.subtitle')}</p>
       </div>
 
       {/* Client-side search */}
@@ -131,7 +116,7 @@ export function DocumentationPage() {
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" />
         <input
           type="text"
-          placeholder="Tìm kiếm trong tài liệu..."
+          placeholder={t('docs.page.search.placeholder')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-9 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] bg-white text-[#0F172A]"
@@ -140,7 +125,7 @@ export function DocumentationPage() {
 
       {searchQuery && filteredSections.length === 0 && (
         <div className="bg-white rounded-xl border border-[#E2E8F0] p-8 text-center">
-          <p className="text-sm text-[#64748B]">Không tìm thấy kết quả cho "{searchQuery}"</p>
+          <p className="text-sm text-[#64748B]">{t('docs.page.search.empty', { query: searchQuery })}</p>
         </div>
       )}
 
@@ -161,8 +146,8 @@ export function DocumentationPage() {
                     <Icon size={18} className="text-[#C62828]" />
                   </div>
                   <div className="text-left">
-                    <p className="text-sm font-semibold text-[#C62828]">{section.title}</p>
-                    <p className="text-xs text-[#64748B]">{section.articles.length} bài hướng dẫn</p>
+                    <p className="text-sm font-semibold text-[#C62828]">{t(section.title)}</p>
+                    <p className="text-xs text-[#64748B]">{t('docs.page.section.articleCount', { count: section.articles.length })}</p>
                   </div>
                 </div>
                 {isOpen && !searchQuery
@@ -173,8 +158,8 @@ export function DocumentationPage() {
               {(isOpen || searchQuery) && (
                 <div className="px-6 pb-5 space-y-2 border-t border-[#E2E8F0] bg-[#F8FAFC]">
                   <div className="pt-4 space-y-2">
-                    {section.articles.map((article, i) => (
-                      <AccordionItem key={i} article={article} />
+                    {section.articles.map((article) => (
+                      <AccordionItem key={article.title} article={article} />
                     ))}
                   </div>
                 </div>

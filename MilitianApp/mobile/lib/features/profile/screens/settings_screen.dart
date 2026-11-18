@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_strings.dart';
-import '../../../core/constants/api_constants.dart';
-import '../../../core/network/dio_client.dart';
+import '../../../core/router/routes.dart';
+import '../../../l10n/l10n.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/services/biometric_service.dart';
 import '../../../shared/services/push_notification_service.dart';
@@ -53,87 +53,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _biometricEnabled = val);
   }
 
-  Future<void> _showChangePasswordDialog() async {
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-    String? errorMsg;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Đổi mật khẩu'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: currentCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Mật khẩu hiện tại'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: newCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Mật khẩu mới'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: confirmCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Xác nhận mật khẩu mới'),
-              ),
-              if (errorMsg != null) ...[
-                const SizedBox(height: 8),
-                Text(errorMsg!, style: const TextStyle(color: AppColors.error, fontSize: 12)),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Hủy'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (newCtrl.text != confirmCtrl.text) {
-                  setDialogState(() => errorMsg = 'Mật khẩu xác nhận không khớp');
-                  return;
-                }
-                if (newCtrl.text.length < 6) {
-                  setDialogState(() => errorMsg = 'Mật khẩu mới phải có ít nhất 6 ký tự');
-                  return;
-                }
-                try {
-                  final storage = ref.read(secureStorageProvider);
-                  final dio = DioClient.getInstance(storage);
-                  await dio.post(ApiConstants.changePassword, data: {
-                    'currentPassword': currentCtrl.text,
-                    'newPassword': newCtrl.text,
-                  });
-                  if (ctx.mounted) Navigator.of(ctx).pop();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Đổi mật khẩu thành công')),
-                    );
-                  }
-                } catch (_) {
-                  setDialogState(() => errorMsg = 'Đổi mật khẩu thất bại. Kiểm tra lại mật khẩu hiện tại.');
-                }
-              },
-              child: const Text('Xác nhận'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    currentCtrl.dispose();
-    newCtrl.dispose();
-    confirmCtrl.dispose();
-  }
-
   Future<void> _togglePush(bool val) async {
     setState(() => _pushEnabled = val);
     final storage = ref.read(secureStorageProvider);
@@ -151,13 +70,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
-      appBar: AppHeader(title: AppStrings.settings, showBack: true),
+      appBar: AppHeader(title: l10n.profileSettingsTitle, showBack: true),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _SectionHeader(AppStrings.security),
+            _SectionHeader(l10n.profileSettingsSectionSecurity),
             Card(
               child: Column(
                 children: [
@@ -165,33 +85,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     SwitchListTile(
                       value: _biometricEnabled,
                       onChanged: _toggleBiometric,
-                      title: const Text(AppStrings.biometricLogin),
-                      subtitle: const Text('Dùng vân tay / Face ID'),
+                      title: Text(l10n.profileSettingsBiometricTitle),
+                      subtitle: Text(l10n.profileSettingsBiometricSubtitle),
                       secondary: const Icon(
                         Icons.fingerprint,
                         color: AppColors.navy,
                       ),
                       activeColor: AppColors.success,
                     ),
+                  // POST /users/me/change-password ends every session: the screen signs out after it
                   ListTile(
                     leading: const Icon(Icons.lock_outline, color: AppColors.navy),
-                    title: const Text('Đổi mật khẩu'),
-                    subtitle: const Text('Thay đổi mật khẩu đăng nhập'),
+                    title: Text(l10n.profileSettingsChangePasswordTitle),
+                    subtitle: Text(l10n.profileSettingsChangePasswordSubtitle),
                     trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
-                    onTap: _showChangePasswordDialog,
+                    onTap: () => context.push(Routes.changePassword),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            _SectionHeader(AppStrings.notifications),
+            _SectionHeader(l10n.profileSettingsSectionNotifications),
             Card(
               child: SwitchListTile(
                 value: _pushEnabled,
                 onChanged: _togglePush,
-                title: const Text(AppStrings.pushNotifications),
+                title: Text(l10n.profileSettingsPushTitle),
                 subtitle: Text(
-                  _pushEnabled ? 'Nhận thông báo đẩy' : 'Thông báo đẩy đã tắt',
+                  _pushEnabled ? l10n.profileSettingsPushOn : l10n.profileSettingsPushOff,
                   style: const TextStyle(fontSize: 12),
                 ),
                 secondary: const Icon(

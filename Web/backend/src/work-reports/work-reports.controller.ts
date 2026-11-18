@@ -1,91 +1,89 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Patch,
-  Body,
+  HttpCode,
+  HttpStatus,
   Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
   Query,
   Request,
   UseGuards,
-  HttpCode,
-  HttpStatus,
-  DefaultValuePipe,
-  ParseIntPipe,
-  UsePipes,
-  ValidationPipe,
 } from '@nestjs/common';
-import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
 import { WorkReportsService } from './work-reports.service';
+import {
+  CreateWorkReportBodyDto,
+  ReviewWorkReportBodyDto,
+  WorkReportQueryDto,
+} from './work-reports.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../auth/auth.service';
 
-class CreateWorkReportBodyDto {
-  @IsString() @IsNotEmpty()
-  reportType: string;
-
-  @IsString() @IsNotEmpty()
-  title: string;
-
-  @IsString() @IsNotEmpty()
-  content: string;
-
-  @IsOptional() @IsString()
-  period?: string;
-}
-
-class ReviewBodyDto {
-  @IsString() @IsIn(['approved', 'rejected'])
-  reviewStatus: 'approved' | 'rejected';
-
-  @IsOptional() @IsString()
-  reviewNote?: string;
-}
+export { WORK_REPORT_TYPES } from './work-reports.dto';
 
 @Controller('work-reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('dqtv_member', 'dqtv', 'ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area', 'office_staff', 'system_admin')
+@Roles(
+  'dqtv_member',
+  'dqtv',
+  'ca_officer',
+  'police_ward',
+  'police_area',
+  'ca_ward',
+  'ca_area',
+  'office_staff',
+  'system_admin',
+)
 export class WorkReportsController {
   constructor(private readonly workReportsService: WorkReportsService) {}
 
-  // GET /work-reports
+  // GET /work-reports?type=&userId=&page=&limit= — scoped to what the caller may see
   @Get()
   list(
     @Request() req: { user: JwtPayload },
-    @Query('type') type?: string,
-    @Query('userId') userId?: string,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+    @Query() query: WorkReportQueryDto,
   ) {
-    return this.workReportsService.list({
-      type,
-      userId,
-      page,
-      limit,
-      requesterRole: req.user.role,
-      requesterSub: req.user.sub,
-    });
+    return this.workReportsService.list({ ...query, actor: req.user });
   }
 
   // POST /work-reports
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @UsePipes(new ValidationPipe({ whitelist: true }))
-  create(@Request() req: { user: JwtPayload }, @Body() dto: CreateWorkReportBodyDto) {
+  create(
+    @Request() req: { user: JwtPayload },
+    @Body() dto: CreateWorkReportBodyDto,
+  ) {
     return this.workReportsService.create(req.user.sub, dto);
   }
 
-  // PATCH /work-reports/:id/review
+  // GET /work-reports/:id — one report with its attachments; 404 outside the caller's audience
+  @Get(':id')
+  findOne(
+    @Request() req: { user: JwtPayload },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.workReportsService.findOne(id, req.user);
+  }
+
+  // PATCH /work-reports/:id/review — REVIEWER_ROLES (guarded by a spec against drift)
   @Patch(':id/review')
-  @Roles('ca_officer', 'police_ward', 'police_area', 'ca_ward', 'ca_area', 'system_admin')
-  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @Roles(
+    'ca_officer',
+    'police_ward',
+    'police_area',
+    'ca_ward',
+    'ca_area',
+    'system_admin',
+  )
   review(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
-    @Body() dto: ReviewBodyDto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewWorkReportBodyDto,
   ) {
-    return this.workReportsService.review(id, dto, req.user.sub, req.user.role);
+    return this.workReportsService.review(id, dto, req.user);
   }
 }

@@ -2,27 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/api_constants.dart';
 import '../../core/constants/app_colors.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../l10n/l10n.dart';
+import '../../shared/errors/app_failure.dart';
+import '../../shared/utils/calendar_date.dart';
+import 'militia_search.dart';
+import 'training_record.dart';
 
 const _requiredDays = 15;
 
-const _trainingTypes = [
-  ('military', 'Quân sự', '⚔️'),
-  ('political', 'Chính trị', '📋'),
-  ('fire', 'PCCC', '🔥'),
-  ('first_aid', 'Sơ cứu', '➕'),
-];
+/// Types the add form offers
+const _formTypes = [TrainingType.military, TrainingType.political, TrainingType.fire, TrainingType.firstAid];
 
-const _filterOptions = [
-  ('all', 'Tất cả'),
-  ('military', 'Quân sự'),
-  ('political', 'Chính trị'),
-  ('fire', 'PCCC'),
-  ('first_aid', 'Sơ cứu'),
-  ('passed', 'Đã đạt'),
-  ('failed', 'Chưa đạt'),
-];
+String _typeText(AppLocalizations l10n, TrainingType type) => switch (type) {
+      TrainingType.military => l10n.trainingTypeMilitary,
+      TrainingType.political => l10n.trainingTypePolitical,
+      TrainingType.fire => l10n.trainingTypeFire,
+      TrainingType.firstAid => l10n.trainingTypeFirstAid,
+      TrainingType.other => l10n.trainingTypeOther,
+    };
+
+String _outcomeText(AppLocalizations l10n, TrainingOutcome outcome) => switch (outcome) {
+      TrainingOutcome.passed => l10n.trainingOutcomePassed,
+      TrainingOutcome.failed => l10n.trainingOutcomeFailed,
+      TrainingOutcome.notEvaluated => l10n.trainingOutcomeNotEvaluated,
+    };
+
+String _daysErrorText(AppLocalizations l10n, TrainingDaysError error) => switch (error) {
+      TrainingDaysError.required => l10n.trainingFormDaysRequired,
+      TrainingDaysError.notANumber => l10n.trainingFormDaysNotANumber,
+      TrainingDaysError.tooManyDecimals => l10n.trainingFormDaysTooManyDecimals,
+      TrainingDaysError.belowMinimum => l10n.trainingFormDaysBelowMinimum(formatTrainingDays(minTrainingDays)),
+      TrainingDaysError.aboveMaximum => l10n.trainingFormDaysAboveMaximum(formatTrainingDays(maxTrainingDays)),
+    };
+
+String _typeIcon(TrainingType? type) => switch (type) {
+      TrainingType.military => '⚔️',
+      TrainingType.political => '📋',
+      TrainingType.fire => '🔥',
+      TrainingType.firstAid => '➕',
+      _ => '🎖',
+    };
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 class TrainingManagementScreen extends ConsumerStatefulWidget {
@@ -37,7 +59,7 @@ class _TrainingManagementScreenState
     extends ConsumerState<TrainingManagementScreen> {
   List<Map<String, dynamic>> _sessions = [];
   bool _loading = true;
-  String? _error;
+  AppFailure? _failure;
   String _filter = 'all';
 
   @override
@@ -47,33 +69,34 @@ class _TrainingManagementScreenState
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _failure = null;
+    });
     try {
       final dio = ref.read(dioProvider);
-      // Fetch profile to get unitCode
-      String unitCode = '';
-      try {
-        final profileRes = await dio.get('/users/me');
-        unitCode = profileRes.data['data']?['unitCode'] as String?
-            ?? profileRes.data['data']?['unit']?['code'] as String?
-            ?? '';
-      } catch (_) {}
-      final queryParams = unitCode.isNotEmpty ? {'unitCode': unitCode} : <String, dynamic>{};
+      // GET /users/me carries the caller's unitScope; GET /training?unitCode= narrows to it. Without
+      // the profile the unit is unknown, so the load fails instead of listing the whole ward.
+      final profileRes = await dio.get(ApiConstants.profile);
+      final unitCode = unitCodeFromProfile(profileRes.data);
       final res = await dio.get(
-        '/training',
-        queryParameters: queryParams,
+        ApiConstants.training,
+        queryParameters: {if (unitCode != null) 'unitCode': unitCode, 'limit': 100},
       );
-      final data = (res.data['data'] as List?) ?? [];
-      if (mounted) {
-        setState(() {
-          _sessions = data.cast<Map<String, dynamic>>();
-          _loading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() { _error = 'Lỗi tải dữ liệu. Vui lòng thử lại.'; _loading = false; });
-      }
+      final body = res.data;
+      final rows = body is Map ? body['data'] : null;
+      if (rows is! List) throw const FormatException('GET /training: expected {data: [...]}');
+      if (!mounted) return;
+      setState(() {
+        _sessions = rows.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _failure = AppFailure.from(e);
+        _loading = false;
+      });
     }
   }
 
@@ -81,27 +104,30 @@ class _TrainingManagementScreenState
 
   List<Map<String, dynamic>> get _filtered {
     if (_filter == 'all') return _sessions;
-    if (_filter == 'passed') return _sessions.where((s) => _isPassed(s)).toList();
-    if (_filter == 'failed') return _sessions.where((s) => !_isPassed(s)).toList();
-    return _sessions.where((s) {
-      final type = (s['trainingType'] as String? ?? s['type'] as String? ?? '').toLowerCase();
-      switch (_filter) {
-        case 'military': return type.contains('quân sự') || type.contains('military');
-        case 'political': return type.contains('chính trị') || type.contains('political');
-        case 'fire': return type.contains('pccc') || type.contains('fire');
-        case 'first_aid': return type.contains('sơ cứu') || type.contains('first_aid') || type.contains('firstaid');
-        default: return true;
-      }
-    }).toList();
+    // result is pass | fail | not_evaluated (training/dto/create-training.dto.ts)
+    if (_filter == 'passed') {
+      return _sessions.where((s) => TrainingOutcome.fromRecord(s) == TrainingOutcome.passed).toList();
+    }
+    if (_filter == 'failed') {
+      return _sessions.where((s) => TrainingOutcome.fromRecord(s) == TrainingOutcome.failed).toList();
+    }
+    // Filter keys are the training_type codes
+    return _sessions.where((s) => s['trainingType'] == _filter).toList();
   }
 
-  int get _passedCount =>
-      _sessions.where((s) => _isPassed(s)).length;
+  int get _passedCount => countPassed(_sessions);
 
   // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final filters = [
+      ('all', l10n.trainingFilterAll),
+      for (final type in _formTypes) (type.code, _typeText(l10n, type)),
+      ('passed', l10n.trainingFilterPassed),
+      ('failed', l10n.trainingFilterFailed),
+    ];
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -111,9 +137,9 @@ class _TrainingManagementScreenState
           icon: const Icon(Icons.chevron_left, color: AppColors.navy, size: 28),
           onPressed: () => context.pop(),
         ),
-        title: const Text(
-          'Quản lý Huấn luyện',
-          style: TextStyle(
+        title: Text(
+          l10n.trainingManagementTitle,
+          style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
             color: AppColors.textPrimary,
@@ -135,13 +161,13 @@ class _TrainingManagementScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Summary
-                if (!_loading && _error == null)
+                if (!_loading && _failure == null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: AppColors.navy.withOpacity(0.06),
+                      color: AppColors.navy.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.navy.withOpacity(0.15)),
+                      border: Border.all(color: AppColors.navy.withValues(alpha: 0.15)),
                     ),
                     child: Row(
                       children: [
@@ -157,9 +183,9 @@ class _TrainingManagementScreenState
                                 color: AppColors.navy,
                               ),
                             ),
-                            const TextSpan(
-                              text: ' DQTV đã đạt yêu cầu $_requiredDays ngày huấn luyện',
-                              style: TextStyle(
+                            TextSpan(
+                              text: ' ${l10n.trainingManagementSummary(_requiredDays)}',
+                              style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.textSecondary,
                               ),
@@ -174,7 +200,7 @@ class _TrainingManagementScreenState
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: _filterOptions.map((f) {
+                    children: filters.map((f) {
                       final active = _filter == f.$1;
                       return GestureDetector(
                         onTap: () => setState(() => _filter = f.$1),
@@ -216,13 +242,13 @@ class _TrainingManagementScreenState
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: AppColors.navy))
-                : _error != null
-                    ? _buildError()
+                : _failure != null
+                    ? _buildError(l10n)
                     : RefreshIndicator(
                         color: AppColors.navy,
                         onRefresh: _load,
                         child: _filtered.isEmpty
-                            ? _buildEmpty()
+                            ? _buildEmpty(l10n)
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
                                 itemCount: _filtered.length,
@@ -237,35 +263,35 @@ class _TrainingManagementScreenState
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.navy,
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(
-          'Thêm đợt huấn luyện',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        label: Text(
+          l10n.trainingManagementAddButton,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
         onPressed: () => _showAddForm(context),
       ),
     );
   }
 
-  Widget _buildEmpty() {
+  Widget _buildEmpty(AppLocalizations l10n) {
     return ListView(
       children: [
         const SizedBox(height: 80),
         Column(
-          children: const [
-            Text('🎖', style: TextStyle(fontSize: 56)),
-            SizedBox(height: 12),
+          children: [
+            const Text('🎖', style: TextStyle(fontSize: 56)),
+            const SizedBox(height: 12),
             Text(
-              'Chưa có đợt huấn luyện nào',
-              style: TextStyle(
+              l10n.trainingManagementEmpty,
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary,
               ),
             ),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             Text(
-              'Nhấn + để thêm đợt huấn luyện mới',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              l10n.trainingManagementEmptyHint,
+              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -273,7 +299,7 @@ class _TrainingManagementScreenState
     );
   }
 
-  Widget _buildError() {
+  Widget _buildError(AppLocalizations l10n) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -283,7 +309,7 @@ class _TrainingManagementScreenState
             const Icon(Icons.error_outline, color: AppColors.error, size: 48),
             const SizedBox(height: 12),
             Text(
-              _error!,
+              l10n.trainingManagementLoadFailed(failureText(l10n, _failure!)),
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textPrimary),
             ),
@@ -295,8 +321,7 @@ class _TrainingManagementScreenState
                     borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-              label:
-                  const Text('Thử lại', style: TextStyle(color: Colors.white)),
+              label: Text(l10n.commonRetry, style: const TextStyle(color: Colors.white)),
               onPressed: _load,
             ),
           ],
@@ -328,18 +353,23 @@ class _SessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final type = session['trainingType'] as String? ?? session['type'] as String? ?? '';
-    final icon = _typeIcon(type);
-    final days = session['totalDays'] as int? ?? session['days'] as int? ?? 0;
-    final passed = _isPassed(session);
+    final l10n = context.l10n;
+    final code = session['trainingType'] as String? ?? '';
+    final type = TrainingType.fromCode(code);
+    // total_days is NUMERIC (sent as a string); from/to are DATE calendar days
+    final days = trainingDays(session['totalDays']);
+    final outcome = TrainingOutcome.fromRecord(session);
+    final outcomeColor = switch (outcome) {
+      TrainingOutcome.passed => AppColors.success,
+      TrainingOutcome.failed => AppColors.error,
+      TrainingOutcome.notEvaluated => AppColors.textSecondary,
+    };
     final location = session['location'] as String? ?? '';
     final instructor = session['instructor'] as String? ?? '';
-    final fromDate = session['fromDate'] as String? ?? session['from_date'] as String? ?? '';
-    final toDate = session['toDate'] as String? ?? session['to_date'] as String? ?? '';
-    final dateRange = (fromDate.isNotEmpty && toDate.isNotEmpty && fromDate != toDate)
-        ? '$fromDate – $toDate'
-        : fromDate;
-    final participants = session['participantCount'] as int?;
+    final dateRange = formatCalendarRange(session['fromDate'], session['toDate']);
+    final militiaName = session['militiaName'] as String? ?? '';
+    final militiaCode = session['militiaCode'] as String? ?? '';
+    final militia = [militiaName, militiaCode].where((s) => s.isNotEmpty).join(' · ');
 
     return Container(
       decoration: BoxDecoration(
@@ -347,12 +377,12 @@ class _SessionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border(
           left: BorderSide(
-            color: passed ? AppColors.success : AppColors.error,
+            color: outcomeColor,
             width: 4,
           ),
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
         ],
       ),
       padding: const EdgeInsets.all(14),
@@ -365,11 +395,11 @@ class _SessionCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: AppColors.navy.withOpacity(0.08),
+                  color: AppColors.navy.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
-                    child: Text(icon, style: const TextStyle(fontSize: 20))),
+                    child: Text(_typeIcon(type), style: const TextStyle(fontSize: 20))),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -377,7 +407,8 @@ class _SessionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      type.isEmpty ? 'Huấn luyện' : type,
+                      // An unknown type is shown as its code
+                      type != null ? _typeText(l10n, type) : (code.isEmpty ? l10n.trainingCardUntyped : code),
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 14,
@@ -397,7 +428,7 @@ class _SessionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '$days ngày',
+                    l10n.trainingCardDays(formatTrainingDays(days)),
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
@@ -408,17 +439,15 @@ class _SessionCard extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color:
-                          (passed ? AppColors.success : AppColors.error)
-                              .withOpacity(0.1),
+                      color: outcomeColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      passed ? 'Đạt' : 'Không đạt',
+                      _outcomeText(l10n, outcome),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: passed ? AppColors.success : AppColors.error,
+                        color: outcomeColor,
                       ),
                     ),
                   ),
@@ -426,7 +455,7 @@ class _SessionCard extends StatelessWidget {
               ),
             ],
           ),
-          if (location.isNotEmpty || instructor.isNotEmpty || participants != null) ...[
+          if (location.isNotEmpty || instructor.isNotEmpty || militia.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: 8),
@@ -438,8 +467,8 @@ class _SessionCard extends StatelessWidget {
                   _InfoTag(Icons.location_on_outlined, location),
                 if (instructor.isNotEmpty)
                   _InfoTag(Icons.person_outlined, instructor),
-                if (participants != null)
-                  _InfoTag(Icons.group_outlined, '$participants người'),
+                if (militia.isNotEmpty)
+                  _InfoTag(Icons.badge_outlined, militia),
               ],
             ),
           ],
@@ -480,7 +509,7 @@ class _AddTrainingForm extends ConsumerStatefulWidget {
 
 class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
   final _formKey = GlobalKey<FormState>();
-  String _selectedType = 'military';
+  String _selectedType = TrainingType.military.code;
   DateTime? _fromDate;
   DateTime? _toDate;
   final _daysController = TextEditingController();
@@ -533,83 +562,101 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
     });
   }
 
+  void _snack(String message, {Color? color}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+  }
+
   Future<void> _save() async {
+    final l10n = context.l10n;
     if (!_formKey.currentState!.validate()) return;
     if (_fromDate == null || _toDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn ngày bắt đầu và kết thúc')),
-      );
+      _snack(l10n.trainingFormDatesRequired);
       return;
     }
     if (_selectedMilitiaId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng chọn dân quân tự vệ')),
-      );
+      _snack(l10n.trainingFormMilitiaRequired);
       return;
     }
     setState(() => _saving = true);
     try {
-      final dio = ref.read(dioProvider);
-      await dio.post('/training', data: {
+      await ref.read(dioProvider).post(ApiConstants.training, data: {
         'militiaId': _selectedMilitiaId,
         'trainingType': _selectedType,
-        'fromDate': _isoDate(_fromDate!),
-        'toDate': _isoDate(_toDate!),
-        'totalDays': int.tryParse(_daysController.text) ?? 0,
+        'fromDate': toCalendarDateString(_fromDate!),
+        'toDate': toCalendarDateString(_toDate!),
+        // Validated by the form: a number the backend takes (readTrainingDays)
+        'totalDays': readTrainingDays(_daysController.text).days,
         'location': _locationController.text.trim(),
         'instructor': _instructorController.text.trim(),
         'result': _passed ? 'pass' : 'fail',
       });
       if (mounted) widget.onSaved();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi lưu dữ liệu: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        setState(() => _saving = false);
-      }
+      if (!mounted) return;
+      _snack(l10n.trainingFormSaveFailed(failureText(l10n, AppFailure.from(e))), color: AppColors.error);
+      setState(() => _saving = false);
     }
   }
-
-  String _isoDate(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
   Future<void> _pickMilitia() async {
+    final l10n = context.l10n;
     final dio = ref.read(dioProvider);
-    String query = '';
-    List<Map<String, dynamic>> results = [];
+    List<MilitiaSearchItem> results = [];
+    int total = 0;
     bool searching = false;
+    AppFailure? searchFailure;
+    String lastQuery = '';
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
+          // GET /militia?q=&limit= → {data, total, page, limit} (militia.controller.ts)
           Future<void> search(String q) async {
-            if (q.length < 2) {
-              setDialogState(() { results = []; searching = false; });
-              return;
-            }
-            setDialogState(() => searching = true);
-            try {
-              final res = await dio.get('/militia', queryParameters: {'q': q, 'limit': '10'});
-              final data = (res.data['data'] as List?) ?? [];
+            final query = q.trim();
+            lastQuery = query;
+            if (query.length < 2) {
               setDialogState(() {
-                results = data.cast<Map<String, dynamic>>();
+                results = [];
+                total = 0;
+                searchFailure = null;
                 searching = false;
               });
-            } catch (_) {
-              setDialogState(() => searching = false);
+              return;
+            }
+            setDialogState(() {
+              searching = true;
+              searchFailure = null;
+            });
+            try {
+              final res = await dio.get(
+                ApiConstants.militiaList,
+                queryParameters: {'q': query, 'limit': 10},
+              );
+              final page = MilitiaSearchPage.fromJson(res.data);
+              // Ignore answers to an older query, or after the dialog closed
+              if (query != lastQuery || !ctx.mounted) return;
+              setDialogState(() {
+                results = page.items;
+                total = page.total;
+                searching = false;
+              });
+            } catch (e) {
+              if (query != lastQuery || !ctx.mounted) return;
+              setDialogState(() {
+                results = [];
+                total = 0;
+                searching = false;
+                searchFailure = AppFailure.from(e);
+              });
             }
           }
 
           return AlertDialog(
-            title: const Text('Chọn DQTV'),
+            title: Text(l10n.trainingMilitiaPickerTitle),
             content: SizedBox(
               width: double.maxFinite,
               child: Column(
@@ -617,15 +664,12 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                 children: [
                   TextField(
                     autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Tìm theo tên hoặc mã...',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      hintText: l10n.trainingMilitiaPickerHint,
+                      prefixIcon: const Icon(Icons.search),
+                      border: const OutlineInputBorder(),
                     ),
-                    onChanged: (v) {
-                      query = v;
-                      search(v);
-                    },
+                    onChanged: search,
                   ),
                   const SizedBox(height: 8),
                   if (searching)
@@ -633,7 +677,21 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                       padding: EdgeInsets.all(16),
                       child: CircularProgressIndicator(),
                     )
-                  else
+                  else if (searchFailure != null)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        l10n.trainingMilitiaPickerFailed(failureText(l10n, searchFailure!)),
+                        style: const TextStyle(color: AppColors.error, fontSize: 13),
+                      ),
+                    )
+                  else if (lastQuery.length >= 2 && results.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(l10n.trainingMilitiaPickerEmpty,
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    )
+                  else ...[
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 240),
                       child: ListView.builder(
@@ -642,12 +700,12 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                         itemBuilder: (_, i) {
                           final m = results[i];
                           return ListTile(
-                            title: Text(m['fullName'] as String? ?? ''),
-                            subtitle: Text('${m['militiaCode'] ?? ''} — ${m['unitName'] ?? ''}'),
+                            title: Text(m.fullName),
+                            subtitle: Text(m.subtitle),
                             onTap: () {
                               setState(() {
-                                _selectedMilitiaId = m['id'] as String?;
-                                _selectedMilitiaName = m['fullName'] as String? ?? '';
+                                _selectedMilitiaId = m.id;
+                                _selectedMilitiaName = m.fullName;
                               });
                               Navigator.of(ctx).pop();
                             },
@@ -655,13 +713,22 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                         },
                       ),
                     ),
+                    if (total > results.length)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          l10n.trainingMilitiaPickerShowing(results.length, total),
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Đóng'),
+                child: Text(l10n.trainingMilitiaPickerClose),
               ),
             ],
           );
@@ -672,6 +739,7 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Container(
       decoration: const BoxDecoration(
@@ -698,9 +766,9 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Thêm đợt huấn luyện',
-                style: TextStyle(
+              Text(
+                l10n.trainingFormTitle,
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: AppColors.textPrimary,
@@ -709,7 +777,7 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
               const SizedBox(height: 20),
 
               // Militia picker
-              const _Label('Dân quân tự vệ *'),
+              _Label(l10n.trainingFormMilitiaLabel),
               const SizedBox(height: 6),
               GestureDetector(
                 onTap: _pickMilitia,
@@ -725,7 +793,7 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                     children: [
                       Expanded(
                         child: Text(
-                          _selectedMilitiaId == null ? 'Chọn DQTV...' : _selectedMilitiaName,
+                          _selectedMilitiaId == null ? l10n.trainingFormMilitiaHint : _selectedMilitiaName,
                           style: TextStyle(
                             color: _selectedMilitiaId == null
                                 ? AppColors.textSecondary
@@ -742,19 +810,20 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
               const SizedBox(height: 14),
 
               // Training type
-              const _Label('Loại huấn luyện *'),
+              _Label(l10n.trainingFormTypeLabel),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: _inputDecoration('Chọn loại'),
-                items: _trainingTypes.map((t) {
-                  return DropdownMenuItem(
-                    value: t.$1,
-                    child: Text('${t.$3}  ${t.$2}'),
-                  );
-                }).toList(),
+                initialValue: _selectedType,
+                decoration: _inputDecoration(l10n.trainingFormTypeHint),
+                items: [
+                  for (final type in _formTypes)
+                    DropdownMenuItem(
+                      value: type.code,
+                      child: Text('${_typeIcon(type)}  ${_typeText(l10n, type)}'),
+                    ),
+                ],
                 onChanged: (v) => setState(() => _selectedType = v!),
-                validator: (v) => v == null ? 'Vui lòng chọn' : null,
+                validator: (v) => v == null ? l10n.trainingFormTypeRequired : null,
               ),
               const SizedBox(height: 14),
 
@@ -765,10 +834,10 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const _Label('Ngày bắt đầu *'),
+                        _Label(l10n.trainingFormFromLabel),
                         const SizedBox(height: 6),
                         _DateButton(
-                          label: _fromDate != null ? _fmt(_fromDate!) : 'Chọn ngày',
+                          label: _fromDate != null ? _fmt(_fromDate!) : l10n.trainingFormDateHint,
                           onTap: () => _pickDate(isFrom: true),
                         ),
                       ],
@@ -779,10 +848,10 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const _Label('Ngày kết thúc *'),
+                        _Label(l10n.trainingFormToLabel),
                         const SizedBox(height: 6),
                         _DateButton(
-                          label: _toDate != null ? _fmt(_toDate!) : 'Chọn ngày',
+                          label: _toDate != null ? _fmt(_toDate!) : l10n.trainingFormDateHint,
                           onTap: () => _pickDate(isFrom: false),
                         ),
                       ],
@@ -793,46 +862,45 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
               const SizedBox(height: 14),
 
               // Total days
-              const _Label('Số ngày'),
+              _Label(l10n.trainingFormDaysLabel),
               const SizedBox(height: 6),
               TextFormField(
                 controller: _daysController,
                 keyboardType: TextInputType.number,
-                decoration: _inputDecoration('Tự động tính hoặc nhập tay'),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return null;
-                  if (int.tryParse(v) == null) return 'Nhập số nguyên';
-                  return null;
+                decoration: _inputDecoration(l10n.trainingFormDaysHint),
+                validator: (v) => switch (readTrainingDays(v ?? '').error) {
+                  final TrainingDaysError error => _daysErrorText(l10n, error),
+                  null => null,
                 },
               ),
               const SizedBox(height: 14),
 
               // Location
-              const _Label('Địa điểm'),
+              _Label(l10n.trainingFormLocationLabel),
               const SizedBox(height: 6),
               TextFormField(
                 controller: _locationController,
-                decoration: _inputDecoration('Tên địa điểm huấn luyện'),
+                decoration: _inputDecoration(l10n.trainingFormLocationHint),
               ),
               const SizedBox(height: 14),
 
               // Instructor
-              const _Label('Giáo viên / Chỉ huy'),
+              _Label(l10n.trainingFormInstructorLabel),
               const SizedBox(height: 6),
               TextFormField(
                 controller: _instructorController,
-                decoration: _inputDecoration('Họ tên người phụ trách'),
+                decoration: _inputDecoration(l10n.trainingFormInstructorHint),
               ),
               const SizedBox(height: 14),
 
               // Result
-              const _Label('Kết quả'),
+              _Label(l10n.trainingFormResultLabel),
               const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
                     child: _ResultRadio(
-                      label: 'Đạt',
+                      label: l10n.trainingOutcomePassed,
                       selected: _passed,
                       color: AppColors.success,
                       onTap: () => setState(() => _passed = true),
@@ -841,7 +909,7 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: _ResultRadio(
-                      label: 'Không đạt',
+                      label: l10n.trainingOutcomeFailed,
                       selected: !_passed,
                       color: AppColors.error,
                       onTap: () => setState(() => _passed = false),
@@ -869,9 +937,9 @@ class _AddTrainingFormState extends ConsumerState<_AddTrainingForm> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2.5, color: Colors.white),
                         )
-                      : const Text(
-                          'Lưu đợt huấn luyện',
-                          style: TextStyle(
+                      : Text(
+                          l10n.trainingFormSave,
+                          style: const TextStyle(
                               color: Colors.white,
                               fontSize: 16,
                               fontWeight: FontWeight.w700),
@@ -975,7 +1043,7 @@ class _ResultRadio extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           height: 44,
           decoration: BoxDecoration(
-            color: selected ? color.withOpacity(0.1) : Colors.white,
+            color: selected ? color.withValues(alpha: 0.1) : Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: selected ? color : AppColors.divider,
@@ -1003,21 +1071,4 @@ class _ResultRadio extends StatelessWidget {
           ),
         ),
       );
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-bool _isPassed(Map<String, dynamic> s) {
-  final result = s['result'] as String? ?? '';
-  final passed = s['passed'];
-  return result == 'Đạt' || passed == true;
-}
-
-String _typeIcon(String type) {
-  final t = type.toLowerCase();
-  if (t.contains('quân sự') || t.contains('military')) return '⚔️';
-  if (t.contains('chính trị') || t.contains('political')) return '📋';
-  if (t.contains('pccc') || t.contains('fire')) return '🔥';
-  if (t.contains('sơ cứu') || t.contains('first aid') || t.contains('firstaid')) return '➕';
-  return '🎖';
 }
