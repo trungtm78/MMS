@@ -5,6 +5,7 @@ import {
   checksum,
   indexesBuiltBy,
   isNonTransactional,
+  isOnlineStatement,
   MigrationBaselineError,
   MigrationBaselineRequiredError,
   MigrationBaselineSchemaError,
@@ -452,19 +453,53 @@ describe('non-transactional migrations', () => {
     expect(run.statements[1]).toBe('ALTER TABLE a VALIDATE CONSTRAINT a_fkey');
   });
 
+  const CREATE_ONLINE =
+    'must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS';
+  const DROP_ONLINE = 'must be DROP INDEX CONCURRENTLY IF EXISTS';
+  const NOT_ALLOWED = 'is not allowed here';
+  const ONE_ACTION = 'must hold one ALTER TABLE action';
+  const ADD_COLUMN = 'must be ALTER TABLE ... ADD COLUMN IF NOT EXISTS';
   it.each([
+    ['CREATE INDEX ix_a ON a (v);', CREATE_ONLINE],
+    ['CREATE UNIQUE INDEX CONCURRENTLY ix_a ON a (v);', CREATE_ONLINE],
+    ['CREATE INDEX CONCURRENTLY IF NOT EXISTS ON a (v);', CREATE_ONLINE],
     [
-      'CREATE INDEX ix_a ON a (v);',
-      'must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS',
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS public.ix_a ON a (v);',
+      CREATE_ONLINE,
     ],
-    [
-      'CREATE UNIQUE INDEX CONCURRENTLY ix_a ON a (v);',
-      'must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS',
-    ],
-    ['DROP INDEX ix_a;', 'must be DROP INDEX CONCURRENTLY IF EXISTS'],
+    ['DROP INDEX ix_a;', DROP_ONLINE],
+    ['DROP INDEX CONCURRENTLY IF EXISTS ix_a, ix_b;', DROP_ONLINE],
+    // Comments and line breaks between the words change nothing
+    ['/* a /* b */ c */ CREATE INDEX ix_a ON a (v);', CREATE_ONLINE],
+    ['CREATE /* x */ INDEX ix_a ON a (v);', CREATE_ONLINE],
+    ['CREATE -- x\nINDEX ix_a ON a (v);', CREATE_ONLINE],
+    ['DROP /**/ INDEX ix_a;', DROP_ONLINE],
     [
       'BEGIN;\nALTER TABLE a ADD COLUMN IF NOT EXISTS w int;\nCOMMIT;',
       'controls a transaction',
+    ],
+    ["PREPARE TRANSACTION 'x';", 'controls a transaction'],
+    ['ROLLBACK;', 'controls a transaction'],
+    ['UPDATE a SET v = 1;', NOT_ALLOWED],
+    ['DELETE FROM a;', NOT_ALLOWED],
+    ['INSERT INTO a VALUES (1, 1);', NOT_ALLOWED],
+    ['REINDEX TABLE a;', NOT_ALLOWED],
+    ['DISCARD ALL;', NOT_ALLOWED],
+    ['SELECT pg_advisory_unlock_all();', NOT_ALLOWED],
+    ["SET lock_timeout = '0';", NOT_ALLOWED],
+    ['RESET lock_timeout;', NOT_ALLOWED],
+    ['DO $$ BEGIN PERFORM 1; END $$;', NOT_ALLOWED],
+    ['VACUUM a;', NOT_ALLOWED],
+    ['ALTER TABLE a ADD COLUMN w int;', ADD_COLUMN],
+    ['ALTER TABLE a ADD CONSTRAINT u UNIQUE (v);', ADD_COLUMN],
+    ['ALTER TABLE a DROP COLUMN v;', ADD_COLUMN],
+    [
+      'ALTER TABLE a ADD COLUMN IF NOT EXISTS w int, DROP COLUMN v;',
+      ONE_ACTION,
+    ],
+    [
+      'ALTER TABLE a VALIDATE CONSTRAINT c1, VALIDATE CONSTRAINT c2;',
+      ONE_ACTION,
     ],
   ])(
     'refuses, before running any file, a marked file that could not run again: %s',
@@ -482,6 +517,49 @@ describe('non-transactional migrations', () => {
       expect(store.statementRuns).toEqual([]);
     },
   );
+
+  it('accepts exactly the statements that can run again, whatever surrounds them', () => {
+    const allowed = [
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_a ON a (v)',
+      'CREATE /* c */ UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "Uq A" ON a (v, w)',
+      'DROP INDEX CONCURRENTLY IF EXISTS ix_a',
+      'DROP -- c\nINDEX CONCURRENTLY IF EXISTS public.ix_a',
+      'ALTER TABLE a ADD COLUMN IF NOT EXISTS w numeric(10, 2) NOT NULL DEFAULT 0',
+      "ALTER TABLE IF EXISTS ONLY public.a ADD IF NOT EXISTS w text DEFAULT 'x,y'",
+      'ALTER TABLE a ALTER COLUMN w SET DEFAULT app_tenant_id()',
+      'ALTER TABLE a ALTER w SET DEFAULT coalesce(1, 2)',
+      'ALTER TABLE a VALIDATE CONSTRAINT a_fkey',
+      'ANALYZE a',
+      "COMMENT ON TABLE a IS 'x; y'",
+    ];
+
+    expect(
+      nonTransactionalStatements(online(`${allowed.join(';\n')};`)),
+    ).toHaveLength(allowed.length);
+  });
+
+  it('names the file, the statement and the reason of every refusal', () => {
+    expect(
+      thrownBy(() => nonTransactionalStatements(online('UPDATE a SET v = 1;'))),
+    ).toMatchObject({
+      name: 'MigrationInvalidError',
+      fileName: '002_online.sql',
+      problems: [
+        expect.stringMatching(
+          /^statement 1 \(UPDATE a SET v = 1\) is not allowed here/,
+        ) as unknown,
+      ],
+    });
+  });
+
+  it('refuses a marked file that has no statement', () => {
+    expect(
+      thrownBy(() => nonTransactionalStatements(online('-- nothing\n'))),
+    ).toMatchObject({
+      name: 'MigrationInvalidError',
+      problems: ['it has no statement'],
+    });
+  });
 
   it('records nothing for a marked file that fails, and names it', async () => {
     const store = new MemoryStore();
@@ -520,6 +598,38 @@ describe('non-transactional migrations', () => {
         'ALTER TABLE a VALIDATE CONSTRAINT a_fkey',
       ]),
     ).toEqual(['ix_a', 'Odd"Name']);
+  });
+
+  it('reads index names as Postgres does: folded, unquoted, clipped, never cut short', () => {
+    const long = `ix_${'đ'.repeat(40)}`;
+    expect(
+      indexesBuiltBy([
+        'CREATE INDEX CONCURRENTLY IF NOT EXISTS IX_Đơn ON a (v)',
+        'CREATE /* c */ INDEX -- c\n CONCURRENTLY IF NOT EXISTS "Mixed Case" ON a (v)',
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${long} ON a (v)`,
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${'x'.repeat(70)} ON a (v)`,
+      ]),
+    ).toEqual(['ix_Đơn', 'Mixed Case', `ix_${'đ'.repeat(30)}`, 'x'.repeat(63)]);
+  });
+
+  it('bounds only the statements that never block a writer by the online timeout', () => {
+    expect(
+      isOnlineStatement(
+        '-- c\nCREATE INDEX CONCURRENTLY IF NOT EXISTS ix ON a (v)',
+      ),
+    ).toBe(true);
+    expect(isOnlineStatement('DROP INDEX CONCURRENTLY IF EXISTS ix')).toBe(
+      true,
+    );
+    expect(isOnlineStatement('ALTER TABLE a VALIDATE CONSTRAINT c')).toBe(true);
+    expect(
+      isOnlineStatement('ALTER TABLE a ADD COLUMN IF NOT EXISTS w int'),
+    ).toBe(false);
+    expect(
+      isOnlineStatement('ALTER TABLE a ALTER COLUMN w SET DEFAULT 1'),
+    ).toBe(false);
+    expect(isOnlineStatement('ANALYZE a')).toBe(false);
+    expect(isOnlineStatement("COMMENT ON TABLE a IS 'x'")).toBe(false);
   });
 
   it('stops after the file named by through, and reports the rest as pending', async () => {

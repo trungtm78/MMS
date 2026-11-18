@@ -4,7 +4,11 @@ import {
   expectedSchemaObjects,
   type ExpectedSchemaObject,
 } from './schema-objects';
-import { splitSqlStatements } from './sql-statements';
+import {
+  splitSqlStatements,
+  tokenizeSql,
+  type SqlToken,
+} from './sql-statements';
 
 export interface MigrationFile {
   name: string;
@@ -201,22 +205,174 @@ export function isNonTransactional(sql: string): boolean {
   return false;
 }
 
-const LEADING_COMMENTS = /^(?:\s*(?:--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*/;
-const withoutLeadingComments = (statement: string): string =>
-  statement.replace(LEADING_COMMENTS, '');
+const lowerAscii = (text: string): string =>
+  text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
-const CREATE_INDEX = /^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i;
-const CREATE_INDEX_ONLINE =
-  /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+("(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)/i;
-const DROP_INDEX = /^DROP\s+INDEX\b/i;
-const DROP_INDEX_ONLINE = /^DROP\s+INDEX\s+CONCURRENTLY\s+IF\s+EXISTS\b/i;
-const TRANSACTION_CONTROL =
-  /^(?:BEGIN|COMMIT|ROLLBACK|END|ABORT|SAVEPOINT|RELEASE|START\s+TRANSACTION)\b/i;
+// Postgres keeps at most 63 bytes of a name and cuts it between characters
+const NAME_BYTES = 63;
+function clipName(name: string): string {
+  const bytes = Buffer.from(name, 'utf8');
+  if (bytes.length <= NAME_BYTES) return name;
+  let end = NAME_BYTES;
+  while (end > 0 && (bytes[end] & 0b1100_0000) === 0b1000_0000) end--;
+  return bytes.subarray(0, end).toString('utf8');
+}
+
+/** The name Postgres stores for an identifier as written: folded, unquoted, clipped. */
+const foldName = (token: SqlToken): string =>
+  clipName(token.kind === 'identifier' ? token.text : lowerAscii(token.text));
+
+const isName = (token: SqlToken | undefined): token is SqlToken =>
+  token !== undefined &&
+  (token.kind === 'identifier' ||
+    (token.kind === 'word' && /^[A-Za-z_\u0080-￿]/.test(token.text)));
+
+const isPunct = (token: SqlToken | undefined, text: string): boolean =>
+  token?.kind === 'punct' && token.text === text;
+
+/** True when the tokens from `at` on start with these keywords, in order. */
+const hasWords = (
+  tokens: SqlToken[],
+  at: number,
+  ...words: string[]
+): boolean =>
+  words.every(
+    (word, k) =>
+      tokens[at + k]?.kind === 'word' &&
+      tokens[at + k].text.toLowerCase() === word,
+  );
+
+/** The index after a name or schema.name starting at `at`, or -1. */
+function afterQualifiedName(tokens: SqlToken[], at: number): number {
+  if (!isName(tokens[at])) return -1;
+  if (!isPunct(tokens[at + 1], '.')) return at + 1;
+  return isName(tokens[at + 2]) ? at + 3 : -1;
+}
+
+const hasTopLevelComma = (tokens: SqlToken[]): boolean => {
+  let depth = 0;
+  for (const token of tokens) {
+    if (isPunct(token, '(')) depth++;
+    else if (isPunct(token, ')')) depth = Math.max(0, depth - 1);
+    else if (depth === 0 && isPunct(token, ',')) return true;
+  }
+  return false;
+};
+
+interface StatementKind {
+  /** Why the statement could not run again, when it could not */
+  problem?: string;
+  /** Waits only for other transactions and never blocks a writer: bounded generously */
+  online: boolean;
+  /** The index a CREATE INDEX CONCURRENTLY builds */
+  builds?: string;
+}
+
+const ALLOWED_HEADS =
+  'CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS, DROP INDEX CONCURRENTLY IF EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS, ALTER TABLE ... ALTER COLUMN ... SET DEFAULT, ALTER TABLE ... VALIDATE CONSTRAINT, ANALYZE and COMMENT ON';
+
+const TRANSACTION_CONTROL = new Set([
+  'begin',
+  'commit',
+  'rollback',
+  'end',
+  'abort',
+  'savepoint',
+  'release',
+  'start',
+]);
+
+const refused = (problem: string): StatementKind => ({
+  problem,
+  online: false,
+});
+
+function alterTableKind(tokens: SqlToken[]): StatementKind {
+  let at = 2;
+  if (hasWords(tokens, at, 'if', 'exists')) at += 2;
+  if (hasWords(tokens, at, 'only')) at++;
+  at = afterQualifiedName(tokens, at);
+  if (at !== -1 && isPunct(tokens[at], '*')) at++;
+  if (at === -1) {
+    return refused(
+      'must be ALTER TABLE <table> followed by one allowed action',
+    );
+  }
+  if (hasTopLevelComma(tokens)) {
+    return refused(
+      'must hold one ALTER TABLE action, so that it can run again',
+    );
+  }
+  if (hasWords(tokens, at, 'validate', 'constraint')) {
+    return isName(tokens[at + 2]) && at + 3 === tokens.length
+      ? { online: true }
+      : refused('must be ALTER TABLE ... VALIDATE CONSTRAINT <name>');
+  }
+  const afterColumn = hasWords(tokens, at + 1, 'column') ? at + 2 : at + 1;
+  if (
+    hasWords(tokens, at, 'add') &&
+    hasWords(tokens, afterColumn, 'if', 'not', 'exists') &&
+    isName(tokens[afterColumn + 3])
+  ) {
+    return { online: false };
+  }
+  if (
+    hasWords(tokens, at, 'alter') &&
+    isName(tokens[afterColumn]) &&
+    hasWords(tokens, afterColumn + 1, 'set', 'default')
+  ) {
+    return { online: false };
+  }
+  return refused(
+    'must be ALTER TABLE ... ADD COLUMN IF NOT EXISTS, ALTER COLUMN ... SET DEFAULT or VALIDATE CONSTRAINT',
+  );
+}
+
+function classify(statement: string): StatementKind {
+  const tokens = tokenizeSql(statement);
+  const first = tokens[0]?.kind === 'word' ? tokens[0].text.toLowerCase() : '';
+  const second = tokens[1]?.kind === 'word' ? tokens[1].text.toLowerCase() : '';
+
+  if (
+    TRANSACTION_CONTROL.has(first) ||
+    (first === 'prepare' && second === 'transaction')
+  ) {
+    return refused('controls a transaction');
+  }
+  if (first === 'create' && (second === 'index' || second === 'unique')) {
+    const at = second === 'unique' ? 2 : 1;
+    const name = at + 5;
+    if (
+      hasWords(tokens, at, 'index', 'concurrently', 'if', 'not', 'exists') &&
+      isName(tokens[name]) &&
+      hasWords(tokens, name + 1, 'on')
+    ) {
+      return { online: true, builds: foldName(tokens[name]) };
+    }
+    return refused(
+      'must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <name> ON ...',
+    );
+  }
+  if (first === 'drop' && second === 'index') {
+    const end = hasWords(tokens, 2, 'concurrently', 'if', 'exists')
+      ? afterQualifiedName(tokens, 5)
+      : -1;
+    return end === tokens.length
+      ? { online: true }
+      : refused('must be DROP INDEX CONCURRENTLY IF EXISTS <name>');
+  }
+  if (first === 'alter' && second === 'table') return alterTableKind(tokens);
+  if (first === 'analyze' || first === 'analyse') return { online: false };
+  if (first === 'comment' && second === 'on') return { online: false };
+  return refused(
+    `is not allowed here; only ${ALLOWED_HEADS} can run again safely`,
+  );
+}
 
 /**
  * The statements of a non-transactional file. A failed run is repeated from the first
- * statement, so each one must be safe to run again; what the text can show is checked here,
- * before anything runs.
+ * statement, so each one must be safe to run again. This is an allowlist, read after the
+ * comments are removed: whatever it does not recognise is refused, before anything runs.
  */
 export function nonTransactionalStatements(file: MigrationFile): string[] {
   let statements: string[];
@@ -229,19 +385,13 @@ export function nonTransactionalStatements(file: MigrationFile): string[] {
   }
   const problems: string[] = [];
   statements.forEach((statement, k) => {
-    const text = withoutLeadingComments(statement);
-    const label = `statement ${k + 1} (${text.slice(0, 60).replace(/\s+/g, ' ')})`;
-    if (TRANSACTION_CONTROL.test(text)) {
-      problems.push(`${label} controls a transaction`);
-    }
-    if (CREATE_INDEX.test(text) && !CREATE_INDEX_ONLINE.test(text)) {
-      problems.push(
-        `${label} must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS`,
-      );
-    }
-    if (DROP_INDEX.test(text) && !DROP_INDEX_ONLINE.test(text)) {
-      problems.push(`${label} must be DROP INDEX CONCURRENTLY IF EXISTS`);
-    }
+    const { problem } = classify(statement);
+    if (problem === undefined) return;
+    const [first] = tokenizeSql(statement);
+    const text = statement
+      .slice(first.start, first.start + 60)
+      .replace(/\s+/g, ' ');
+    problems.push(`statement ${k + 1} (${text}) ${problem}`);
   });
   if (statements.length === 0) problems.push('it has no statement');
   if (problems.length > 0) throw new MigrationInvalidError(file.name, problems);
@@ -251,16 +401,17 @@ export function nonTransactionalStatements(file: MigrationFile): string[] {
 /** The indexes the statements build CONCURRENTLY; an interrupted build leaves one INVALID. */
 export function indexesBuiltBy(statements: string[]): string[] {
   return statements.flatMap((statement) => {
-    const name = CREATE_INDEX_ONLINE.exec(
-      withoutLeadingComments(statement),
-    )?.[1];
-    if (name === undefined) return [];
-    return [
-      name.startsWith('"')
-        ? name.slice(1, -1).replace(/""/g, '"')
-        : name.toLowerCase(),
-    ];
+    const { builds } = classify(statement);
+    return builds === undefined ? [] : [builds];
   });
+}
+
+/**
+ * True for the statements that only wait for other transactions and never block a writer:
+ * index builds and drops, and VALIDATE CONSTRAINT. The others take locks that do.
+ */
+export function isOnlineStatement(statement: string): boolean {
+  return classify(statement).online;
 }
 
 /** SHA-256 of the SQL with line endings normalised, so Windows and Linux checkouts agree. */
