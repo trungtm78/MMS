@@ -15,6 +15,9 @@ export const TOKEN_KEYS = {
   handoff: 'mms_refresh_handoff',
 } as const
 
+// The access token issued with the current refresh token (TOKEN_KEYS.handoff)
+type Handoff = { refreshToken: string; accessToken: string; expiresAt: number }
+
 export function getAccessToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEYS.access)
 }
@@ -24,10 +27,22 @@ export function getRefreshToken(): string | null {
   return localStorage.getItem(TOKEN_KEYS.refresh)
 }
 
-export function storeTokens(access: string, refresh: string, rememberMe = false): void {
+/**
+ * Keeps a token pair: the access token for this tab, the refresh token for every tab when the
+ * user chose "remember me". A remembered pair replaces the one the other tabs share, so the
+ * access token is left beside it for them (see exchangeRefreshToken) — a new session from a
+ * sign-in or from enabling or disabling MFA ended the sessions they hold. Without a lifetime
+ * (expiresIn, seconds) the access token is not handed over, and the previous one is forgotten.
+ */
+export function storeTokens(access: string, refresh: string, rememberMe = false, expiresIn?: number): void {
   sessionStorage.setItem(TOKEN_KEYS.access, access)
-  if (rememberMe) {
-    localStorage.setItem(TOKEN_KEYS.refresh, refresh)
+  if (!rememberMe) return
+  localStorage.setItem(TOKEN_KEYS.refresh, refresh)
+  if (typeof expiresIn === 'number' && expiresIn > 0) {
+    const handoff: Handoff = { refreshToken: refresh, accessToken: access, expiresAt: Date.now() + expiresIn * 1000 }
+    localStorage.setItem(TOKEN_KEYS.handoff, JSON.stringify(handoff))
+  } else {
+    localStorage.removeItem(TOKEN_KEYS.handoff)
   }
 }
 
@@ -71,8 +86,6 @@ function endSession(err: unknown): void {
 // One refresh revokes the session of the token it presents (auth.service.ts refreshTokens), and
 // every tab shares that session, so the access token the tab that refreshed obtained is the only
 // valid one: the other tabs adopt it instead of rotating the token again.
-type Handoff = { refreshToken: string; accessToken: string; expiresAt: number }
-
 // An access token with less life left than this is not worth handing over
 const HANDOFF_MIN_LIFETIME_MS = 30_000
 
@@ -93,8 +106,9 @@ function readHandoff(): Handoff | null {
     : null
 }
 
-// Runs while this tab holds the cross-tab refresh lock (api/refreshLock.ts)
-async function exchangeRefreshToken(refusedAccessToken: string | null): Promise<string> {
+// Runs while this tab holds the cross-tab refresh lock (api/refreshLock.ts). `presented` records
+// the refresh token sent, if any.
+async function exchangeRefreshToken(refusedAccessToken: string | null, presented: { token: string | null }): Promise<string> {
   // Read only now: another tab may have rotated the token while this one waited for the lock,
   // and the token read before that has already been presented
   const refreshToken = getRefreshToken()
@@ -111,6 +125,7 @@ async function exchangeRefreshToken(refusedAccessToken: string | null): Promise<
     return handoff.accessToken
   }
 
+  presented.token = refreshToken
   const response = await axios.post(
     `${BASE_URL}/auth/refresh`,
     { refreshToken },
@@ -124,12 +139,16 @@ async function exchangeRefreshToken(refusedAccessToken: string | null): Promise<
   // Keep the new refresh token only while one is still kept: another tab may have signed out
   // during the request
   const remembered = localStorage.getItem(TOKEN_KEYS.refresh) !== null
-  storeTokens(accessToken, newRefresh, remembered)
-  if (remembered && typeof expiresIn === 'number') {
-    const handoffValue: Handoff = { refreshToken: newRefresh, accessToken, expiresAt: Date.now() + expiresIn * 1000 }
-    localStorage.setItem(TOKEN_KEYS.handoff, JSON.stringify(handoffValue))
-  }
+  storeTokens(accessToken, newRefresh, remembered, typeof expiresIn === 'number' ? expiresIn : undefined)
   return accessToken
+}
+
+// A refusal of a refresh token that another tab replaced while the request was out (a sign-in,
+// or MFA enabled or disabled: every earlier session ended and that tab stored the new one) says
+// nothing about the new session, and the tokens in storage are not this refusal's to clear
+function replacedSince(presented: string | null): boolean {
+  const current = getRefreshToken()
+  return presented !== null && current !== null && current !== presented
 }
 
 // Single-flight within this tab; withRefreshLock serialises the tabs
@@ -139,13 +158,22 @@ async function requestNewAccessToken(): Promise<string> {
   // The access token this tab holds now is the one that was refused (or none)
   const refusedAccessToken = getAccessToken()
   return withRefreshLock(async () => {
-    try {
-      return await exchangeRefreshToken(refusedAccessToken)
-    } catch (err) {
-      // No retry: a refused refresh token will not be accepted a second time. Cleared before
-      // the lock is released, so no waiting tab presents it again.
-      if (refreshWasRefused(err)) endSession(err)
-      throw err
+    // A second attempt only for a token another tab replaced, with the session that replaced it
+    for (let attempt = 1; ; attempt += 1) {
+      const presented = { token: null as string | null }
+      try {
+        return await exchangeRefreshToken(refusedAccessToken, presented)
+      } catch (err) {
+        if (!refreshWasRefused(err)) throw err
+        if (replacedSince(presented.token)) {
+          if (attempt < 2) continue
+          throw err
+        }
+        // No retry of the same token: a refused refresh token will not be accepted a second
+        // time. Cleared before the lock is released, so no waiting tab presents it again.
+        endSession(err)
+        throw err
+      }
     }
   })
 }

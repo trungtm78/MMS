@@ -21,6 +21,7 @@ import { RecoveryCodesPanel } from '@/components/auth/RecoveryCodesPanel'
 import { TotpSetupDetails } from '@/components/auth/TotpSetupDetails'
 import { Dialog } from '@/components/ui/Dialog'
 import { getRefreshToken } from '@/api/client'
+import { UnexpectedSessionResponseError } from '@/api/session'
 import { useAuth } from '@/contexts/AuthContext'
 import { describeApiError, parseApiError } from '@/lib/api-error'
 import { formatCalendarDate } from '@/lib/dates'
@@ -397,10 +398,19 @@ function DisableMfaDialog({
   const [formError, setFormError] = useState<string | null>(null)
   const codeField = useCodeFocus()
 
+  const { completeSignIn } = useAuth()
+
   const disableMutation = useMutation({
     mutationFn: mfaApi.disable,
-    onSuccess: onDisabled,
+    onSuccess: ({ session }) => {
+      // Turning it off ended every session, this one included: the new one is used at once, as
+      // after enabling it; "remember me" carries over
+      completeSignIn(session, getRefreshToken() !== null)
+      onDisabled()
+    },
     onError: (err) => {
+      // An answer without the new session: the factor may be off already, so the status is reloaded
+      if (err instanceof UnexpectedSessionResponseError) onStale()
       const failure = classifyMfaError(err, 'settings.mfa.disable.error')
       if (failure.kind === 'code') {
         setCodeError(failure.message)

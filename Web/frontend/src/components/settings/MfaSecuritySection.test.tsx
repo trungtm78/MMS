@@ -12,7 +12,8 @@ vi.mock('@/api/client', () => ({ default: api, getRefreshToken: () => auth.remem
 vi.mock('sonner', () => ({ toast }))
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ completeSignIn: auth.completeSignIn }) }))
 
-// POST /auth/mfa/confirm ends every earlier session and answers with a new one (mfa.service.ts:354-355)
+// POST /auth/mfa/confirm and POST /auth/mfa/disable end every earlier session and answer with a
+// new one (mfa.service.ts confirmEnrollment, disable)
 const newSession = {
   user: { id: 'u7', username: 'ca.ward', fullName: 'Công an phường', role: 'ca_ward', roles: ['ca_ward'], unitScope: null },
   tokens: { accessToken: 'mfa-access', refreshToken: 'mfa-refresh', expiresIn: 900 },
@@ -359,7 +360,7 @@ describe('MfaSecuritySection', () => {
   describe('turning it off', () => {
     it('disables it with a recovery code', async () => {
       status = enabled
-      api.post.mockResolvedValueOnce({ data: undefined, status: 204 })
+      api.post.mockResolvedValueOnce({ data: newSession, status: 200 })
       const user = renderSection()
 
       await user.click(await screen.findByRole('button', { name: 'Tắt xác thực hai lớp' }))
@@ -372,6 +373,48 @@ describe('MfaSecuritySection', () => {
       expect(api.post).toHaveBeenCalledWith('/auth/mfa/disable', { method: 'recovery_code', code: 'ABCDE-12345' })
       await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã tắt xác thực hai lớp'))
       expect(await screen.findByTestId('mfa-status')).toHaveTextContent('Chưa bật')
+    })
+
+    // POST /auth/mfa/disable ends every session of the user, this one included, and answers with a
+    // new one (mfa.service.ts disable): without it the next request would sign the user out
+    it.each([
+      ['remembered', 'remembered-refresh', true],
+      ['not remembered', null, false],
+    ])('switches to the new session returned by turning it off (%s sign-in)', async (_, remembered, rememberMe) => {
+      auth.rememberedRefreshToken = remembered
+      status = enabled
+      api.post.mockResolvedValueOnce({ data: newSession, status: 200 })
+      const user = renderSection()
+
+      await user.click(await screen.findByRole('button', { name: 'Tắt xác thực hai lớp' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Tắt xác thực hai lớp' })
+      await user.type(within(dialog).getByLabelText('Mã xác thực'), '123456')
+      status = disabled
+      await user.click(within(dialog).getByRole('button', { name: 'Tắt' }))
+
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã tắt xác thực hai lớp'))
+      expect(auth.completeSignIn).toHaveBeenCalledTimes(1)
+      expect(auth.completeSignIn).toHaveBeenCalledWith(newSession, rememberMe)
+      expect(auth.completeSignIn.mock.invocationCallOrder[0]).toBeLessThan(toast.success.mock.invocationCallOrder[0])
+      expect(await screen.findByTestId('mfa-status')).toHaveTextContent('Chưa bật')
+    })
+
+    // The factor may already be off on the server: the status is loaded again
+    it('treats an answer without a new session as a failure', async () => {
+      status = enabled
+      api.post.mockResolvedValueOnce({ data: undefined, status: 204 })
+      const user = renderSection()
+
+      await user.click(await screen.findByRole('button', { name: 'Tắt xác thực hai lớp' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Tắt xác thực hai lớp' })
+      await user.type(within(dialog).getByLabelText('Mã xác thực'), '123456')
+      const callsBefore = statusCalls()
+      await user.click(within(dialog).getByRole('button', { name: 'Tắt' }))
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent('Không thể tắt xác thực hai lớp')
+      expect(auth.completeSignIn).not.toHaveBeenCalled()
+      expect(toast.success).not.toHaveBeenCalled()
+      await waitFor(() => expect(statusCalls()).toBeGreaterThan(callsBefore))
     })
 
     it.each([

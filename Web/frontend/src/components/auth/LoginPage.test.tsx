@@ -224,7 +224,7 @@ describe('LoginPage', () => {
       await submitLogin({ rememberMe: true })
 
       expect(await screen.findByText('Trang tổng quan')).toBeInTheDocument()
-      expect(tokens.storeTokens).toHaveBeenCalledWith('access-1', 'refresh-1', true)
+      expect(tokens.storeTokens).toHaveBeenCalledWith('access-1', 'refresh-1', true, 900)
     })
 
     it('asks for the second factor on MFA_REQUIRED without storing anything', async () => {
@@ -252,7 +252,7 @@ describe('LoginPage', () => {
       expect(await screen.findByText('Trang tổng quan')).toBeInTheDocument()
       expect(api.post).toHaveBeenLastCalledWith('/auth/mfa/verify', { mfaToken: 'challenge-token', method: 'totp', code: '123456' })
       expect(tokens.storeTokens).toHaveBeenCalledTimes(1)
-      expect(tokens.storeTokens).toHaveBeenCalledWith('access-2', 'refresh-2', true)
+      expect(tokens.storeTokens).toHaveBeenCalledWith('access-2', 'refresh-2', true, 900)
     })
 
     it('goes back to the password form when the challenge is no longer valid', async () => {
@@ -313,7 +313,7 @@ describe('LoginPage', () => {
       await user.click(screen.getByRole('button', { name: 'Tiếp tục vào hệ thống' }))
 
       expect(await screen.findByText('Trang tổng quan')).toBeInTheDocument()
-      expect(tokens.storeTokens).toHaveBeenCalledWith('access-1', 'refresh-1', false)
+      expect(tokens.storeTokens).toHaveBeenCalledWith('access-1', 'refresh-1', false, 900)
     })
 
     it.each([

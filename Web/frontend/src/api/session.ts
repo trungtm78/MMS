@@ -1,4 +1,4 @@
-// A signed-in session as answered by the sign-in routes and by POST /auth/mfa/confirm:
+// A signed-in session as answered by the sign-in routes and by POST /auth/mfa/confirm and disable:
 // { user, tokens: { accessToken, refreshToken, expiresIn } } (auth.service.ts signInUser)
 import type { LoginResponse, User } from '@/types'
 

@@ -177,8 +177,10 @@ export const mfaApi = {
     return readRecoveryCodes(response.data)
   },
 
-  // 204; 403 mfa_required_by_role, 409 mfa_not_enabled
-  disable: async (body: { method: MfaMethod; code: string }): Promise<void> => {
-    await client.post('/auth/mfa/disable', body)
+  // Disabling the second factor also ends every session, the caller's included: the answer
+  // carries the new session (mfa.service.ts disable). 403 mfa_required_by_role, 409 mfa_not_enabled
+  disable: async (body: { method: MfaMethod; code: string }): Promise<{ session: SignedInSession }> => {
+    const response = await client.post<unknown>('/auth/mfa/disable', body)
+    return { session: readSignedInSession(response.data, 'POST /auth/mfa/disable') }
   },
 }

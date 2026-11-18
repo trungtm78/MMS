@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearNotice = useCallback(() => setNotice(null), [])
 
   const completeSignIn = useCallback((session: SignedInSession, rememberMe: boolean) => {
-    storeTokens(session.tokens.accessToken, session.tokens.refreshToken, rememberMe)
+    storeTokens(session.tokens.accessToken, session.tokens.refreshToken, rememberMe, session.tokens.expiresIn)
     setNotice(null)
     setUser(session.user)
   }, [])

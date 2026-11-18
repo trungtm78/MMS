@@ -418,6 +418,108 @@ describe('api client 401 handling', () => {
       expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBeNull()
     })
 
+    // A new session from a sign-in, MFA enabled (POST /auth/mfa/confirm) or MFA disabled
+    // (POST /auth/mfa/disable): the server ended every earlier session of the user
+    describe('when a tab stores a new session', () => {
+      it('leaves its access token for the other tabs, which use it instead of refreshing', async () => {
+        const refresh = vi.spyOn(axios, 'post')
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        tabA.storeTokens('signed-in-access', 'signed-in-refresh', true, 900)
+        // Tab B still holds an access token of a session the server just ended
+        sessionStorage.setItem(TOKEN_KEYS.access, 'old-access')
+
+        await expect(tabB.refreshAccessToken()).resolves.toBe('signed-in-access')
+        expect(refresh).not.toHaveBeenCalled()
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBe('signed-in-refresh')
+      })
+
+      it('forgets the access token left for the previous refresh token', async () => {
+        vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+        const tab = await openTab()
+        await tab.refreshAccessToken()
+        expect(localStorage.getItem(TOKEN_KEYS.handoff)).not.toBeNull()
+
+        tab.storeTokens('signed-in-access', 'signed-in-refresh', true)
+
+        expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBeNull()
+      })
+
+      it('leaves the shared refresh token and handoff alone when not remembered', async () => {
+        vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+        const tab = await openTab()
+        await tab.refreshAccessToken()
+        const handoff = localStorage.getItem(TOKEN_KEYS.handoff)
+
+        tab.storeTokens('session-only-access', 'session-only-refresh', false, 900)
+
+        expect(sessionStorage.getItem(TOKEN_KEYS.access)).toBe('session-only-access')
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBe('fresh-refresh')
+        expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBe(handoff)
+      })
+
+      it('keeps the new session when a refresh with the ended one is refused meanwhile', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi.spyOn(axios, 'post').mockReturnValueOnce(answer.promise)
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const b = tabB.refreshAccessToken()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        // Tab A disables MFA: every session ends, tab A stores the new one, tab B's refresh is refused
+        tabA.storeTokens('signed-in-access', 'signed-in-refresh', true, 900)
+        answer.resolve(Promise.reject(refusal(401, 'refresh_token_revoked')))
+
+        await expect(b).resolves.toBe('signed-in-access')
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(sessionExpired).not.toHaveBeenCalled()
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBe('signed-in-refresh')
+      })
+
+      it('refreshes with the new refresh token when the refused one was replaced without a handoff', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi
+          .spyOn(axios, 'post')
+          .mockReturnValueOnce(answer.promise)
+          .mockResolvedValueOnce({ data: { ...FRESH_TOKENS, accessToken: 'newest-access', refreshToken: 'newest-refresh' } })
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const b = tabB.refreshAccessToken()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        tabA.storeTokens('signed-in-access', 'signed-in-refresh', true)
+        answer.resolve(Promise.reject(refusal(401, 'refresh_token_revoked')))
+
+        await expect(b).resolves.toBe('newest-access')
+        expect(refresh.mock.calls.map((call) => call[1])).toEqual([
+          { refreshToken: 'remembered-refresh-token' },
+          { refreshToken: 'signed-in-refresh' },
+        ])
+        expect(sessionExpired).not.toHaveBeenCalled()
+      })
+
+      it('still ends the session when the replacement refresh token is refused too', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi
+          .spyOn(axios, 'post')
+          .mockReturnValueOnce(answer.promise)
+          .mockRejectedValueOnce(refusal(401, 'refresh_token_revoked'))
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const b = tabB.refreshAccessToken()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        tabA.storeTokens('signed-in-access', 'signed-in-refresh', true)
+        answer.resolve(Promise.reject(refusal(401, 'refresh_token_revoked')))
+
+        await expect(b).rejects.toBeTruthy()
+        expect(refresh).toHaveBeenCalledTimes(2)
+        expect(sessionExpired).toHaveBeenCalledTimes(1)
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBeNull()
+      })
+    })
+
     // "Remember me" off: no refresh token is kept, so the session ends with its access token
     it('ends the session without a request when no refresh token was kept', async () => {
       localStorage.removeItem(TOKEN_KEYS.refresh)
