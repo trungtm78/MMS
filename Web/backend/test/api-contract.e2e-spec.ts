@@ -672,7 +672,7 @@ describe('API contract (e2e)', () => {
         await c.query(
           `INSERT INTO units (code, name, type)
            VALUES ('KV-WR-A', 'Khu vực A', 'area'), ('KV-WR-B', 'Khu vực B', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         );
         await c.query(
           `INSERT INTO militia_profiles (militia_code, full_name, cccd, dob, unit_id, join_date, user_id)
@@ -861,7 +861,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-MFA', 'Khu vực MFA', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const username = `mfa_user_${accountCounter++}`;
@@ -1297,7 +1297,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-SES', 'Khu vực phiên', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const username = `ses_user_${counter++}`;
@@ -1657,7 +1657,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-ADM', 'Khu vực quản trị', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
 
@@ -1726,7 +1726,7 @@ describe('API contract (e2e)', () => {
         c.query(
           `INSERT INTO units (code, name, type)
            VALUES ('KV-OSA', 'Khu vực A', 'area'), ('KV-OSB', 'Khu vực B', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const create = async (body: Record<string, string>) =>
@@ -1914,7 +1914,7 @@ describe('API contract (e2e)', () => {
         c.query(
           `INSERT INTO units (code, name, type)
            VALUES ('KV-SC-A', 'Khu vực phạm vi A', 'area'), ('KV-SC-B', 'Khu vực phạm vi B', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       await account('sc_dqtv_b', 'dqtv', 'KV-SC-B');
@@ -2005,7 +2005,7 @@ describe('API contract (e2e)', () => {
       ({ ownProfileId, otherProfileId } = await db(async (c) => {
         const unit = await c.query<{ id: string }>(
           `INSERT INTO units (code, name, type) VALUES ('KV-MP', 'Khu vực hồ sơ', 'area')
-           ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+           ON CONFLICT (tenant_id, code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
         );
         const unitId = unit.rows[0].id;
         await c.query(
@@ -2047,7 +2047,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ($1, $1, 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
           [unitCode],
         ),
       );
@@ -2071,7 +2071,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-MP3', 'Khu vực ba', 'area')
-           ON CONFLICT (code) DO NOTHING;
+           ON CONFLICT (tenant_id, code) DO NOTHING;
            INSERT INTO militia_profiles (militia_code, full_name, cccd, dob, unit_id, join_date, status)
            SELECT 'DQ-MP3-A', 'Hoàng Văn Ba', '079200000204', '1996-04-04', id, '2021-04-04', 'active'
            FROM units WHERE code = 'KV-MP3'
@@ -2374,7 +2374,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-MOB', 'Khu vực di động', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const created = await api()
@@ -2726,7 +2726,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-LEAVE', 'Khu vực nghỉ phép', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const created = await api()
@@ -2843,7 +2843,7 @@ describe('API contract (e2e)', () => {
       await db((c) =>
         c.query(
           `INSERT INTO units (code, name, type) VALUES ('KV-AUD', 'Khu vực kiểm toán', 'area')
-           ON CONFLICT (code) DO NOTHING`,
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
         ),
       );
       const create = async (
@@ -3046,7 +3046,7 @@ describe('API contract (e2e)', () => {
         async (c) => {
           const unit = await c.query<{ id: string }>(
             `INSERT INTO units (code, name, type) VALUES ('KV-PR', 'Khu vực lương', 'area')
-           ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+           ON CONFLICT (tenant_id, code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
           );
           const insertMember = async (
             code: string,

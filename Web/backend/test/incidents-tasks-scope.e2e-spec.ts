@@ -46,7 +46,7 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
     db((c) =>
       c.query(
         `INSERT INTO units (code, name, type) VALUES ($1, $1, 'area')
-         ON CONFLICT (code) DO NOTHING`,
+         ON CONFLICT (tenant_id, code) DO NOTHING`,
         [code],
       ),
     );

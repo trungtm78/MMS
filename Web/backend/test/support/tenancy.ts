@@ -89,19 +89,29 @@ export async function createTenantDatabase(
     options.name ??
     `mms_tn_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const base = adminUrl();
+  const dropDatabase = () =>
+    withClient(base, (c) =>
+      c.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`),
+    ).then(() => undefined);
   await withClient(base, (c) => c.query(`CREATE DATABASE ${name}`));
   const dbAdminUrl = urlFor(base, name);
-  await migrateDatabase({
-    connectionString: dbAdminUrl,
-    directory: path.join(__dirname, '..', '..', 'migrations'),
-  });
-  await withClient(base, async (c) => {
-    await alterRole(c, 'mms_app', APP_PASSWORD);
-    await alterRole(c, 'mms_platform', PLATFORM_PASSWORD);
-    if (!options.keepLegacyDefault) {
-      await c.query(`ALTER DATABASE ${name} RESET app.tenant_id`);
-    }
-  });
+  try {
+    await migrateDatabase({
+      connectionString: dbAdminUrl,
+      directory: path.join(__dirname, '..', '..', 'migrations'),
+    });
+    await withClient(base, async (c) => {
+      await alterRole(c, 'mms_app', APP_PASSWORD);
+      await alterRole(c, 'mms_platform', PLATFORM_PASSWORD);
+      if (!options.keepLegacyDefault) {
+        await c.query(`ALTER DATABASE ${name} RESET app.tenant_id`);
+      }
+    });
+  } catch (error) {
+    // A half-built database would otherwise outlive the failed suite
+    await dropDatabase().catch(() => undefined);
+    throw error;
+  }
   const appUrl = urlFor(base, name, 'mms_app', APP_PASSWORD);
   const platformUrl = urlFor(base, name, 'mms_platform', PLATFORM_PASSWORD);
   return {
@@ -118,10 +128,7 @@ export async function createTenantDatabase(
         return fn(c);
       }),
     platform: (fn) => withClient(platformUrl, fn),
-    drop: () =>
-      withClient(base, (c) =>
-        c.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`),
-      ).then(() => undefined),
+    drop: dropDatabase,
   };
 }
 

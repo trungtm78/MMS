@@ -177,7 +177,7 @@ export class TasksService {
             `INSERT INTO tasks (code, title, description, type, priority, status, deadline, unit_id, created_by,
                                 location_name, location_lat, location_lng)
              VALUES ($1, $2, $3, $4, $5, 'pending', $6::timestamptz, $7::uuid, $8::uuid, $9, $10, $11)
-             ON CONFLICT (code) DO NOTHING
+             ON CONFLICT (tenant_id, code) DO NOTHING
              RETURNING id`,
             [
               candidate,

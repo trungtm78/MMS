@@ -87,7 +87,7 @@ describe('TasksService', () => {
       });
       expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
       expect(sqlOf(1)).toMatch(/INSERT INTO tasks/);
-      expect(sqlOf(1)).toMatch(/ON CONFLICT \(code\) DO NOTHING/);
+      expect(sqlOf(1)).toMatch(/ON CONFLICT \(tenant_id, code\) DO NOTHING/);
       expect(paramsOf(1)[7]).toBe('admin-1');
       expect(sqlOf(2)).toMatch(/INSERT INTO task_assignments/);
       expect(paramsOf(2)).toEqual(['task-1', 'dqtv-1', 'admin-1']);

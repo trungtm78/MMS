@@ -197,7 +197,7 @@ describe('Client gaps T20 (e2e)', () => {
       c.query(
         `INSERT INTO units (code, name, type)
          VALUES ($1, 'Khu vực T20 A', 'area'), ($2, 'Khu vực T20 B', 'area')
-         ON CONFLICT (code) DO NOTHING`,
+         ON CONFLICT (tenant_id, code) DO NOTHING`,
         [UNIT_A, UNIT_B],
       ),
     );

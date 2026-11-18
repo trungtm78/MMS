@@ -156,7 +156,7 @@ describe('Features T18 (e2e)', () => {
       c.query(
         `INSERT INTO units (code, name, type)
          VALUES ('KV-T18-A', 'Khu vực T18 A', 'area'), ('KV-T18-B', 'Khu vực T18 B', 'area')
-         ON CONFLICT (code) DO NOTHING`,
+         ON CONFLICT (tenant_id, code) DO NOTHING`,
       ),
     );
     await account('t18_ward', 'police_ward');

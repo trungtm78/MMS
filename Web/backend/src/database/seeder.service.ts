@@ -31,12 +31,12 @@ export class SeederService implements OnApplicationBootstrap {
 
     await this.dataSource.query(
       `INSERT INTO users (username, password_hash, full_name, status)
-       VALUES ($1, $2, $3, 'active') ON CONFLICT (username) DO NOTHING`,
+       VALUES ($1, $2, $3, 'active') ON CONFLICT (tenant_id, username) DO NOTHING`,
       ['admin', adminHash, 'Quản trị viên hệ thống'],
     );
     await this.dataSource.query(
       `INSERT INTO users (username, password_hash, full_name, status)
-       VALUES ($1, $2, $3, 'active') ON CONFLICT (username) DO NOTHING`,
+       VALUES ($1, $2, $3, 'active') ON CONFLICT (tenant_id, username) DO NOTHING`,
       ['dqtv01', dqtvHash, 'Nguyễn Văn A'],
     );
 

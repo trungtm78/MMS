@@ -204,7 +204,7 @@ describe('Frontend routes T23 (e2e)', () => {
       c.query(
         `INSERT INTO units (code, name, type)
          VALUES ('KV-T23-A', 'Khu vực T23 A', 'area'), ('KV-T23-B', 'Khu vực T23 B', 'area')
-         ON CONFLICT (code) DO NOTHING`,
+         ON CONFLICT (tenant_id, code) DO NOTHING`,
       ),
     );
     await account('t23_ward', 'police_ward');

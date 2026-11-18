@@ -82,6 +82,10 @@ describe('SeederService', () => {
       );
       expect(usernames).toContain('admin');
       expect(usernames).toContain('dqtv01');
+      // Usernames are unique per tenant (migration 037), so the arbiter names the tenant
+      userInserts.forEach(([sql]) =>
+        expect(sql).toMatch(/ON CONFLICT \(tenant_id, username\) DO NOTHING/),
+      );
     });
 
     it('assigns system_admin role to admin and dqtv role to dqtv01', async () => {
