@@ -1796,3 +1796,178 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS ${long} ON online_t (id);`,
     });
   });
 });
+
+describe('online tenant preparation (038)', () => {
+  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  const SEEDED = [
+    'reward_decisions',
+    'weapons',
+    'weapon_inventory_checks',
+    'weapon_inventory_items',
+    'kpi_target_settings',
+    'discipline_decisions',
+    'system_settings',
+  ];
+  let url: string;
+  let xminBefore: Record<string, string[]>;
+
+  const xmins = () =>
+    withClient(url, async (c) => {
+      const out: Record<string, string[]> = {};
+      for (const table of SEEDED) {
+        const { rows } = await c.query<{ xmin: string }>(
+          `SELECT xmin::text AS xmin FROM ${table} ORDER BY xmin::text`,
+        );
+        out[table] = rows.map((r) => r.xmin);
+      }
+      return out;
+    });
+
+  beforeAll(async () => {
+    url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('037_tenant_slice_rls.sql'),
+    });
+    // Rows written before 038, several in tables whose triggers (026) refuse any UPDATE
+    await withClient(url, async (c) => {
+      const one = async (sql: string, values: unknown[] = []) =>
+        (await c.query<{ id: string }>(sql, values)).rows[0].id;
+      const unit = await one(
+        `INSERT INTO units (code, name, type) VALUES ('U38', 'Unit 38', 'area') RETURNING id`,
+      );
+      const user = await one(
+        `INSERT INTO users (username, password_hash, full_name, status)
+         VALUES ('u38', 'x', 'User 38', 'active') RETURNING id`,
+      );
+      const militia = await one(
+        `INSERT INTO militia_profiles (militia_code, full_name, cccd, dob, unit_id, join_date)
+         VALUES ('DQ38', 'M', '000000000038', '1990-01-01', $1, '2020-01-01') RETURNING id`,
+        [unit],
+      );
+      await c.query(
+        `INSERT INTO reward_decisions (militia_id, reward_form, issuing_authority, issued_date, created_by)
+         VALUES ($1, 'giay_khen', 'commune', '2026-01-10', $2)`,
+        [militia, user],
+      );
+      const weapon = await one(
+        `INSERT INTO weapons (type, serial_number, acquired_at, storage_location)
+         VALUES ('AK', 'S38', '2020-01-01', 'Kho') RETURNING id`,
+      );
+      const check = await one(
+        `INSERT INTO weapon_inventory_checks (performed_by, expected_count, confirmed_count)
+         VALUES ($1, 1, 1) RETURNING id`,
+        [user],
+      );
+      await c.query(
+        `INSERT INTO weapon_inventory_items (check_id, weapon_id, weapon_type, serial_number, condition, storage_location)
+         VALUES ($1, $2, 'AK', 'S38', 'good', 'Kho')`,
+        [check, weapon],
+      );
+      await c.query(
+        `INSERT INTO kpi_target_settings (effective_from, min_attendance_days, min_tasks_completed,
+                                          max_overdue_tasks, min_training_hours, evaluation_period, created_by)
+         VALUES ('2026-01-01', 20, 5, 2, 40, 'monthly', $1)`,
+        [user],
+      );
+      await c.query(
+        `INSERT INTO discipline_decisions (militia_id, discipline_form, violation, decision_date, created_by)
+         VALUES ($1, 'khien_trach', 'late', '2026-01-10', $2)`,
+        [militia, user],
+      );
+      await c.query(
+        `INSERT INTO system_settings (key, value) VALUES ('k38', 'v')`,
+      );
+    });
+    xminBefore = await xmins();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('038_tenant_columns_online.sql'),
+    });
+  });
+
+  it('puts every row written before it into the first tenant without updating a row', async () => {
+    expect(await xmins()).toEqual(xminBefore);
+    const tenants = await withClient(url, async (c) => {
+      const out: Record<string, string[]> = {};
+      for (const table of SEEDED) {
+        const { rows } = await c.query<{ tenant: string }>(
+          `SELECT DISTINCT tenant_id::text AS tenant FROM ${table}`,
+        );
+        out[table] = rows.map((r) => r.tenant);
+      }
+      return out;
+    });
+    expect(tenants).toEqual(
+      Object.fromEntries(SEEDED.map((table) => [table, [FIRST_TENANT]])),
+    );
+  });
+
+  it('defaults tenant_id to the tenant of the session on all 66 tenant tables', async () => {
+    const defaults = await withClient(
+      url,
+      async (c) =>
+        (
+          await c.query<{ value: string; n: string }>(
+            `SELECT column_default AS value, count(*) AS n FROM information_schema.columns
+            WHERE table_schema = 'public' AND column_name = 'tenant_id'
+              AND table_name <> 'tenants'
+            GROUP BY column_default`,
+          )
+        ).rows,
+    );
+    expect(defaults).toEqual([{ value: 'app_tenant_id()', n: '66' }]);
+  });
+
+  it('builds every index of 038 valid, and keeps the old keys until the cutover', async () => {
+    const [counts] = await withClient(
+      url,
+      async (c) =>
+        (
+          await c.query<{
+            parents: string;
+            others: string;
+            invalid: string;
+            old: string;
+          }>(
+            `SELECT count(*) FILTER (WHERE c.relname LIKE 'uq\\_%\\_tenant\\_row') AS parents,
+                  count(*) FILTER (WHERE c.relname LIKE 'ix\\_%\\_tenant\\_%') AS others,
+                  count(*) FILTER (WHERE NOT x.indisvalid) AS invalid,
+                  count(*) FILTER (WHERE c.relname IN ('incidents_code_key', 'system_settings_pkey',
+                                                     'uq_training_plans_unit_year_type',
+                                                     'uq_conversations_direct_key')) AS old
+             FROM pg_index x JOIN pg_class c ON c.oid = x.indexrelid
+            WHERE c.relnamespace = 'public'::regnamespace`,
+          )
+        ).rows,
+    );
+    expect(counts).toEqual({
+      parents: '24',
+      others: '127',
+      invalid: '0',
+      old: '4',
+    });
+  });
+
+  it('leaves the record-keeping triggers of 026 untouched', async () => {
+    await withClient(url, async (c) => {
+      await expect(
+        c.query(`UPDATE reward_decisions SET basis = basis`),
+      ).rejects.toMatchObject({ code: '23001' });
+    });
+  });
+
+  it('runs again from the top after an interruption', async () => {
+    await withClient(url, (c) =>
+      c.query(
+        `DELETE FROM schema_migrations WHERE filename = '038_tenant_columns_online.sql'`,
+      ),
+    );
+    const report = await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('038_tenant_columns_online.sql'),
+    });
+    expect(report.applied).toEqual(['038_tenant_columns_online.sql']);
+    expect(await xmins()).toEqual(xminBefore);
+  });
+});
