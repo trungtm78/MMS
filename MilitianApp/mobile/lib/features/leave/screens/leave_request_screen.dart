@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../shared/utils/calendar_date.dart';
+import '../../../l10n/error_texts.dart';
+import '../../../l10n/l10n.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class LeaveRequestScreen extends ConsumerStatefulWidget {
@@ -72,8 +75,9 @@ class _LeaveRequestScreenState extends ConsumerState<LeaveRequestScreen> {
       final dio = DioClient.getInstance(storage);
       await dio.post(ApiConstants.leaveRequest, data: {
         'type': _leaveType,
-        'fromDate': _fromDate!.toIso8601String(),
-        'toDate': _toDate!.toIso8601String(),
+        // CreateLeaveDto: calendar days as YYYY-MM-DD, never a local-midnight timestamp
+        'fromDate': toCalendarDateString(_fromDate!),
+        'toDate': toCalendarDateString(_toDate!),
         'reason': _reasonCtrl.text.trim(),
       });
       if (mounted) {
@@ -81,8 +85,13 @@ class _LeaveRequestScreenState extends ConsumerState<LeaveRequestScreen> {
         await Future.delayed(const Duration(milliseconds: 2500));
         if (mounted) context.pop();
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(errorTextFor(context.l10n, e)),
+        backgroundColor: AppColors.error,
+      ));
     }
   }
 

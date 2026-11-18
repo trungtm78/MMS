@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
-import '../../../core/network/dio_client.dart';
 import '../../../core/router/routes.dart';
+import '../../../l10n/l10n.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -28,8 +28,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Future<void> _fetchProfile() async {
     setState(() => _loadingProfile = true);
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
+      final dio = ref.read(apiDioProvider);
       final res = await dio.get(ApiConstants.profile);
       final data = res.data['data'] as Map<String, dynamic>?;
       if (mounted && data != null) {
@@ -44,6 +43,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final authUser = ref.watch(authStateProvider).user;
     final fullName = _profileData?['fullName'] as String?
         ?? _profileData?['full_name'] as String?
@@ -75,8 +75,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 border: Border(bottom: BorderSide(color: AppColors.primary, width: 4)),
               ),
             ),
-            title: const Text('Cá Nhân',
-              style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20)),
+            title: Text(l10n.profileScreenTitle,
+              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20)),
             centerTitle: false,
             automaticallyImplyLeading: false,
           ),
@@ -156,7 +156,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             Container(width: 8, height: 8,
                               decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle)),
                             const SizedBox(width: 6),
-                            const Text('Đang hoạt động', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                            Text(l10n.profileScreenStatusActive,
+                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                           ],
                         ),
                       ],
@@ -166,35 +167,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                   // ── Quick stats ──────────────────────────────────────────
                   Row(
-                    children: const [
-                      Expanded(child: _StatCard('Thâm niên', '2 năm 3 tháng')),
-                      SizedBox(width: 10),
-                      Expanded(child: _StatCard('Điểm chỉ tiêu', '92.4')),
-                      SizedBox(width: 10),
-                      Expanded(child: _StatCard('Xếp hạng', '#3/28')),
+                    children: [
+                      Expanded(child: _StatCard(l10n.profileScreenStatSeniorityLabel, l10n.profileScreenStatSeniorityValue)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _StatCard(l10n.profileScreenStatKpiLabel, '92.4')),
+                      const SizedBox(width: 10),
+                      Expanded(child: _StatCard(l10n.profileScreenStatRankLabel, '#3/28')),
                     ],
                   ),
                   const SizedBox(height: 16),
 
                   // ── Personal info ────────────────────────────────────────
                   _InfoCard(
-                    title: 'Thông tin cá nhân',
+                    title: l10n.profileScreenPersonalInfoTitle,
                     children: [
-                      _InfoRow(Icons.phone, 'Số điện thoại', phone),
-                      _InfoRow(Icons.email_outlined, 'Email', email),
-                      _InfoRow(Icons.badge_outlined, 'Đơn vị', unit),
+                      _InfoRow(Icons.phone, l10n.profileScreenPhoneLabel, phone),
+                      _InfoRow(Icons.email_outlined, l10n.profileScreenEmailLabel, email),
+                      _InfoRow(Icons.badge_outlined, l10n.profileScreenUnitLabel, unit),
                     ],
                   ),
                   const SizedBox(height: 12),
 
                   // ── Work info ────────────────────────────────────────────
                   _InfoCard(
-                    title: 'Thông tin công tác',
+                    title: l10n.profileScreenWorkInfoTitle,
                     children: [
-                      _InfoRow(Icons.location_on_outlined, 'Khu phố', 'Khu phố 1'),
-                      _InfoRow(Icons.people_outline, 'Công An KV', 'Trung úy Võ Văn Tân'),
-                      _InfoRow(Icons.calendar_today_outlined, 'Ngày vào lực lượng', '01/10/2022'),
-                      _InfoRow(Icons.work_outline, 'Ngạch công tác', position),
+                      _InfoRow(Icons.location_on_outlined, l10n.profileScreenNeighborhoodLabel,
+                          l10n.profileScreenNeighborhoodValue),
+                      _InfoRow(Icons.people_outline, l10n.profileScreenAreaPoliceLabel,
+                          l10n.profileScreenAreaPoliceValue),
+                      _InfoRow(Icons.calendar_today_outlined, l10n.profileScreenJoinedLabel, '01/10/2022'),
+                      _InfoRow(Icons.work_outline, l10n.profileScreenPositionLabel, position),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -208,12 +211,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     crossAxisSpacing: 10,
                     childAspectRatio: 2.2,
                     children: [
-                      _QuickAction(Icons.description_outlined, 'Đăng ký nghỉ phép',
+                      _QuickAction(Icons.description_outlined, l10n.profileScreenQuickLeaveRequest,
                           () => context.push(Routes.leaveRequest)),
-                      _QuickAction(Icons.assignment_outlined, 'Đơn đã gửi',
+                      _QuickAction(Icons.assignment_outlined, l10n.profileScreenQuickMyRequests,
                           () => context.push(Routes.myRequests)),
-                      _QuickAction(Icons.calendar_month_outlined, 'Lịch sử công tác', () {}),
-                      _QuickAction(Icons.phone_outlined, 'Hotline hỗ trợ', () {}),
+                      _QuickAction(Icons.calendar_month_outlined, l10n.profileScreenQuickWorkHistory, () {}),
+                      _QuickAction(Icons.phone_outlined, l10n.profileScreenQuickHotline, () {}),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -227,15 +230,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                     child: Column(
                       children: [
-                        _MenuTile(Icons.settings, 'Cài đặt',
+                        _MenuTile(Icons.settings, l10n.profileScreenMenuSettings,
                             () => context.push(Routes.settings)),
                         const Divider(height: 1, indent: 54, color: AppColors.divider),
-                        _MenuTile(Icons.security, 'Quản lý 2FA',
-                            () => context.push(Routes.mfaSetup, extra: '')),
+                        _MenuTile(Icons.security, l10n.profileScreenMenuSecurity,
+                            () => context.push(Routes.security)),
                         const Divider(height: 1, indent: 54, color: AppColors.divider),
-                        _MenuTile(Icons.info_outline, 'Về ứng dụng', () {}),
+                        _MenuTile(Icons.info_outline, l10n.profileScreenMenuAbout, () {}),
                         const Divider(height: 1, indent: 54, color: AppColors.divider),
-                        _MenuTile(Icons.help_outline, 'Hỗ trợ', () {}),
+                        _MenuTile(Icons.help_outline, l10n.profileScreenMenuSupport, () {}),
                       ],
                     ),
                   ),
@@ -254,12 +257,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         border: Border.all(color: AppColors.errorBorder, width: 2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
-                          Icon(Icons.logout, color: AppColors.error, size: 20),
-                          SizedBox(width: 12),
-                          Text('Đăng xuất',
-                            style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600, fontSize: 14)),
+                          const Icon(Icons.logout, color: AppColors.error, size: 20),
+                          const SizedBox(width: 12),
+                          Text(l10n.profileScreenLogout,
+                            style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600, fontSize: 14)),
                         ],
                       ),
                     ),
@@ -393,12 +396,16 @@ class _MenuTile extends StatelessWidget {
   final VoidCallback onTap;
   const _MenuTile(this.icon, this.label, this.onTap);
 
+  // Its own transparent Material: the white card around the menu would otherwise hide the ink splash
   @override
-  Widget build(BuildContext context) => ListTile(
-    dense: true,
-    leading: Icon(icon, color: AppColors.textSecondary, size: 20),
-    title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
-    trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textSecondary),
-    onTap: onTap,
+  Widget build(BuildContext context) => Material(
+    type: MaterialType.transparency,
+    child: ListTile(
+      dense: true,
+      leading: Icon(icon, color: AppColors.textSecondary, size: 20),
+      title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+      trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textSecondary),
+      onTap: onTap,
+    ),
   );
 }

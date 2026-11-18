@@ -1,19 +1,56 @@
+import 'auth_response_exception.dart';
+import 'json_fields.dart';
+
+/// Outcome of POST /auth/login (Web/backend/src/auth/mfa/mfa.service.ts LoginResult).
+enum LoginStatus { success, mfaRequired, mfaSetupRequired }
+
+/// Second-factor methods of POST /auth/mfa/verify and /auth/mfa/disable.
+class MfaMethod {
+  MfaMethod._();
+
+  static const String totp = 'totp';
+  static const String recoveryCode = 'recovery_code';
+  static const List<String> all = [totp, recoveryCode];
+}
+
+/// POST /auth/login, and the SUCCESS bodies of POST /auth/mfa/verify and
+/// POST /auth/mfa/enroll/confirm.
 class LoginResponse {
+  final LoginStatus status;
   final String? accessToken;
   final String? refreshToken;
-  final bool requiresMfa;
-  final bool requiresMfaSetup;
-  final String? tempToken; // used when requiresMfa == true
+
+  /// Challenge for the second factor (MFA_REQUIRED / MFA_SETUP_REQUIRED).
+  final String? mfaToken;
+  final DateTime? expiresAt;
+
+  /// Methods accepted for an MFA_REQUIRED challenge.
+  final List<String> methods;
+
+  /// Unused recovery codes left after signing in with one.
+  final int? recoveryCodesRemaining;
+
+  /// New recovery codes after enrolling during sign-in; shown once.
+  final List<String> recoveryCodes;
   final UserInfo? user;
 
   const LoginResponse({
+    this.status = LoginStatus.success,
     this.accessToken,
     this.refreshToken,
-    required this.requiresMfa,
-    required this.requiresMfaSetup,
-    this.tempToken,
+    this.mfaToken,
+    this.expiresAt,
+    this.methods = const [],
+    this.recoveryCodesRemaining,
+    this.recoveryCodes = const [],
     this.user,
   });
+
+  bool get requiresMfa => status == LoginStatus.mfaRequired;
+  bool get requiresMfaSetup => status == LoginStatus.mfaSetupRequired;
+
+  /// Name of [mfaToken] in bodies from servers built before `status`.
+  String? get tempToken => mfaToken;
 
   factory LoginResponse.fromJson(Map<String, dynamic> json) {
     // Web backend nests the pair under `tokens`; older shape is flat
@@ -21,29 +58,36 @@ class LoginResponse {
     final tokens = rawTokens is Map
         ? Map<String, dynamic>.from(rawTokens)
         : const <String, dynamic>{};
-    String? nonBlank(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
-    String? token(String key) => nonBlank(tokens[key]) ?? nonBlank(json[key]);
+    String? token(String key) => nonBlankString(tokens[key]) ?? nonBlankString(json[key]);
+    final rawUser = json['user'];
     return LoginResponse(
+      status: _parseStatus(json),
       accessToken: token('accessToken'),
       refreshToken: token('refreshToken'),
-      requiresMfa: json['requiresMfa'] == true || json['mfa_required'] == true,
-      requiresMfaSetup: json['requiresMfaSetup'] == true,
-      tempToken: nonBlank(json['tempToken']),
-      user: json['user'] != null
-          ? UserInfo.fromJson(json['user'] as Map<String, dynamic>)
-          : null,
+      mfaToken: nonBlankString(json['mfaToken']) ?? nonBlankString(json['tempToken']),
+      expiresAt: parseDateTime(json['expiresAt']),
+      methods: stringList(json['methods']),
+      recoveryCodesRemaining: intOrNull(json['recoveryCodesRemaining']),
+      recoveryCodes: stringList(json['recoveryCodes']),
+      user: rawUser is Map ? UserInfo.fromJson(Map<String, dynamic>.from(rawUser)) : null,
     );
   }
 
+  static LoginStatus _parseStatus(Map<String, dynamic> json) => switch (json['status']) {
+        'SUCCESS' => LoginStatus.success,
+        'MFA_REQUIRED' => LoginStatus.mfaRequired,
+        'MFA_SETUP_REQUIRED' => LoginStatus.mfaSetupRequired,
+        // Flags still sent for clients built before `status`
+        _ when json['requiresMfaSetup'] == true => LoginStatus.mfaSetupRequired,
+        _ when json['mfa_required'] == true || json['requiresMfa'] == true => LoginStatus.mfaRequired,
+        _ => LoginStatus.success,
+      };
+
   /// Why this response must not start a session, or null when it may.
-  String? get sessionRejection {
-    if (accessToken == null || refreshToken == null) {
-      return 'Máy chủ trả về thiếu token đăng nhập';
-    }
+  AuthResponseIssue? get sessionRejection {
+    if (accessToken == null || refreshToken == null) return AuthResponseIssue.missingTokens;
     final u = user;
-    if (u == null || !u.isMilitia) {
-      return 'Tài khoản không có quyền dùng ứng dụng này';
-    }
+    if (u == null || !u.isMilitia) return AuthResponseIssue.roleNotAllowed;
     return null;
   }
 }

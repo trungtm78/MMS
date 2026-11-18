@@ -2,20 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/api_constants.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/network/dio_client.dart';
+import '../../shared/utils/calendar_date.dart';
+import '../../l10n/error_texts.dart';
+import '../../l10n/l10n.dart';
+import '../../shared/utils/number_format.dart';
 import '../auth/providers/auth_provider.dart';
 import 'training_result.dart';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const _requiredDays = 15;
 
+/// Filter chips by training_type code (Web/backend/src/training/training.service.ts)
 const _filterTypes = [
   ('all', 'Tất cả'),
   ('military', 'Quân sự'),
   ('political', 'Chính trị'),
   ('fire', 'PCCC'),
-  ('firstaid', 'Sơ cứu'),
+  ('first_aid', 'Sơ cứu'),
+  ('other', 'Khác'),
 ];
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -27,6 +34,7 @@ class TrainingScreen extends ConsumerStatefulWidget {
 }
 
 class _TrainingScreenState extends ConsumerState<TrainingScreen> {
+  final int _year = DateTime.now().year;
   List<Map<String, dynamic>> _records = [];
   bool _loading = true;
   String? _error;
@@ -38,49 +46,39 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
     _load();
   }
 
+  /// GET /training → {data, total, page, limit}. DQTV callers receive only their own records,
+  /// so no militiaId is sent (the backend casts it ::uuid). year keeps the progress bar to
+  /// this year; 100 is the backend's page size limit.
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
       final res = await dio.get(
-        '/training',
-        queryParameters: {'militiaId': 'me'},
+        ApiConstants.training,
+        queryParameters: {'year': _year, 'limit': 100},
       );
-      final data = (res.data['data'] as List?) ?? [];
+      final body = res.data;
+      final rows = body is Map && body['data'] is List ? body['data'] as List : const [];
       if (mounted) {
         setState(() {
-          _records = data.cast<Map<String, dynamic>>();
+          _records = rows.whereType<Map>().map((r) => Map<String, dynamic>.from(r)).toList();
           _loading = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() { _error = 'Lỗi tải dữ liệu. Vui lòng thử lại.'; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = errorTextFor(context.l10n, e); _loading = false; });
     }
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────────
 
-  int get _totalDays {
-    return _records.fold<int>(0, (sum, r) {
-      final days = r['totalDays'] as int? ?? r['days'] as int? ?? 0;
-      return sum + days;
-    });
-  }
+  /// total_days is NUMERIC: half days are possible
+  double get _totalDays =>
+      _records.fold<double>(0, (sum, r) => sum + trainingDays(r['totalDays']));
 
-  List<Map<String, dynamic>> get _filtered {
-    if (_filter == 'all') return _records;
-    return _records.where((r) {
-      final type = (r['trainingType'] as String? ?? r['type'] as String? ?? '').toLowerCase();
-      switch (_filter) {
-        case 'military': return type.contains('quân sự') || type.contains('military');
-        case 'political': return type.contains('chính trị') || type.contains('political');
-        case 'fire': return type.contains('pccc') || type.contains('fire');
-        case 'firstaid': return type.contains('sơ cứu') || type.contains('firstaid') || type.contains('first aid');
-        default: return true;
-      }
-    }).toList();
-  }
+  List<Map<String, dynamic>> get _filtered =>
+      _records.where((r) => trainingMatchesFilter(r, _filter)).toList();
 
   // ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -155,7 +153,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Tiến độ huấn luyện năm ${DateTime.now().year}',
+                        'Tiến độ huấn luyện năm $_year',
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,
@@ -165,9 +163,9 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
-                          color: statusInfo.color.withOpacity(0.1),
+                          color: statusInfo.color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: statusInfo.color.withOpacity(0.3)),
+                          border: Border.all(color: statusInfo.color.withValues(alpha: 0.3)),
                         ),
                         child: Text(
                           statusInfo.label,
@@ -196,7 +194,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        '$total/$_requiredDays ngày',
+                        '${formatDecimal(total)}/$_requiredDays ngày',
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -206,9 +204,9 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
+                  const Text(
                     'Luật DQTV 2019 Điều 26 — yêu cầu tối thiểu $_requiredDays ngày/năm',
-                    style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
                   ),
                 ],
               ),
@@ -260,17 +258,17 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
     final filtered = _filtered;
     if (filtered.isEmpty) {
       return ListView(
-        children: [
-          const SizedBox(height: 80),
+        children: const [
+          SizedBox(height: 80),
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('🔍', style: TextStyle(fontSize: 48)),
-                const SizedBox(height: 12),
+                Text('🔍', style: TextStyle(fontSize: 48)),
+                SizedBox(height: 12),
                 Text(
                   'Không có đợt huấn luyện loại này',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
@@ -285,17 +283,17 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
       itemCount: filtered.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (ctx, i) => _TrainingCard(record: filtered[i]),
+      separatorBuilder: (context, index) => const SizedBox(height: 10),
+      itemBuilder: (context, index) => _TrainingCard(record: filtered[index]),
     );
   }
 
   Widget _buildEmpty() {
     return ListView(
-      children: [
-        const SizedBox(height: 100),
+      children: const [
+        SizedBox(height: 100),
         Column(
-          children: const [
+          children: [
             Text('🎖', style: TextStyle(fontSize: 56)),
             SizedBox(height: 12),
             Text(
@@ -357,12 +355,12 @@ class _StatusInfo {
   const _StatusInfo(this.label, this.color);
 }
 
-_StatusInfo _statusInfo(int total) {
+_StatusInfo _statusInfo(double total) {
   if (total >= _requiredDays) {
     return const _StatusInfo('✓ Đạt yêu cầu', AppColors.success);
   } else if (total >= (_requiredDays * 2 / 3).round()) {
     final remaining = _requiredDays - total;
-    return _StatusInfo('⚠ Cần thêm $remaining ngày', AppColors.warning);
+    return _StatusInfo('⚠ Cần thêm ${formatDecimal(remaining)} ngày', AppColors.warning);
   } else {
     return const _StatusInfo('✗ Chưa đạt', AppColors.error);
   }
@@ -376,21 +374,19 @@ class _TrainingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final type = record['trainingType'] as String? ?? record['type'] as String? ?? '';
-    final icon = _typeIcon(type);
-    final days = record['totalDays'] as int? ?? record['days'] as int? ?? 0;
+    final rawType = record['trainingType'];
+    final type = rawType is String ? rawType : '';
+    final days = trainingDays(record['totalDays']);
     final outcome = TrainingOutcome.fromRecord(record);
     final outcomeColor = switch (outcome) {
       TrainingOutcome.passed => AppColors.success,
       TrainingOutcome.failed => AppColors.error,
       TrainingOutcome.notEvaluated => AppColors.textSecondary,
     };
-    final location = record['location'] as String? ?? '';
-    final fromDate = record['fromDate'] as String? ?? record['from_date'] as String? ?? '';
-    final toDate = record['toDate'] as String? ?? record['to_date'] as String? ?? '';
-    final dateRange = (fromDate.isNotEmpty && toDate.isNotEmpty && fromDate != toDate)
-        ? '$fromDate – $toDate'
-        : fromDate;
+    final rawLocation = record['location'];
+    final location = rawLocation is String ? rawLocation : '';
+    // fromDate/toDate are DATE columns ('YYYY-MM-DD'): no timezone conversion
+    final dateRange = formatCalendarRange(record['fromDate'], record['toDate']);
 
     return Container(
       decoration: BoxDecoration(
@@ -403,7 +399,7 @@ class _TrainingCard extends StatelessWidget {
           ),
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)
         ],
       ),
       padding: const EdgeInsets.all(14),
@@ -415,11 +411,11 @@ class _TrainingCard extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: AppColors.navy.withOpacity(0.08),
+              color: AppColors.navy.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Center(
-              child: Text(icon, style: const TextStyle(fontSize: 22)),
+              child: Text(_typeIcon(type), style: const TextStyle(fontSize: 22)),
             ),
           ),
           const SizedBox(width: 12),
@@ -429,7 +425,7 @@ class _TrainingCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  type.isEmpty ? 'Huấn luyện' : type,
+                  type.isEmpty ? 'Huấn luyện' : trainingTypeLabel(type),
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
@@ -477,7 +473,7 @@ class _TrainingCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '$days ngày',
+                '${formatDecimal(days)} ngày',
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
@@ -488,8 +484,7 @@ class _TrainingCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: (outcomeColor)
-                      .withOpacity(0.1),
+                  color: outcomeColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -509,11 +504,17 @@ class _TrainingCard extends StatelessWidget {
   }
 }
 
-String _typeIcon(String type) {
-  final t = type.toLowerCase();
-  if (t.contains('quân sự') || t.contains('military')) return '⚔️';
-  if (t.contains('chính trị') || t.contains('political')) return '📋';
-  if (t.contains('pccc') || t.contains('fire')) return '🔥';
-  if (t.contains('sơ cứu') || t.contains('first aid') || t.contains('firstaid')) return '➕';
-  return '🎖';
+String _typeIcon(String code) {
+  switch (code) {
+    case 'military':
+      return '⚔️';
+    case 'political':
+      return '📋';
+    case 'fire':
+      return '🔥';
+    case 'first_aid':
+      return '➕';
+    default:
+      return '🎖';
+  }
 }

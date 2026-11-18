@@ -1,17 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_strings.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/utils/validators.dart';
+import '../../../l10n/l10n.dart';
+import '../../../l10n/validation_texts.dart';
+import '../auth_texts.dart';
+import '../models/login_response.dart';
+import '../models/mfa_error.dart';
 import '../providers/auth_provider.dart';
 
+/// Second step of an MFA_REQUIRED sign-in: a TOTP code or a recovery code
+/// (POST /auth/mfa/verify).
 class OtpScreen extends ConsumerStatefulWidget {
-  final String tempToken;
+  const OtpScreen({
+    super.key,
+    required this.mfaToken,
+    this.methods = MfaMethod.all,
+  });
 
-  const OtpScreen({super.key, required this.tempToken});
+  /// Challenge from POST /auth/login.
+  final String mfaToken;
+
+  /// Methods the server accepts for this challenge.
+  final List<String> methods;
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -20,24 +35,55 @@ class OtpScreen extends ConsumerStatefulWidget {
 class _OtpScreenState extends ConsumerState<OtpScreen> {
   final _otpCtrl = TextEditingController();
   final _recoveryCtrl = TextEditingController();
-  bool _showRecovery = false;
+
+  late final List<String> _methods = _offered(widget.methods);
+  late String _method = _methods.first;
+  late MfaError? _error =
+      widget.mfaToken.trim().isEmpty ? MfaError.missingChallenge() : null;
+  ValidationError? _inputError;
+
+  static List<String> _offered(List<String> methods) {
+    final known = MfaMethod.all.where(methods.contains).toList();
+    return known.isEmpty ? const [MfaMethod.totp] : known;
+  }
+
+  static String _label(AppLocalizations l10n, String method) =>
+      method == MfaMethod.recoveryCode ? l10n.authMfaMethodRecoveryCode : l10n.authMfaMethodTotp;
+
+  bool get _isRecovery => _method == MfaMethod.recoveryCode;
+
+  bool get _blocked => _error?.restartLogin ?? false;
 
   Future<void> _verify() async {
-    final notifier = ref.read(authStateProvider.notifier);
-    if (_showRecovery) {
-      if (_recoveryCtrl.text.trim().isEmpty) return;
-      await notifier.verifyRecoveryCode(
-        tempToken: widget.tempToken,
-        recoveryCode: _recoveryCtrl.text.trim(),
-      );
-    } else {
-      if (_otpCtrl.text.length != 6) return;
-      await notifier.verifyMfa(
-        tempToken: widget.tempToken,
-        otpCode: _otpCtrl.text,
+    // Recovery codes go out as typed: the server ignores case, spaces and hyphens
+    final code = _isRecovery ? _recoveryCtrl.text : _otpCtrl.text.trim();
+    final invalid = _isRecovery ? Validators.recoveryCode(code) : Validators.otp(code);
+    if (invalid != null) {
+      setState(() => _inputError = invalid);
+      return;
+    }
+    setState(() {
+      _inputError = null;
+      _error = null;
+    });
+
+    final attempt = await ref.read(authStateProvider.notifier).verifyMfa(
+          mfaToken: widget.mfaToken,
+          method: _method,
+          code: code,
+        );
+    if (!mounted) return;
+    if (!attempt.success) {
+      setState(() => _error = attempt.error);
+      return;
+    }
+    final remaining = attempt.recoveryCodesRemaining;
+    if (remaining != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.authOtpRecoveryCodesRemaining(remaining))),
       );
     }
-    // GoRouter redirect handles navigation after auth
+    context.go(Routes.home);
   }
 
   @override
@@ -49,66 +95,101 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider);
+    final loading = ref.watch(authStateProvider.select((s) => s.isLoading));
+    final l10n = context.l10n;
+    final error = _error;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(AppStrings.twoFactorAuth),
+        title: Text(l10n.authOtpTitle),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go(Routes.login),
         ),
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Icon(Icons.security, size: 64, color: AppColors.secondary),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Text(
-                _showRecovery
-                    ? AppStrings.enterRecoveryCode
-                    : AppStrings.enterOtp,
+                _isRecovery ? l10n.authOtpInstructionRecoveryCode : l10n.authOtpInstructionTotp,
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
+              if (_methods.length > 1) ...[
+                const SizedBox(height: 16),
+                SegmentedButton<String>(
+                  segments: [
+                    for (final method in _methods)
+                      ButtonSegment(value: method, label: Text(_label(l10n, method))),
+                  ],
+                  selected: {_method},
+                  showSelectedIcon: false,
+                  onSelectionChanged: loading
+                      ? null
+                      : (selection) => setState(() {
+                            _method = selection.first;
+                            _inputError = null;
+                          }),
+                ),
+              ],
               const SizedBox(height: 24),
-              if (!_showRecovery)
-                TextFormField(
+              if (_isRecovery)
+                TextField(
+                  key: const Key('recovery_field'),
+                  controller: _recoveryCtrl,
+                  enabled: !_blocked,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textCapitalization: TextCapitalization.characters,
+                  textAlign: TextAlign.center,
+                  maxLength: 64,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: l10n.authMfaRecoveryCodeHint,
+                    counterText: '',
+                    prefixIcon: const Icon(Icons.key),
+                    errorText: validationText(l10n, _inputError),
+                  ),
+                  onSubmitted: (_) => _verify(),
+                )
+              else
+                TextField(
                   key: const Key('otp_field'),
                   controller: _otpCtrl,
+                  enabled: !_blocked,
                   keyboardType: TextInputType.number,
-                  maxLength: 6,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 28,
                     letterSpacing: 8,
                     fontWeight: FontWeight.bold,
                   ),
-                  decoration: const InputDecoration(
-                    hintText: AppStrings.otpHint,
-                    counterText: '',
+                  decoration: InputDecoration(
+                    hintText: l10n.authMfaOtpHint,
+                    errorText: validationText(l10n, _inputError),
                   ),
-                  validator: Validators.otp,
-                  onFieldSubmitted: (_) => _verify(),
-                )
-              else
-                TextFormField(
-                  key: const Key('recovery_field'),
-                  controller: _recoveryCtrl,
-                  decoration: const InputDecoration(
-                    labelText: AppStrings.recoveryCodeHint,
-                    prefixIcon: Icon(Icons.key),
-                  ),
-                  onFieldSubmitted: (_) => _verify(),
+                  onSubmitted: (_) => _verify(),
                 ),
-              if (authState.error != null)
+              if (error != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    authState.error!,
+                    mfaErrorText(l10n, error),
+                    key: const Key('mfa_error'),
                     style: const TextStyle(color: AppColors.error),
                     textAlign: TextAlign.center,
                   ),
@@ -116,8 +197,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               const SizedBox(height: 24),
               ElevatedButton(
                 key: const Key('verify_button'),
-                onPressed: authState.isLoading ? null : _verify,
-                child: authState.isLoading
+                onPressed: loading || _blocked ? null : _verify,
+                child: loading
                     ? const SizedBox(
                         height: 20,
                         width: 20,
@@ -126,15 +207,16 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text(AppStrings.verify),
+                    : Text(l10n.authOtpVerifyButton),
               ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => setState(() => _showRecovery = !_showRecovery),
-                child: Text(
-                  _showRecovery ? 'Dùng mã OTP' : AppStrings.useRecoveryCode,
+              if (_blocked) ...[
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  key: const Key('restart_login'),
+                  onPressed: () => context.go(Routes.login),
+                  child: Text(l10n.authMfaRestartLoginButton),
                 ),
-              ),
+              ],
             ],
           ),
         ),

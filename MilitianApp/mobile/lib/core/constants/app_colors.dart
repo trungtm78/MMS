@@ -19,7 +19,7 @@ class AppColors {
   static const error         = Color(0xFFEF4444); // Red-500 — errors, SOS, urgent
   static const warning       = Color(0xFFF59E0B); // Amber   — pending, late
   static const success       = Color(0xFF10B981); // Emerald — completed, online
-  static const blue          = Color(0xFF3B82F6); // Blue    — in-progress, notifications
+  static const blue          = Color(0xFF3B82F6); // Blue    — in_progress tasks, notifications
   static const blueLight     = Color(0xFF60A5FA); // Blue-400— weather widget
   static const purple        = Color(0xFF8B5CF6); // Purple  — messages
 
@@ -110,7 +110,8 @@ class AppColors {
       case 'overdue':
       case 'rejected':
         return error;
-      case 'in-progress':
+      // tasks.status (Web/backend/migrations/003_tasks.sql:25); task screens use task_status.dart
+      case 'in_progress':
       case 'checked_in':
         return blue;
       default:
@@ -129,29 +130,6 @@ class AppColors {
         return blue;
       default:
         return textMuted;
-    }
-  }
-
-  static Color taskStatusColor(String status) {
-    switch (status) {
-      case 'completed': return success;
-      case 'in_progress': return blue;
-      case 'assigned': return warning;
-      case 'overdue': return error;
-      case 'cancelled': return textSecondary;
-      default: return textMuted;
-    }
-  }
-
-  static String taskStatusLabel(String status) {
-    switch (status) {
-      case 'pending': return 'Chờ giao';
-      case 'assigned': return 'Chưa tiếp nhận';
-      case 'in_progress': return 'Đang thực hiện';
-      case 'completed': return 'Hoàn thành';
-      case 'overdue': return 'Trễ hạn';
-      case 'cancelled': return 'Đã hủy';
-      default: return status;
     }
   }
 
@@ -187,16 +165,6 @@ class AppColors {
       case 'rejected': return error;
       case 'pending': return warning;
       default: return textMuted;
-    }
-  }
-
-  static String leaveStatusLabel(String status) {
-    switch (status) {
-      case 'pending': return 'Chờ duyệt';
-      case 'approved': return 'Đã duyệt';
-      case 'rejected': return 'Từ chối';
-      case 'cancelled': return 'Đã hủy';
-      default: return status;
     }
   }
 }

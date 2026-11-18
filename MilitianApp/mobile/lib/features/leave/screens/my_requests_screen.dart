@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/api_constants.dart';
-import '../../../core/network/dio_client.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../../../core/constants/app_strings.dart';
+import '../../../shared/utils/calendar_date.dart';
+import '../../../l10n/error_texts.dart';
+import '../../../l10n/l10n.dart';
+import '../../../shared/utils/number_format.dart';
+import '../leave_balance.dart';
+import '../repositories/leave_repository.dart';
 
 // ── Screen ────────────────────────────────────────────────────────────────────
+/// The caller's leave requests. A pending request can be cancelled (PATCH /leave/:id/cancel);
+/// the backend has no route that edits or resubmits a request, so nothing else is offered.
 class MyRequestsScreen extends ConsumerStatefulWidget {
   const MyRequestsScreen({super.key});
 
@@ -21,7 +28,8 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
   String? _error;
   String _tab = 'pending';
   Map<String, dynamic>? _selected;
-  Map<String, dynamic>? _balance;
+  List<LeaveBalanceItem> _balances = const [];
+  bool _cancelling = false;
 
   @override
   void initState() {
@@ -29,35 +37,95 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
     _load();
   }
 
+  /// GET /leave?mine=true → the caller's own requests (leave.service.ts:135-201) and
+  /// GET /leave-balances → bare array (Web/backend/src/leave/leave.controller.ts). The balance
+  /// banner is left out when the balances cannot be loaded or this year has none: no numbers are
+  /// made up.
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final repo = ref.read(leaveRepositoryProvider);
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      final res = await dio.get(ApiConstants.leaveHistory);
-      dynamic balanceRes;
+      final rows = await repo.myRequests();
+      List<LeaveBalanceItem> balances;
       try {
-        balanceRes = await dio.get('/leave/balance');
-      } catch (_) {}
-      final data = (res.data['data'] as List?) ?? [];
+        balances = await repo.balances(DateTime.now().year);
+      } catch (_) {
+        balances = const [];
+      }
       if (mounted) {
         setState(() {
-          _requests = data.cast<Map<String, dynamic>>();
-          if (balanceRes != null) {
-            _balance = balanceRes.data['data'] as Map<String, dynamic>?;
-          } else {
-            // Calculate from list: approved days used
-            final usedDays = _requests
-                .where((r) => r['status'] == 'approved')
-                .fold<int>(0, (sum, r) => sum + (r['days'] as int? ?? 0));
-            _balance = {'remaining': 12 - usedDays, 'total': 12, 'used': usedDays};
-          }
+          _requests = rows;
+          _balances = balances;
           _loading = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() { _error = 'Lỗi tải dữ liệu'; _loading = false; });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = (e is LeaveException ? e.message : null) ?? errorTextFor(context.l10n, e);
+          _loading = false;
+        });
+      }
     }
+  }
+
+  /// Asks for confirmation, then PATCH /leave/:id/cancel. A 404 or 409 means the request changed
+  /// meanwhile (gone, or already decided), so the list is reloaded; other errors keep the detail open.
+  Future<void> _confirmCancel(Map<String, dynamic> request) async {
+    final id = request['id']?.toString();
+    if (id == null || _cancelling) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hủy đơn nghỉ phép?'),
+        content: Text('Đơn ${request['code'] ?? ''} sẽ bị hủy và không thể khôi phục.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Không'),
+          ),
+          TextButton(
+            key: const Key('confirm_cancel_leave'),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Hủy đơn'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _cancelling = true);
+    try {
+      await ref.read(leaveRepositoryProvider).cancel(id);
+      if (!mounted) return;
+      setState(() {
+        _cancelling = false;
+        _selected = null;
+      });
+      _showSnack('Đã hủy đơn nghỉ phép.');
+      await _load();
+    } on LeaveException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cancelling = false;
+        if (e.requestChanged) _selected = null;
+      });
+      _showSnack(e.message ?? errorTextFor(context.l10n, e), isError: true);
+      if (e.requestChanged) await _load();
+    }
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.error : AppColors.success,
+      ));
   }
 
   List<Map<String, dynamic>> get _filtered =>
@@ -67,8 +135,14 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_selected != null) {
-      return _DetailView(request: _selected!, onBack: () => setState(() => _selected = null));
+    final selected = _selected;
+    if (selected != null) {
+      return _DetailView(
+        request: selected,
+        cancelling: _cancelling,
+        onBack: () => setState(() => _selected = null),
+        onCancel: () => _confirmCancel(selected),
+      );
     }
 
     return Scaffold(
@@ -95,48 +169,45 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                         ),
-                        const Icon(Icons.filter_list, color: AppColors.textSecondary, size: 22),
+                        // Balances the back arrow so the title stays centred
+                        const SizedBox(width: 28),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Tabs
-                  // Leave balance banner
-                  if (_balance != null)
+                  // Leave balance banner: one line per leave type of this year
+                  if (_balances.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppColors.navy.withOpacity(0.06),
+                          color: AppColors.navy.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.navy.withOpacity(0.15)),
+                          border: Border.all(color: AppColors.navy.withValues(alpha: 0.15)),
                         ),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.event_available_outlined, size: 16, color: AppColors.navy),
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1),
+                              child: Icon(Icons.event_available_outlined, size: 16, color: AppColors.navy),
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text.rich(
-                                TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: '${_balance!['remaining'] ?? '—'}',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  for (final balance in _balances)
+                                    Text(
+                                      balance.label,
                                       style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                         color: AppColors.navy,
                                       ),
                                     ),
-                                    TextSpan(
-                                      text: '/${_balance!['total'] ?? 12} ngày phép còn lại năm ${DateTime.now().year}',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                ],
                               ),
                             ),
                           ],
@@ -144,6 +215,7 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
                       ),
                     ),
                   const SizedBox(height: 8),
+                  // Tabs
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -188,11 +260,14 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
                             child: ListView.separated(
                               padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                               itemCount: _filtered.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
-                              itemBuilder: (ctx, i) => _RequestCard(
-                                item: _filtered[i],
-                                onTap: () => setState(() => _selected = _filtered[i]),
-                              ),
+                              separatorBuilder: (context, index) => const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final item = _filtered[index];
+                                return _RequestCard(
+                                  item: item,
+                                  onTap: () => setState(() => _selected = item),
+                                );
+                              },
                             ),
                           ),
           ),
@@ -201,10 +276,10 @@ class _MyRequestsScreenState extends ConsumerState<MyRequestsScreen> {
     );
   }
 
-  Widget _buildEmpty() => Center(
+  Widget _buildEmpty() => const Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: const [
+      children: [
         Text('📝', style: TextStyle(fontSize: 56)),
         SizedBox(height: 12),
         Text('Chưa có đơn nào',
@@ -271,7 +346,7 @@ class _RequestCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border(left: BorderSide(color: badge.borderColor, width: 4)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
         ),
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -297,7 +372,7 @@ class _RequestCard extends StatelessWidget {
               children: [
                 Text(item['typeIcon'] as String? ?? '📋', style: const TextStyle(fontSize: 20)),
                 const SizedBox(width: 8),
-                Text(item['type'] as String? ?? item['leaveType'] as String? ?? 'Nghỉ phép',
+                Text(_leaveTypeName(item) ?? 'Nghỉ phép',
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
               ],
             ),
@@ -315,9 +390,9 @@ class _RequestCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Text('${item['days'] ?? ''} ngày', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            Text(_daysText(item), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
             const SizedBox(height: 4),
-            Text('Gửi: ${item['submittedDate'] ?? item['created_at'] ?? ''}',
+            Text('Gửi: ${_submittedText(item)}',
               style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
             const SizedBox(height: 6),
             Text(item['reason'] as String? ?? '',
@@ -360,16 +435,10 @@ class _RequestCard extends StatelessWidget {
                 ],
               ),
 
+            // No route resubmits a rejected request (leave.controller.ts), so no "Gửi lại" link
             if (status == 'rejected')
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Lý do từ chối: ${item['rejectReason'] as String? ?? ''}',
-                    style: const TextStyle(fontSize: 11, color: AppColors.error)),
-                  const SizedBox(height: 4),
-                  const Text('Gửi lại', style: TextStyle(fontSize: 12, color: AppColors.navy, fontWeight: FontWeight.w600)),
-                ],
-              ),
+              Text('Lý do từ chối: ${item['rejectReason'] as String? ?? ''}',
+                style: const TextStyle(fontSize: 11, color: AppColors.error)),
           ],
         ),
       ),
@@ -381,19 +450,28 @@ class _RequestCard extends StatelessWidget {
 class _DetailView extends StatelessWidget {
   final Map<String, dynamic> request;
   final VoidCallback onBack;
-  const _DetailView({required this.request, required this.onBack});
+
+  /// PATCH /leave/:id/cancel is running
+  final bool cancelling;
+  final VoidCallback onCancel;
+
+  const _DetailView({
+    required this.request,
+    required this.onBack,
+    required this.cancelling,
+    required this.onCancel,
+  });
 
   @override
   Widget build(BuildContext context) {
     final status = request['status'] as String? ?? 'pending';
     final badge = _badge(status);
 
-    final timeline = [
-      ('Đã gửi', 'completed', request['submittedDate'] ?? request['created_at'] ?? '', 'Bạn'),
-      ('CA Khu vực', status == 'pending' ? 'pending' : 'completed',
-          request['approvedDate'] ?? '', 'Trung úy Võ Văn Tân'),
-      ('CA Phường', status == 'approved' ? 'completed' : 'pending',
-          request['approvedDate'] ?? '', 'Đại úy Phạm Minh Tuấn'),
+    // Reviewer names and review dates are not in GET /leave, so none are shown
+    final timeline = <(String, String, String, String)>[
+      ('Đã gửi', 'completed', _submittedText(request), 'Bạn'),
+      ('CA Khu vực', status == 'pending' ? 'pending' : 'completed', '', 'Công An Khu Vực'),
+      ('CA Phường', status == 'approved' ? 'completed' : 'pending', '', 'Công An Phường'),
     ];
 
     return Scaffold(
@@ -417,7 +495,8 @@ class _DetailView extends StatelessWidget {
                     Text(request['code'] as String? ?? '',
                       style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontFamily: 'monospace')),
                     const Expanded(child: SizedBox()),
-                    const Text('Chia sẻ', style: TextStyle(fontSize: 13, color: AppColors.navy, fontWeight: FontWeight.w600)),
+                    // Balances the back arrow so the code stays centred
+                    const SizedBox(width: 28),
                   ],
                 ),
               ),
@@ -503,11 +582,11 @@ class _DetailView extends StatelessWidget {
                       const Text('Chi tiết đơn',
                         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
                       const SizedBox(height: 12),
-                      _DetailRow('Loại nghỉ', request['type'] ?? request['leaveType'] ?? ''),
+                      _DetailRow('Loại nghỉ', _leaveTypeName(request) ?? ''),
                       _DetailRow('Thời gian nghỉ', request['dateRange'] ?? _formatRange(request)),
-                      _DetailRow('Số ngày', '${request['days'] ?? ''} ngày'),
+                      _DetailRow('Số ngày', _daysText(request)),
                       _DetailRow('Lý do', request['reason'] ?? ''),
-                      _DetailRow('Người thay thế', request['replacement'] ?? 'Trần Văn Bình'),
+                      _DetailRow('Người thay thế', request['replacement'] ?? '—'),
                     ],
                   )),
                   const SizedBox(height: 12),
@@ -517,8 +596,8 @@ class _DetailView extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: AppColors.error.withOpacity(0.08),
-                        border: Border.all(color: AppColors.error.withOpacity(0.2)),
+                        color: AppColors.error.withValues(alpha: 0.08),
+                        border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Column(
@@ -530,7 +609,7 @@ class _DetailView extends StatelessWidget {
                           Text(request['rejectReason'] as String,
                             style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
                           const SizedBox(height: 4),
-                          const Text('Đề xuất: Bổ sung giấy tờ và gửi lại đơn',
+                          const Text('Đề xuất: Bổ sung giấy tờ và tạo đơn mới',
                             style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ],
                       ),
@@ -545,42 +624,33 @@ class _DetailView extends StatelessWidget {
     );
   }
 
+  /// Only a pending request can be cancelled (leave.service.ts:434-435). No backend route edits or
+  /// resubmits a rejected request, so nothing is offered for it.
   Widget? _buildFooter(String status, BuildContext context) {
-    if (status == 'pending') {
-      return Container(
-        color: Colors.white,
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
-        child: SizedBox(
-          height: 48,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () {},
-            child: const Text('Hủy đơn', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+    if (status != 'pending') return null;
+    return Container(
+      color: Colors.white,
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
+      child: SizedBox(
+        height: 48,
+        child: ElevatedButton(
+          key: const Key('cancel_leave'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.error,
+            disabledBackgroundColor: AppColors.error.withValues(alpha: 0.5),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
+          onPressed: cancelling ? null : onCancel,
+          child: cancelling
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Hủy đơn', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
-      );
-    }
-    if (status == 'rejected') {
-      return Container(
-        color: Colors.white,
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
-        child: SizedBox(
-          height: 48,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.navy,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () {},
-            child: const Text('Sửa & gửi lại', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ),
-      );
-    }
-    return null;
+      ),
+    );
   }
 }
 
@@ -593,7 +663,7 @@ class _Card extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
     ),
     child: child,
   );
@@ -630,23 +700,43 @@ _BadgeData _badge(String status) {
   switch (status) {
     case 'approved':
       return _BadgeData('Đã duyệt', AppColors.success,
-          AppColors.success.withOpacity(0.1), AppColors.success);
+          AppColors.success.withValues(alpha: 0.1), AppColors.success);
     case 'rejected':
       return _BadgeData('Từ chối', AppColors.error,
-          AppColors.error.withOpacity(0.1), AppColors.error);
+          AppColors.error.withValues(alpha: 0.1), AppColors.error);
     case 'cancelled':
-      return _BadgeData('Đã hủy', AppColors.textSecondary,
+      return const _BadgeData('Đã hủy', AppColors.textSecondary,
           AppColors.divider, AppColors.textMuted);
     default:
       return _BadgeData('Chờ duyệt', AppColors.blue,
-          AppColors.blue.withOpacity(0.1), AppColors.blue);
+          AppColors.blue.withValues(alpha: 0.1), AppColors.blue);
   }
 }
 
-String _formatRange(Map<String, dynamic> item) {
-  final from = item['fromDate'] as String? ?? item['from_date'] as String? ?? '';
-  final to = item['toDate'] as String? ?? item['to_date'] as String? ?? '';
-  if (from.isEmpty) return '';
-  if (to.isEmpty || from == to) return from;
-  return '$from - $to';
+/// fromDate/toDate are DATE columns ('YYYY-MM-DD'), shown without timezone shifts
+String _formatRange(Map<String, dynamic> item) => formatCalendarRange(
+      item['fromDate'] ?? item['from_date'],
+      item['toDate'] ?? item['to_date'],
+    );
+
+String? _leaveTypeName(Map<String, dynamic> item) {
+  for (final key in ['leaveTypeName', 'type', 'leaveType']) {
+    final value = item[key];
+    if (value is String && value.trim().isNotEmpty) return value;
+  }
+  return null;
+}
+
+/// total_days is NUMERIC (0.5 for a half day) and may arrive as a string
+String _daysText(Map<String, dynamic> item) {
+  final days = parseDecimal(item['totalDays'] ?? item['days']);
+  return days == null ? '' : '${formatDecimal(days)} ngày';
+}
+
+/// createdAt is a timestamp: shown in local time
+String _submittedText(Map<String, dynamic> item) {
+  final raw = item['createdAt'] ?? item['created_at'] ?? item['submittedDate'];
+  final at = raw is String ? DateTime.tryParse(raw) : null;
+  if (at == null) return formatCalendarDate(raw);
+  return DateFormat(AppStrings.datetimeFormat).format(at.toLocal());
 }

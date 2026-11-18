@@ -1,0 +1,1054 @@
+{
+  "@@locale": "vi",
+
+  "appTitle": "Dân Quân Tự Vệ",
+  "@appTitle": {
+    "description": "App name: window/task-switcher title (MaterialApp.onGenerateTitle)."
+  },
+
+  "commonCancelButton": "Hủy",
+  "@commonCancelButton": {
+    "description": "Generic cancel action for dialogs and in-progress flows."
+  },
+
+  "shellNavHome": "Trang chủ",
+  "@shellNavHome": {
+    "description": "Bottom navigation: home tab label."
+  },
+  "shellNavCheckin": "Điểm danh",
+  "@shellNavCheckin": {
+    "description": "Bottom navigation: attendance check-in tab label."
+  },
+  "shellNavTasks": "Nhiệm vụ",
+  "@shellNavTasks": {
+    "description": "Bottom navigation: tasks tab label."
+  },
+  "shellNavNotifications": "Thông báo",
+  "@shellNavNotifications": {
+    "description": "Bottom navigation: notifications tab label."
+  },
+  "shellNavProfile": "Hồ sơ",
+  "@shellNavProfile": {
+    "description": "Bottom navigation: profile tab label."
+  },
+
+  "appLogoLabel": "Biểu trưng Dân quân tự vệ",
+  "@appLogoLabel": {
+    "description": "Screen-reader label of the app logo on the sign-in screens."
+  },
+  "authLoginSubtitle": "Hệ thống quản lý Dân quân tự vệ",
+  "@authLoginSubtitle": {
+    "description": "Sign-in screens: system name under the app name."
+  },
+  "authLoginUnit": "UBND Phường Phú Định - TP. Hồ Chí Minh",
+  "@authLoginUnit": {
+    "description": "Sign-in screens: owning authority under the system name."
+  },
+  "authLoginCardTitle": "ĐĂNG NHẬP",
+  "@authLoginCardTitle": {
+    "description": "Login screen: heading of the sign-in card."
+  },
+  "authLoginUsernameLabel": "Tên đăng nhập",
+  "@authLoginUsernameLabel": {
+    "description": "Login screen: username field label."
+  },
+  "authLoginUsernameHint": "Nhập tên đăng nhập",
+  "@authLoginUsernameHint": {
+    "description": "Login screen: username field hint."
+  },
+  "authLoginPasswordLabel": "Mật khẩu",
+  "@authLoginPasswordLabel": {
+    "description": "Login screen: password field label."
+  },
+  "authLoginPasswordHint": "Nhập mật khẩu",
+  "@authLoginPasswordHint": {
+    "description": "Login screen: password field hint."
+  },
+  "authLoginSubmitButton": "ĐĂNG NHẬP",
+  "@authLoginSubmitButton": {
+    "description": "Login screen: submit button."
+  },
+  "authLoginBiometricButton": "Đăng nhập bằng sinh trắc học",
+  "@authLoginBiometricButton": {
+    "description": "Login screen: sign in with fingerprint/face button."
+  },
+  "authLoginBiometricReason": "Xác thực để đăng nhập",
+  "@authLoginBiometricReason": {
+    "description": "System biometric prompt reason shown when signing in with biometrics."
+  },
+  "authLoginNoticeSessionEnded": "Phiên đăng nhập đã kết thúc, vui lòng đăng nhập lại.",
+  "@authLoginNoticeSessionEnded": {
+    "description": "Login screen notice: the stored session ended (refresh refused, revoked or reused)."
+  },
+  "authLoginNoticePasswordChanged": "Đổi mật khẩu thành công, vui lòng đăng nhập lại.",
+  "@authLoginNoticePasswordChanged": {
+    "description": "Login screen notice: the password was changed, which ends every session."
+  },
+  "authLoginShowPassword": "Hiện mật khẩu",
+  "@authLoginShowPassword": {
+    "description": "Login screen: tooltip of the eye button while the password is hidden."
+  },
+  "authLoginHidePassword": "Ẩn mật khẩu",
+  "@authLoginHidePassword": {
+    "description": "Login screen: tooltip of the eye button while the password is shown."
+  },
+  "authLoginForgotPassword": "Quên mật khẩu?",
+  "@authLoginForgotPassword": {
+    "description": "Login screen: link to the forgot-password screen."
+  },
+  "authLoginVersion": "Phiên bản {version}",
+  "@authLoginVersion": {
+    "description": "Sign-in screens: app version under the card.",
+    "placeholders": {"version": {"type": "String"}}
+  },
+  "authForgotPasswordTitle": "Khôi phục mật khẩu",
+  "@authForgotPasswordTitle": {
+    "description": "Forgot-password screen: card title (shown in capitals)."
+  },
+  "authForgotPasswordUnsupported": "Máy chủ chưa hỗ trợ khôi phục mật khẩu qua ứng dụng. Vui lòng liên hệ quản trị viên để được đặt lại mật khẩu.",
+  "@authForgotPasswordUnsupported": {
+    "description": "Forgot-password screen: there is no recovery route, an administrator resets passwords."
+  },
+  "authForgotPasswordBack": "Quay lại đăng nhập",
+  "@authForgotPasswordBack": {
+    "description": "Forgot-password screen: back to the login screen."
+  },
+
+  "authOtpTitle": "Xác thực 2 lớp",
+  "@authOtpTitle": {
+    "description": "Second-factor sign-in screen title."
+  },
+  "authOtpInstructionTotp": "Nhập mã OTP từ ứng dụng xác thực",
+  "@authOtpInstructionTotp": {
+    "description": "Second-factor sign-in: instruction when the authenticator code method is selected."
+  },
+  "authOtpInstructionRecoveryCode": "Nhập một mã khôi phục đã lưu khi bật xác thực 2 lớp",
+  "@authOtpInstructionRecoveryCode": {
+    "description": "Second-factor sign-in: instruction when the recovery code method is selected."
+  },
+  "authOtpVerifyButton": "XÁC NHẬN",
+  "@authOtpVerifyButton": {
+    "description": "Second-factor sign-in: verify button."
+  },
+  "authOtpRecoveryCodesRemaining": "{count, plural, other{Còn {count} mã khôi phục chưa dùng.}}",
+  "@authOtpRecoveryCodesRemaining": {
+    "description": "Snackbar after signing in with a recovery code: unused recovery codes left.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "9"
+      }
+    }
+  },
+
+  "authMfaMethodTotp": "Mã OTP",
+  "@authMfaMethodTotp": {
+    "description": "Second-factor method selector: authenticator app code."
+  },
+  "authMfaMethodRecoveryCode": "Mã khôi phục",
+  "@authMfaMethodRecoveryCode": {
+    "description": "Second-factor method selector: one-time recovery code."
+  },
+  "authMfaOtpHint": "Nhập 6 chữ số",
+  "@authMfaOtpHint": {
+    "description": "Hint of a 6-digit authenticator code field."
+  },
+  "authMfaRecoveryCodeHint": "XXXXX-XXXXX",
+  "@authMfaRecoveryCodeHint": {
+    "description": "Hint of a recovery code field: the code format (five characters, hyphen, five characters)."
+  },
+  "authMfaRestartLoginButton": "ĐĂNG NHẬP LẠI",
+  "@authMfaRestartLoginButton": {
+    "description": "Second-factor screens: start a new sign-in once the challenge is gone."
+  },
+
+  "authMfaEnrollTitle": "Cài đặt xác thực 2 lớp",
+  "@authMfaEnrollTitle": {
+    "description": "Enrolment during sign-in: screen title."
+  },
+  "authMfaEnrollIntro": "Tài khoản của bạn cần bật xác thực 2 lớp trước khi đăng nhập. Cài ứng dụng xác thực trên điện thoại rồi làm theo 2 bước dưới đây.",
+  "@authMfaEnrollIntro": {
+    "description": "Enrolment during sign-in: why it is required and what to do."
+  },
+  "authMfaEnrollRetryButton": "THỬ LẠI",
+  "@authMfaEnrollRetryButton": {
+    "description": "Enrolment during sign-in: retry loading the enrolment after an error."
+  },
+
+  "authMfaPanelStepScan": "1. Quét mã QR bằng ứng dụng xác thực (Microsoft Authenticator, Google Authenticator...)",
+  "@authMfaPanelStepScan": {
+    "description": "Authenticator enrolment panel: step 1."
+  },
+  "authMfaPanelQrSemantics": "Mã QR thiết lập xác thực 2 lớp",
+  "@authMfaPanelQrSemantics": {
+    "description": "Accessibility label of the enrolment QR code."
+  },
+  "authMfaPanelOpenAuthenticator": "Mở ứng dụng xác thực",
+  "@authMfaPanelOpenAuthenticator": {
+    "description": "Authenticator enrolment panel: open the authenticator app with the setup link."
+  },
+  "authMfaPanelLaunchFailed": "Không mở được ứng dụng xác thực. Hãy quét mã QR hoặc nhập khóa bí mật.",
+  "@authMfaPanelLaunchFailed": {
+    "description": "Snackbar when no app handles the otpauth:// link."
+  },
+  "authMfaPanelSecretIntro": "Hoặc nhập khóa bí mật vào ứng dụng:",
+  "@authMfaPanelSecretIntro": {
+    "description": "Authenticator enrolment panel: label above the secret for manual entry."
+  },
+  "authMfaPanelCopySecretTooltip": "Sao chép khóa bí mật",
+  "@authMfaPanelCopySecretTooltip": {
+    "description": "Tooltip of the copy-secret button."
+  },
+  "authMfaPanelSecretCopied": "Đã sao chép khóa bí mật",
+  "@authMfaPanelSecretCopied": {
+    "description": "Snackbar after the secret was copied."
+  },
+  "authMfaPanelExpiresAt": "Hoàn tất trước {time}",
+  "@authMfaPanelExpiresAt": {
+    "description": "Authenticator enrolment panel: deadline of the enrolment challenge.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "10:05"
+      }
+    }
+  },
+  "authMfaPanelStepCode": "2. Nhập mã 6 chữ số đang hiển thị trong ứng dụng",
+  "@authMfaPanelStepCode": {
+    "description": "Authenticator enrolment panel: step 2."
+  },
+  "authMfaPanelConfirmButton": "XÁC NHẬN",
+  "@authMfaPanelConfirmButton": {
+    "description": "Authenticator enrolment panel: confirm the first code."
+  },
+
+  "authRecoveryCodesTitle": "Mã khôi phục",
+  "@authRecoveryCodesTitle": {
+    "description": "Recovery codes screen title."
+  },
+  "authRecoveryCodesWarning": "Các mã này chỉ hiển thị một lần. Hãy lưu ở nơi an toàn: mỗi mã dùng được 1 lần để đăng nhập khi bạn không có ứng dụng xác thực.",
+  "@authRecoveryCodesWarning": {
+    "description": "Recovery codes screen: shown once, keep them safe."
+  },
+  "authRecoveryCodesCopyAll": "Sao chép tất cả",
+  "@authRecoveryCodesCopyAll": {
+    "description": "Recovery codes screen: copy every code."
+  },
+  "authRecoveryCodesCopied": "Đã sao chép mã khôi phục",
+  "@authRecoveryCodesCopied": {
+    "description": "Snackbar after the recovery codes were copied."
+  },
+  "authRecoveryCodesShare": "Chia sẻ",
+  "@authRecoveryCodesShare": {
+    "description": "Recovery codes screen: share the codes."
+  },
+  "authRecoveryCodesShareText": "Mã khôi phục xác thực 2 lớp (mỗi mã dùng được 1 lần):\n{codes}",
+  "@authRecoveryCodesShareText": {
+    "description": "Text shared with the recovery codes, one code per line.",
+    "placeholders": {
+      "codes": {
+        "type": "String",
+        "example": "ABCDE-FGHJK\nMNPQR-STVWX"
+      }
+    }
+  },
+  "authRecoveryCodesShareSubject": "Mã khôi phục xác thực 2 lớp",
+  "@authRecoveryCodesShareSubject": {
+    "description": "Subject of the shared recovery codes."
+  },
+  "authRecoveryCodesShareFailed": "Không chia sẻ được. Hãy sao chép các mã.",
+  "@authRecoveryCodesShareFailed": {
+    "description": "Snackbar when sharing failed."
+  },
+  "authRecoveryCodesAcknowledge": "Tôi đã lưu các mã ở nơi an toàn",
+  "@authRecoveryCodesAcknowledge": {
+    "description": "Recovery codes screen: checkbox confirming the codes were saved."
+  },
+  "authRecoveryCodesContinue": "Tiếp tục",
+  "@authRecoveryCodesContinue": {
+    "description": "Recovery codes screen: continue once the codes were saved."
+  },
+  "authRecoveryCodesCompleteFailed": "Không thể hoàn tất đăng nhập. Vui lòng đăng nhập lại.",
+  "@authRecoveryCodesCompleteFailed": {
+    "description": "Snackbar when the held session could not be started and no reason is known."
+  },
+
+  "profileScreenTitle": "Cá Nhân",
+  "@profileScreenTitle": {
+    "description": "Profile tab title."
+  },
+  "profileScreenStatusActive": "Đang hoạt động",
+  "@profileScreenStatusActive": {
+    "description": "Profile card: presence status."
+  },
+  "profileScreenStatSeniorityLabel": "Thâm niên",
+  "@profileScreenStatSeniorityLabel": {
+    "description": "Profile quick stat: years of service label."
+  },
+  "profileScreenStatSeniorityValue": "2 năm 3 tháng",
+  "@profileScreenStatSeniorityValue": {
+    "description": "Profile quick stat: years of service value (placeholder figure until the backend provides it)."
+  },
+  "profileScreenStatKpiLabel": "Điểm chỉ tiêu",
+  "@profileScreenStatKpiLabel": {
+    "description": "Profile quick stat: KPI score label."
+  },
+  "profileScreenStatRankLabel": "Xếp hạng",
+  "@profileScreenStatRankLabel": {
+    "description": "Profile quick stat: ranking label."
+  },
+  "profileScreenPersonalInfoTitle": "Thông tin cá nhân",
+  "@profileScreenPersonalInfoTitle": {
+    "description": "Profile: personal information card title."
+  },
+  "profileScreenPhoneLabel": "Số điện thoại",
+  "@profileScreenPhoneLabel": {
+    "description": "Profile: phone number label."
+  },
+  "profileScreenEmailLabel": "Email",
+  "@profileScreenEmailLabel": {
+    "description": "Profile: email label."
+  },
+  "profileScreenUnitLabel": "Đơn vị",
+  "@profileScreenUnitLabel": {
+    "description": "Profile: unit label."
+  },
+  "profileScreenWorkInfoTitle": "Thông tin công tác",
+  "@profileScreenWorkInfoTitle": {
+    "description": "Profile: work information card title."
+  },
+  "profileScreenNeighborhoodLabel": "Khu phố",
+  "@profileScreenNeighborhoodLabel": {
+    "description": "Profile: assigned neighbourhood label."
+  },
+  "profileScreenNeighborhoodValue": "Khu phố 1",
+  "@profileScreenNeighborhoodValue": {
+    "description": "Profile: assigned neighbourhood value (placeholder until the backend provides it)."
+  },
+  "profileScreenAreaPoliceLabel": "Công An KV",
+  "@profileScreenAreaPoliceLabel": {
+    "description": "Profile: area police officer label."
+  },
+  "profileScreenAreaPoliceValue": "Trung úy Võ Văn Tân",
+  "@profileScreenAreaPoliceValue": {
+    "description": "Profile: area police officer value (placeholder until the backend provides it)."
+  },
+  "profileScreenJoinedLabel": "Ngày vào lực lượng",
+  "@profileScreenJoinedLabel": {
+    "description": "Profile: date joined the militia label."
+  },
+  "profileScreenPositionLabel": "Ngạch công tác",
+  "@profileScreenPositionLabel": {
+    "description": "Profile: position grade label."
+  },
+  "profileScreenQuickLeaveRequest": "Đăng ký nghỉ phép",
+  "@profileScreenQuickLeaveRequest": {
+    "description": "Profile quick action: request leave."
+  },
+  "profileScreenQuickMyRequests": "Đơn đã gửi",
+  "@profileScreenQuickMyRequests": {
+    "description": "Profile quick action: submitted leave requests."
+  },
+  "profileScreenQuickWorkHistory": "Lịch sử công tác",
+  "@profileScreenQuickWorkHistory": {
+    "description": "Profile quick action: work history."
+  },
+  "profileScreenQuickHotline": "Hotline hỗ trợ",
+  "@profileScreenQuickHotline": {
+    "description": "Profile quick action: support hotline."
+  },
+  "profileScreenMenuSettings": "Cài đặt",
+  "@profileScreenMenuSettings": {
+    "description": "Profile menu: settings."
+  },
+  "profileScreenMenuSecurity": "Bảo mật / Xác thực 2 lớp",
+  "@profileScreenMenuSecurity": {
+    "description": "Profile menu: security and two-factor authentication."
+  },
+  "profileScreenMenuAbout": "Về ứng dụng",
+  "@profileScreenMenuAbout": {
+    "description": "Profile menu: about the app."
+  },
+  "profileScreenMenuSupport": "Hỗ trợ",
+  "@profileScreenMenuSupport": {
+    "description": "Profile menu: support."
+  },
+  "profileScreenLogout": "Đăng xuất",
+  "@profileScreenLogout": {
+    "description": "Profile: sign out."
+  },
+
+  "profileSettingsTitle": "Cài đặt",
+  "@profileSettingsTitle": {
+    "description": "Settings screen title."
+  },
+  "profileSettingsSectionSecurity": "Bảo mật",
+  "@profileSettingsSectionSecurity": {
+    "description": "Settings: security section header."
+  },
+  "profileSettingsBiometricTitle": "Đăng nhập sinh trắc học",
+  "@profileSettingsBiometricTitle": {
+    "description": "Settings: biometric sign-in switch."
+  },
+  "profileSettingsBiometricSubtitle": "Dùng vân tay / Face ID",
+  "@profileSettingsBiometricSubtitle": {
+    "description": "Settings: biometric sign-in switch subtitle."
+  },
+  "profileSettingsChangePasswordTitle": "Đổi mật khẩu",
+  "@profileSettingsChangePasswordTitle": {
+    "description": "Settings: change password entry."
+  },
+  "profileSettingsChangePasswordSubtitle": "Thay đổi mật khẩu đăng nhập",
+  "@profileSettingsChangePasswordSubtitle": {
+    "description": "Settings: change password entry subtitle."
+  },
+  "profileSettingsSectionNotifications": "Thông báo",
+  "@profileSettingsSectionNotifications": {
+    "description": "Settings: notifications section header."
+  },
+  "profileSettingsPushTitle": "Thông báo đẩy",
+  "@profileSettingsPushTitle": {
+    "description": "Settings: push notifications switch."
+  },
+  "profileSettingsPushOn": "Nhận thông báo đẩy",
+  "@profileSettingsPushOn": {
+    "description": "Settings: push notifications switch subtitle while on."
+  },
+  "profileSettingsPushOff": "Thông báo đẩy đã tắt",
+  "@profileSettingsPushOff": {
+    "description": "Settings: push notifications switch subtitle while off."
+  },
+
+  "profileChangePasswordTitle": "Đổi mật khẩu",
+  "@profileChangePasswordTitle": {
+    "description": "Change password screen title."
+  },
+  "profileChangePasswordRules": "Mật khẩu mới gồm ít nhất 8 ký tự, có chữ hoa, chữ thường, chữ số và ký tự đặc biệt, không trùng 5 mật khẩu gần nhất. Đổi xong, mọi phiên đăng nhập kết thúc và bạn cần đăng nhập lại.",
+  "@profileChangePasswordRules": {
+    "description": "Change password screen: the backend password rule and the sign-out that follows."
+  },
+  "profileChangePasswordCurrentLabel": "Mật khẩu hiện tại",
+  "@profileChangePasswordCurrentLabel": {
+    "description": "Change password: current password field label."
+  },
+  "profileChangePasswordNewLabel": "Mật khẩu mới",
+  "@profileChangePasswordNewLabel": {
+    "description": "Change password: new password field label."
+  },
+  "profileChangePasswordConfirmLabel": "Xác nhận mật khẩu mới",
+  "@profileChangePasswordConfirmLabel": {
+    "description": "Change password: confirm new password field label."
+  },
+  "profileChangePasswordSubmitButton": "ĐỔI MẬT KHẨU",
+  "@profileChangePasswordSubmitButton": {
+    "description": "Change password: submit button."
+  },
+  "profileChangePasswordMismatch": "Mật khẩu xác nhận không khớp.",
+  "@profileChangePasswordMismatch": {
+    "description": "Change password: the confirmation differs from the new password."
+  },
+  "profileChangePasswordSameAsCurrent": "Mật khẩu mới phải khác mật khẩu hiện tại.",
+  "@profileChangePasswordSameAsCurrent": {
+    "description": "Change password: the new password equals the current one."
+  },
+
+  "profileSecurityTitle": "Bảo mật",
+  "@profileSecurityTitle": {
+    "description": "Security screen title."
+  },
+  "profileSecurityHeading": "Xác thực 2 lớp",
+  "@profileSecurityHeading": {
+    "description": "Security screen: two-factor authentication heading."
+  },
+  "profileSecurityIntro": "Mỗi lần đăng nhập, ngoài mật khẩu bạn nhập thêm mã 6 chữ số từ ứng dụng xác thực.",
+  "@profileSecurityIntro": {
+    "description": "Security screen: what two-factor authentication means for the user."
+  },
+  "profileSecurityRetryButton": "THỬ LẠI",
+  "@profileSecurityRetryButton": {
+    "description": "Security screen: reload the status after an error."
+  },
+  "profileSecurityStatusDisabled": "Chưa bật xác thực 2 lớp",
+  "@profileSecurityStatusDisabled": {
+    "description": "Security screen: two-factor authentication is off."
+  },
+  "profileSecurityStatusEnabled": "Đã bật xác thực 2 lớp",
+  "@profileSecurityStatusEnabled": {
+    "description": "Security screen: two-factor authentication is on."
+  },
+  "profileSecurityEnabledOn": "Ngày bật: {date}",
+  "@profileSecurityEnabledOn": {
+    "description": "Security screen: date two-factor authentication was enabled.",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "01/09/2026"
+      }
+    }
+  },
+  "profileSecurityRecoveryCodesRemaining": "{count, plural, other{Còn {count} mã khôi phục}}",
+  "@profileSecurityRecoveryCodesRemaining": {
+    "description": "Security screen: unused recovery codes left.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "profileSecurityRecoveryCodesLow": "Sắp hết mã khôi phục. Hãy tạo lại bộ mã mới.",
+  "@profileSecurityRecoveryCodesLow": {
+    "description": "Security screen: two or fewer recovery codes left."
+  },
+  "profileSecurityRequiredNote": "Vai trò của bạn bắt buộc dùng xác thực 2 lớp.",
+  "@profileSecurityRequiredNote": {
+    "description": "Security screen: the user's role requires two-factor authentication."
+  },
+  "profileSecurityEnableButton": "BẬT XÁC THỰC 2 LỚP",
+  "@profileSecurityEnableButton": {
+    "description": "Security screen: start enabling two-factor authentication."
+  },
+  "profileSecurityRestartSetupButton": "BẮT ĐẦU LẠI",
+  "@profileSecurityRestartSetupButton": {
+    "description": "Security screen: restart an enrolment that can no longer continue."
+  },
+  "profileSecurityRegenerateButton": "Tạo lại mã khôi phục",
+  "@profileSecurityRegenerateButton": {
+    "description": "Security screen: create a new set of recovery codes."
+  },
+  "profileSecurityDisableButton": "Tắt xác thực 2 lớp",
+  "@profileSecurityDisableButton": {
+    "description": "Security screen: disable two-factor authentication."
+  },
+  "profileSecurityDisabledSnack": "Đã tắt xác thực 2 lớp",
+  "@profileSecurityDisabledSnack": {
+    "description": "Snackbar after two-factor authentication was disabled."
+  },
+  "profileSecurityRegenerateDialogTitle": "Tạo lại mã khôi phục",
+  "@profileSecurityRegenerateDialogTitle": {
+    "description": "Regenerate recovery codes dialog title."
+  },
+  "profileSecurityRegenerateDialogDescription": "Nhập mã 6 chữ số trong ứng dụng xác thực. Các mã khôi phục cũ sẽ không dùng được nữa.",
+  "@profileSecurityRegenerateDialogDescription": {
+    "description": "Regenerate recovery codes dialog: asks for a code and warns the old codes stop working."
+  },
+  "profileSecurityRegenerateDialogConfirm": "TẠO LẠI",
+  "@profileSecurityRegenerateDialogConfirm": {
+    "description": "Regenerate recovery codes dialog: confirm button."
+  },
+  "profileSecurityDisableDialogTitle": "Tắt xác thực 2 lớp",
+  "@profileSecurityDisableDialogTitle": {
+    "description": "Disable two-factor authentication dialog title."
+  },
+  "profileSecurityDisableDialogDescription": "Xác nhận bằng mã trong ứng dụng xác thực hoặc một mã khôi phục.",
+  "@profileSecurityDisableDialogDescription": {
+    "description": "Disable two-factor authentication dialog: which codes are accepted."
+  },
+  "profileSecurityDisableDialogConfirm": "TẮT",
+  "@profileSecurityDisableDialogConfirm": {
+    "description": "Disable two-factor authentication dialog: confirm button."
+  },
+
+  "validationRequired": "Trường này không được để trống.",
+  "@validationRequired": {
+    "description": "Form validation: a required field is empty."
+  },
+  "validationUsernameTooShort": "Tên đăng nhập tối thiểu 3 ký tự.",
+  "@validationUsernameTooShort": {
+    "description": "Form validation: username shorter than 3 characters."
+  },
+  "validationPasswordTooShort": "Mật khẩu tối thiểu 6 ký tự.",
+  "@validationPasswordTooShort": {
+    "description": "Form validation: sign-in password shorter than 6 characters."
+  },
+  "validationNewPasswordComplexity": "Mật khẩu mới phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt.",
+  "@validationNewPasswordComplexity": {
+    "description": "Form validation: new password breaks the backend rule (8+ characters, upper, lower, digit, special)."
+  },
+  "validationOtpFormat": "Mã OTP phải gồm đúng 6 chữ số.",
+  "@validationOtpFormat": {
+    "description": "Form validation: authenticator code is not exactly 6 digits."
+  },
+  "validationRecoveryCodeRequired": "Vui lòng nhập mã khôi phục.",
+  "@validationRecoveryCodeRequired": {
+    "description": "Form validation: recovery code field is empty."
+  },
+  "validationPhoneInvalid": "Số điện thoại không hợp lệ.",
+  "@validationPhoneInvalid": {
+    "description": "Form validation: not a Vietnamese phone number."
+  },
+
+  "errorAuthInvalidCredentials": "Sai tên đăng nhập hoặc mật khẩu.",
+  "@errorAuthInvalidCredentials": {
+    "description": "Backend code invalid_credentials (auth.service.ts), and any 401 of a sign-in step."
+  },
+  "errorAuthAccountDisabled": "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.",
+  "@errorAuthAccountDisabled": {
+    "description": "Backend code account_disabled."
+  },
+  "errorAuthAccountLocked": "Tài khoản bị tạm khóa 30 phút do đăng nhập sai nhiều lần.",
+  "@errorAuthAccountLocked": {
+    "description": "Backend code account_locked."
+  },
+  "errorAuthNoRoleAssigned": "Tài khoản chưa được phân quyền. Vui lòng liên hệ quản trị viên.",
+  "@errorAuthNoRoleAssigned": {
+    "description": "Backend code no_role_assigned."
+  },
+  "errorAuthInvalidOtp": "Mã OTP không hợp lệ hoặc đã hết hạn.",
+  "@errorAuthInvalidOtp": {
+    "description": "Backend code invalid_otp."
+  },
+  "errorAuthSessionExpired": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+  "@errorAuthSessionExpired": {
+    "description": "Backend code session_expired, and the fallback for a 401 outside sign-in."
+  },
+  "errorAuthLoginForbidden": "Tài khoản không được phép đăng nhập. Vui lòng liên hệ quản trị viên.",
+  "@errorAuthLoginForbidden": {
+    "description": "A 403 of a sign-in step without a known code."
+  },
+  "errorAuthMissingTokens": "Máy chủ trả về thiếu token đăng nhập",
+  "@errorAuthMissingTokens": {
+    "description": "App check: a successful sign-in answer lacks the access or refresh token."
+  },
+  "errorAuthRoleNotAllowed": "Tài khoản không có quyền dùng ứng dụng này",
+  "@errorAuthRoleNotAllowed": {
+    "description": "App check: the account has no DQTV role, so it may not use this app."
+  },
+  "errorAuthRecoveryCodesMissing": "Máy chủ không trả về mã khôi phục. Vui lòng tạo lại mã khôi phục.",
+  "@errorAuthRecoveryCodesMissing": {
+    "description": "App check: two-factor authentication is on but the answer carried no recovery codes."
+  },
+
+  "errorMfaInvalidCode": "Mã xác thực không đúng.",
+  "@errorMfaInvalidCode": {
+    "description": "Backend code invalid_code (mfa.service.ts rejectCode)."
+  },
+  "errorMfaInvalidCodeAttempts": "{count, plural, other{Mã xác thực không đúng. Còn {count} lần thử.}}",
+  "@errorMfaInvalidCodeAttempts": {
+    "description": "Backend code invalid_code with details.attemptsRemaining: wrong code and the attempts left.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "errorMfaTokenInvalid": "Phiên xác thực đã hết hạn. Vui lòng đăng nhập lại.",
+  "@errorMfaTokenInvalid": {
+    "description": "Backend code mfa_token_invalid: the second-factor challenge expired or was used."
+  },
+  "errorMfaAttemptsExceeded": "Bạn đã nhập sai quá số lần cho phép. Vui lòng đăng nhập lại.",
+  "@errorMfaAttemptsExceeded": {
+    "description": "Backend code mfa_attempts_exceeded."
+  },
+  "errorMfaLocked": "Xác thực 2 lớp bị tạm khóa 15 phút do nhập sai nhiều lần. Vui lòng thử lại sau.",
+  "@errorMfaLocked": {
+    "description": "Backend code mfa_locked."
+  },
+  "errorMfaAlreadyEnabled": "Xác thực 2 lớp đã được bật cho tài khoản này.",
+  "@errorMfaAlreadyEnabled": {
+    "description": "Backend code mfa_already_enabled."
+  },
+  "errorMfaNotEnabled": "Xác thực 2 lớp chưa được bật.",
+  "@errorMfaNotEnabled": {
+    "description": "Backend code mfa_not_enabled."
+  },
+  "errorMfaRequiredByRole": "Vai trò của bạn bắt buộc dùng xác thực 2 lớp nên không thể tắt.",
+  "@errorMfaRequiredByRole": {
+    "description": "Backend code mfa_required_by_role."
+  },
+  "errorMfaSetupNotStarted": "Chưa bắt đầu thiết lập xác thực 2 lớp. Vui lòng thử lại.",
+  "@errorMfaSetupNotStarted": {
+    "description": "Backend code mfa_setup_not_started."
+  },
+  "errorMfaReauthenticationRequired": "Tài khoản đã bật xác thực 2 lớp. Vui lòng đăng nhập lại.",
+  "@errorMfaReauthenticationRequired": {
+    "description": "Backend code mfa_reauthentication_required (POST /auth/refresh after MFA was enabled)."
+  },
+  "errorSessionEnded": "Phiên đăng nhập đã kết thúc, vui lòng đăng nhập lại.",
+  "@errorSessionEnded": {
+    "description": "Backend codes session_revoked, refresh_token_reused, refresh_token_revoked, invalid_refresh_token."
+  },
+
+  "errorNotificationNotFound": "Không tìm thấy thông báo.",
+  "@errorNotificationNotFound": {
+    "description": "Backend code notification_not_found."
+  },
+  "errorChatNotAParticipant": "Bạn không phải thành viên của cuộc trò chuyện này.",
+  "@errorChatNotAParticipant": {
+    "description": "Backend code not_a_participant."
+  },
+  "errorChatMessageTooLong": "Tin nhắn tối đa 4000 ký tự.",
+  "@errorChatMessageTooLong": {
+    "description": "Backend code message_too_long (chat.service.ts MAX_MESSAGE_LENGTH 4000)."
+  },
+  "errorChatMessageContentRequired": "Tin nhắn không được để trống.",
+  "@errorChatMessageContentRequired": {
+    "description": "Backend code message_content_required."
+  },
+  "errorChatInvalidConversationId": "Mã cuộc trò chuyện không hợp lệ.",
+  "@errorChatInvalidConversationId": {
+    "description": "Backend code invalid_conversation_id."
+  },
+  "errorChatDirectRequiresOneParticipant": "Cuộc trò chuyện trực tiếp cần đúng một người tham gia.",
+  "@errorChatDirectRequiresOneParticipant": {
+    "description": "Backend code direct_conversation_requires_one_participant."
+  },
+  "errorChatParticipantNotFound": "Không tìm thấy người tham gia.",
+  "@errorChatParticipantNotFound": {
+    "description": "Backend code participant_not_found."
+  },
+  "errorChatNotJoined": "Bạn chưa tham gia phòng trò chuyện này.",
+  "@errorChatNotJoined": {
+    "description": "Backend code not_joined."
+  },
+  "errorChatJoinFailed": "Không thể tham gia cuộc trò chuyện ({code}).",
+  "@errorChatJoinFailed": {
+    "description": "A chat socket acknowledgement refused with a code the app does not know.",
+    "placeholders": {
+      "code": {
+        "type": "String",
+        "example": "room_full"
+      }
+    }
+  },
+  "errorDateInvalid": "Ngày không hợp lệ.",
+  "@errorDateInvalid": {
+    "description": "Backend code invalid_date."
+  },
+  "errorLeaveRequestNotFound": "Không tìm thấy đơn nghỉ phép.",
+  "@errorLeaveRequestNotFound": {
+    "description": "Backend code leave_request_not_found."
+  },
+  "errorLeaveNotYourRequest": "Bạn chỉ có thể hủy đơn của chính mình.",
+  "@errorLeaveNotYourRequest": {
+    "description": "Backend code not_your_leave_request."
+  },
+  "errorLeaveRequestNotPending": "Đơn đã được xử lý, không còn ở trạng thái chờ duyệt.",
+  "@errorLeaveRequestNotPending": {
+    "description": "Backend code leave_request_not_pending."
+  },
+  "errorTaskNotFound": "Không tìm thấy nhiệm vụ.",
+  "@errorTaskNotFound": {
+    "description": "Backend code task_not_found."
+  },
+  "errorTaskNotAssignee": "Bạn không được giao nhiệm vụ này.",
+  "@errorTaskNotAssignee": {
+    "description": "Backend code not_task_assignee."
+  },
+  "errorPasswordComplexity": "Mật khẩu mới phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt.",
+  "@errorPasswordComplexity": {
+    "description": "Backend code password_complexity (users.service.ts)."
+  },
+  "errorPasswordReuse": "Mật khẩu mới không được trùng với 5 mật khẩu gần nhất.",
+  "@errorPasswordReuse": {
+    "description": "Backend code password_reuse."
+  },
+  "errorPasswordCurrentWrong": "Mật khẩu hiện tại không đúng.",
+  "@errorPasswordCurrentWrong": {
+    "description": "Backend code invalid_credentials answered by POST /users/me/change-password: the current password is wrong."
+  },
+  "errorValidationFailed": "Dữ liệu không hợp lệ: {message}",
+  "@errorValidationFailed": {
+    "description": "A 400 validation_failed: the first class-validator message from the backend (English).",
+    "placeholders": {
+      "message": {
+        "type": "String",
+        "example": "title should not be empty"
+      }
+    }
+  },
+
+  "errorStatusBadRequest": "Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra lại.",
+  "@errorStatusBadRequest": {
+    "description": "Fallback for a 400 without a known code."
+  },
+  "errorStatusForbidden": "Bạn không có quyền thực hiện thao tác này.",
+  "@errorStatusForbidden": {
+    "description": "Fallback for a 403 without a known code."
+  },
+  "errorStatusNotFound": "Không tìm thấy dữ liệu.",
+  "@errorStatusNotFound": {
+    "description": "Fallback for a 404 without a known code."
+  },
+  "errorStatusConflict": "Dữ liệu đã thay đổi. Vui lòng tải lại và thử lại.",
+  "@errorStatusConflict": {
+    "description": "Fallback for a 409 without a known code."
+  },
+  "errorStatusUnprocessable": "Dữ liệu không hợp lệ.",
+  "@errorStatusUnprocessable": {
+    "description": "Fallback for a 422 without a known code."
+  },
+  "errorStatusTooManyRequests": "Bạn thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.",
+  "@errorStatusTooManyRequests": {
+    "description": "Fallback for a 429 without a known code (ThrottlerGuard)."
+  },
+  "errorStatusServer": "Máy chủ đang gặp sự cố. Thử lại sau.",
+  "@errorStatusServer": {
+    "description": "Fallback for any 5xx."
+  },
+  "errorStatusOther": "Có lỗi xảy ra ({status}).",
+  "@errorStatusOther": {
+    "description": "Fallback for any other HTTP error status.",
+    "placeholders": {
+      "status": {
+        "type": "int",
+        "example": "418"
+      }
+    }
+  },
+  "errorNetworkTimeout": "Mạng chậm hoặc mất kết nối. Vui lòng thử lại.",
+  "@errorNetworkTimeout": {
+    "description": "Connect, send or receive timeout."
+  },
+  "errorNetworkConnection": "Không kết nối được máy chủ. Kiểm tra mạng của bạn.",
+  "@errorNetworkConnection": {
+    "description": "The server could not be reached."
+  },
+  "errorNetworkBadCertificate": "Lỗi chứng chỉ máy chủ. Liên hệ quản trị.",
+  "@errorNetworkBadCertificate": {
+    "description": "The server certificate was refused."
+  },
+  "errorNetworkCancelled": "Yêu cầu đã bị huỷ.",
+  "@errorNetworkCancelled": {
+    "description": "The request was cancelled."
+  },
+  "errorNetworkUnknown": "Có lỗi không xác định. Vui lòng thử lại.",
+  "@errorNetworkUnknown": {
+    "description": "The request failed in a way the HTTP client could not classify."
+  },
+  "errorLocationPermissionDenied": "Ứng dụng chưa được cấp quyền vị trí. Vào Cài đặt để cấp quyền.",
+  "@errorLocationPermissionDenied": {
+    "description": "Location permission refused."
+  },
+  "errorLocationServiceDisabled": "Dịch vụ vị trí đang tắt. Hãy bật GPS trên thiết bị.",
+  "@errorLocationServiceDisabled": {
+    "description": "Location services are switched off on the device."
+  },
+  "errorUnexpected": "Có lỗi xảy ra. Vui lòng thử lại.",
+  "@errorUnexpected": {
+    "description": "Any other failure."
+  },
+  "chatConversationUntitledDirect": "CA KV",
+  "@chatConversationUntitledDirect": {"description": "Title of an untitled direct conversation whose other person has no name in the answer (the ward police officer the militia member usually writes to)."},
+  "chatConversationUntitledGroup": "Nhóm trò chuyện",
+  "@chatConversationUntitledGroup": {"description": "Title of an untitled group conversation without named members."},
+  "chatConversationGroupMembersMore": "{names} +{count}",
+  "@chatConversationGroupMembersMore": {"description": "Title of an untitled group: the first member names, then how many more members there are.", "placeholders": {"names": {"type": "String", "example": "Binh, Cam, Duc"}, "count": {"type": "int", "example": "2"}}},
+  "chatConversationsScreenTitle": "Nhắn tin",
+  "@chatConversationsScreenTitle": {"description": "Conversation list screen: app bar title."},
+  "chatConversationsScreenEmpty": "Chưa có cuộc trò chuyện",
+  "@chatConversationsScreenEmpty": {"description": "Conversation list screen: shown when the user has no conversation."},
+  "chatConversationsScreenRetryButton": "Thử lại",
+  "@chatConversationsScreenRetryButton": {"description": "Conversation list screen: button that loads the list again after a failure."},
+  "chatConversationsScreenNewTooltip": "Cuộc trò chuyện mới",
+  "@chatConversationsScreenNewTooltip": {"description": "Conversation list screen: tooltip of the button that starts a new conversation."},
+  "chatScreenTitleFallback": "CA KV",
+  "@chatScreenTitleFallback": {"description": "Chat screen: app bar title when the screen was opened without the conversation title."},
+  "chatScreenRetryButton": "Thử lại",
+  "@chatScreenRetryButton": {"description": "Chat screen: button that loads the message history again after a failure."},
+  "chatScreenMessageHint": "Nhập tin nhắn...",
+  "@chatScreenMessageHint": {"description": "Chat screen: hint of the message input."},
+  "chatScreenTypingIndicator": "Đang nhập...",
+  "@chatScreenTypingIndicator": {"description": "Chat screen: shown while another participant is typing."},
+  "chatNewConversationScreenTitle": "Cuộc trò chuyện mới",
+  "@chatNewConversationScreenTitle": {"description": "New conversation screen: app bar title."},
+  "chatNewConversationDirectSegment": "Trực tiếp",
+  "@chatNewConversationDirectSegment": {"description": "New conversation screen: segment for a direct (one-to-one) conversation."},
+  "chatNewConversationGroupSegment": "Nhóm",
+  "@chatNewConversationGroupSegment": {"description": "New conversation screen: segment for a group conversation."},
+  "chatNewConversationDirectHint": "Chọn đúng một người để trò chuyện",
+  "@chatNewConversationDirectHint": {"description": "New conversation screen: instruction in direct mode."},
+  "chatNewConversationGroupHint": "Chọn một hoặc nhiều người tham gia",
+  "@chatNewConversationGroupHint": {"description": "New conversation screen: instruction in group mode."},
+  "chatNewConversationGroupTitleLabel": "Tiêu đề nhóm (tùy chọn)",
+  "@chatNewConversationGroupTitleLabel": {"description": "New conversation screen: label of the optional group title field."},
+  "chatNewConversationSearchHint": "Tìm theo tên hoặc tên đăng nhập...",
+  "@chatNewConversationSearchHint": {"description": "New conversation screen: hint of the people search field."},
+  "chatNewConversationSearchTooShort": "{count, plural, other{Nhập ít nhất {count} ký tự để tìm người tham gia}}",
+  "@chatNewConversationSearchTooShort": {"description": "New conversation screen: shown until the search has the shortest query GET /users/search accepts.", "placeholders": {"count": {"type": "int", "example": "2"}}},
+  "chatNewConversationNoResults": "Không tìm thấy người phù hợp",
+  "@chatNewConversationNoResults": {"description": "New conversation screen: the search found nobody."},
+  "chatNewConversationCreateButton": "TẠO",
+  "@chatNewConversationCreateButton": {"description": "New conversation screen: button that creates (or opens the existing) conversation."},
+  "chatIssueMessageEmpty": "Tin nhắn không được để trống.",
+  "@chatIssueMessageEmpty": {"description": "Local check: a message without text is not sent."},
+  "chatIssueMessageTooLong": "{max, plural, other{Tin nhắn tối đa {max} ký tự.}}",
+  "@chatIssueMessageTooLong": {"description": "Local check: a message over the server's length limit is not sent.", "placeholders": {"max": {"type": "int", "example": "4000"}}},
+  "chatIssueDirectNeedsOneParticipant": "Chọn đúng một người để trò chuyện trực tiếp.",
+  "@chatIssueDirectNeedsOneParticipant": {"description": "Local check: a direct conversation needs exactly one other person."},
+  "chatIssueGroupNeedsParticipants": "Chọn ít nhất một người tham gia nhóm.",
+  "@chatIssueGroupNeedsParticipants": {"description": "Local check: a group needs at least one other person."},
+  "chatIssueTitleTooLong": "{max, plural, other{Tiêu đề tối đa {max} ký tự.}}",
+  "@chatIssueTitleTooLong": {"description": "Local check: a group title over the server's length limit.", "placeholders": {"max": {"type": "int", "example": "255"}}},
+  "chatIssueSearchQueryTooLong": "{max, plural, other{Từ khóa tìm kiếm tối đa {max} ký tự.}}",
+  "@chatIssueSearchQueryTooLong": {"description": "Local check: a people search over the length GET /users/search accepts.", "placeholders": {"max": {"type": "int", "example": "100"}}},
+  "chatIssueMalformedConversationList": "Dữ liệu cuộc trò chuyện không đúng định dạng.",
+  "@chatIssueMalformedConversationList": {"description": "The conversation list answer could not be read."},
+  "chatIssueMalformedMessageList": "Dữ liệu tin nhắn không đúng định dạng.",
+  "@chatIssueMalformedMessageList": {"description": "The message history answer could not be read."},
+  "chatIssueMalformedMessage": "Máy chủ trả về tin nhắn không hợp lệ.",
+  "@chatIssueMalformedMessage": {"description": "The answer to a sent message could not be read."},
+  "chatIssueMalformedConversation": "Máy chủ trả về cuộc trò chuyện không hợp lệ.",
+  "@chatIssueMalformedConversation": {"description": "The answer to creating a conversation could not be read."},
+  "chatIssueMalformedSearchResults": "Không tìm được người tham gia.",
+  "@chatIssueMalformedSearchResults": {"description": "The people search answer could not be read."},
+  "errorUserSearchQueryTooShort": "Từ khóa tìm kiếm cần ít nhất 2 ký tự.",
+  "@errorUserSearchQueryTooShort": {"description": "Backend code search_query_too_short (users/users.service.ts searchUsers)."},
+  "notificationsScreenTitle": "Thông Báo",
+  "@notificationsScreenTitle": {"description": "Notifications screen: header title."},
+  "notificationsScreenUnreadCount": "{count, plural, other{{count} tin chưa đọc}}",
+  "@notificationsScreenUnreadCount": {"description": "Notifications screen: header subtitle with the number of unread notifications.", "placeholders": {"count": {"type": "int", "example": "3"}}},
+  "notificationsScreenNoUnread": "Không có tin mới",
+  "@notificationsScreenNoUnread": {"description": "Notifications screen: header subtitle when every notification is read."},
+  "notificationsScreenMarkAllRead": "Đọc hết",
+  "@notificationsScreenMarkAllRead": {"description": "Notifications screen: button that marks every notification read."},
+  "notificationsScreenTabAll": "Tất cả",
+  "@notificationsScreenTabAll": {"description": "Notifications screen: tab with every notification."},
+  "notificationsScreenTabTask": "Nhiệm vụ",
+  "@notificationsScreenTabTask": {"description": "Notifications screen: tab with task notifications."},
+  "notificationsScreenTabAttendance": "Chấm công",
+  "@notificationsScreenTabAttendance": {"description": "Notifications screen: tab with attendance notifications."},
+  "notificationsScreenTabSystem": "Hệ thống",
+  "@notificationsScreenTabSystem": {"description": "Notifications screen: tab with system notifications (info, alert, system)."},
+  "notificationsScreenTabWithCount": "{label} ({count})",
+  "@notificationsScreenTabWithCount": {"description": "Notifications screen: a tab label followed by its number of unread notifications.", "placeholders": {"label": {"type": "String", "example": "Nhiệm vụ"}, "count": {"type": "int", "example": "2"}}},
+  "notificationsScreenLoadError": "Lỗi tải thông báo: {reason}",
+  "@notificationsScreenLoadError": {"description": "Notifications screen: the list could not be loaded, with why.", "placeholders": {"reason": {"type": "String", "example": "Máy chủ đang gặp sự cố. Thử lại sau."}}},
+  "notificationsScreenRetryButton": "Thử lại",
+  "@notificationsScreenRetryButton": {"description": "Notifications screen: button that loads the list again after a failure."},
+  "notificationsScreenLoadMore": "Tải thêm ({shown}/{total})",
+  "@notificationsScreenLoadMore": {"description": "Notifications screen: button that loads the next page, with how many are shown of the total.", "placeholders": {"shown": {"type": "int", "example": "20"}, "total": {"type": "int", "example": "35"}}},
+  "notificationsScreenEmptyTitle": "Không có thông báo",
+  "@notificationsScreenEmptyTitle": {"description": "Notifications screen: title of the empty state."},
+  "notificationsScreenEmptySubtitle": "Bạn đã xem hết thông báo",
+  "@notificationsScreenEmptySubtitle": {"description": "Notifications screen: subtitle of the empty state."},
+  "notificationsScreenUrgentBadge": "Khẩn cấp",
+  "@notificationsScreenUrgentBadge": {"description": "Notifications screen: badge on an SOS notification."},
+  "notificationsScreenMalformed": "Dữ liệu thông báo không đúng định dạng.",
+  "@notificationsScreenMalformed": {"description": "Notifications screen: the notification list answer could not be read."},
+  "errorFileRequired": "Chưa có tệp để tải lên.",
+  "@errorFileRequired": {"description": "Backend code file_required (files/files.controller.ts: POST /files/upload without a file part)."},
+  "errorFileEmpty": "Tệp rỗng, không thể tải lên.",
+  "@errorFileEmpty": {"description": "Backend code file_empty (files/content-checking-storage.ts), also the local check before uploading an empty file."},
+  "errorFileFieldInvalid": "Yêu cầu tải tệp không hợp lệ.",
+  "@errorFileFieldInvalid": {"description": "Backend code file_field_invalid (files/upload.interceptor.ts: unexpected, repeated or oversized multipart fields)."},
+  "errorFileMultipartMalformed": "Dữ liệu tải tệp bị lỗi. Vui lòng thử lại.",
+  "@errorFileMultipartMalformed": {"description": "Backend code multipart_malformed (files/upload.interceptor.ts: the multipart body could not be read)."},
+  "errorFileTooLarge": "Tệp vượt quá dung lượng cho phép (10 MB).",
+  "@errorFileTooLarge": {"description": "Backend code file_too_large (413, files/upload.interceptor.ts, MAX_UPLOAD_BYTES 10 MB), also the local check before uploading."},
+  "errorFileTypeNotAllowed": "Loại tệp không được hỗ trợ.",
+  "@errorFileTypeNotAllowed": {"description": "Backend code file_type_not_allowed (415 on upload: the content is not an allowed type such as JPEG, PNG, WebP, GIF, PDF, DOCX or XLSX; 400 when a non-image is attached where only photos belong)."},
+  "errorFileNotFound": "Không tìm thấy tệp hoặc bạn không có quyền xem tệp này.",
+  "@errorFileNotFound": {"description": "Backend code file_not_found (404 GET /files/:id; 400 when attaching an unknown or someone else's upload)."},
+  "errorFileDuplicateIds": "Một tệp được đính kèm nhiều lần.",
+  "@errorFileDuplicateIds": {"description": "Backend code duplicate_file_ids (files/files.service.ts attach)."},
+  "errorFilePurposeMismatch": "Tệp được tải lên cho mục đích khác nên không thể đính kèm.",
+  "@errorFilePurposeMismatch": {"description": "Backend code file_purpose_mismatch (files/files.service.ts attach: uploaded for another kind of record)."},
+  "errorFileAlreadyAttached": "Tệp đã được đính kèm vào hồ sơ khác.",
+  "@errorFileAlreadyAttached": {"description": "Backend code file_already_attached (409, files/files.service.ts attach)."},
+  "filesIssueUnreadable": "Không đọc được ảnh đã chọn.",
+  "@filesIssueUnreadable": {"description": "Local: the picked photo could not be read from the device."},
+  "filesIssueMalformedResponse": "Máy chủ trả về tệp không hợp lệ.",
+  "@filesIssueMalformedResponse": {"description": "Local: the upload answer could not be read."},
+  "filesIssuePhotoAccessDenied": "Ứng dụng chưa được cấp quyền dùng máy ảnh hoặc thư viện ảnh. Vào Cài đặt để cấp quyền.",
+  "@filesIssuePhotoAccessDenied": {"description": "Local: camera or photo library permission refused."},
+  "filesIssuePhotoPickFailed": "Không chọn được ảnh. Vui lòng thử lại.",
+  "@filesIssuePhotoPickFailed": {"description": "Local: the photo picker failed."},
+  "filesPickCamera": "Chụp ảnh",
+  "@filesPickCamera": {"description": "Photo attachments: button that takes a photo with the camera."},
+  "filesPickGallery": "Thư viện",
+  "@filesPickGallery": {"description": "Photo attachments: button that picks photos from the photo library."},
+  "filesAttachmentsCount": "{count}/{max} ảnh",
+  "@filesAttachmentsCount": {"description": "Photo attachments: photos attached against the limit.", "placeholders": {"count": {"type": "int", "example": "2"}, "max": {"type": "int", "example": "10"}}},
+  "filesAttachmentsLimitReached": "{max, plural, other{Chỉ đính kèm tối đa {max} ảnh.}}",
+  "@filesAttachmentsLimitReached": {"description": "Photo attachments: some picked photos were left out because the limit was reached.", "placeholders": {"max": {"type": "int", "example": "10"}}},
+  "filesUploading": "Đang tải ảnh lên",
+  "@filesUploading": {"description": "Photo attachments: accessibility label of a photo still uploading."},
+  "filesUploadRetry": "Tải ảnh lên lại",
+  "@filesUploadRetry": {"description": "Photo attachments: tooltip of the button that uploads a failed photo again."},
+  "filesAttachmentRemove": "Bỏ ảnh",
+  "@filesAttachmentRemove": {"description": "Photo attachments: tooltip of the button that removes a photo."},
+  "filesUploadFailedItem": "{name}: {reason}",
+  "@filesUploadFailedItem": {"description": "Photo attachments: why one photo could not be uploaded.", "placeholders": {"name": {"type": "String", "example": "IMG_0001.jpg"}, "reason": {"type": "String", "example": "Loại tệp không được hỗ trợ."}}},
+  "filesImageLoading": "Đang tải ảnh",
+  "@filesImageLoading": {"description": "Stored image: accessibility label while it downloads."},
+  "filesImageUnreadable": "Không hiển thị được ảnh",
+  "@filesImageUnreadable": {"description": "Stored or picked image: the content could not be shown as an image."},
+  "incidentReportScreenTitle": "Báo Cáo Công Việc",
+  "@incidentReportScreenTitle": {"description": "Work report screen: header title."},
+  "incidentReportScreenSubtitle": "Gửi báo cáo công việc, gọi SOS",
+  "@incidentReportScreenSubtitle": {"description": "Work report screen: header subtitle."},
+  "incidentReportSosButton": "🚨 GỌI KHẨN CẤP SOS",
+  "@incidentReportSosButton": {"description": "Work report screen: emergency call button."},
+  "incidentReportSosDialogTitle": "GỌI KHẨN CẤP SOS?",
+  "@incidentReportSosDialogTitle": {"description": "Work report screen: title of the emergency call confirmation."},
+  "incidentReportSosDialogContent": "Bạn có chắc chắn muốn gọi điện khẩn cấp đến Công An Khu Vực?",
+  "@incidentReportSosDialogContent": {"description": "Work report screen: question of the emergency call confirmation."},
+  "incidentReportSosDialogConfirm": "Gọi ngay",
+  "@incidentReportSosDialogConfirm": {"description": "Work report screen: confirm button of the emergency call confirmation."},
+  "incidentReportTaskSection": "Chọn công việc *",
+  "@incidentReportTaskSection": {"description": "Work report screen: title of the required work selection."},
+  "incidentReportTaskHint": "Chọn công việc",
+  "@incidentReportTaskHint": {"description": "Work report screen: hint of the work dropdown."},
+  "incidentReportTaskMarketPatrol": "Tuần tra khu vực chợ Bến Thành",
+  "@incidentReportTaskMarketPatrol": {"description": "Work report screen: work option, also sent as the report title."},
+  "incidentReportTaskResidentialCheck": "Kiểm tra an ninh khu dân cư KP1",
+  "@incidentReportTaskResidentialCheck": {"description": "Work report screen: work option, also sent as the report title."},
+  "incidentReportTaskTrafficControl": "Hỗ trợ điều tiết giao thông",
+  "@incidentReportTaskTrafficControl": {"description": "Work report screen: work option, also sent as the report title."},
+  "incidentReportTaskFireSafety": "Tuyên truyền phòng cháy chữa cháy",
+  "@incidentReportTaskFireSafety": {"description": "Work report screen: work option, also sent as the report title."},
+  "incidentReportTaskOther": "Khác (Tự nhập tiêu đề)",
+  "@incidentReportTaskOther": {"description": "Work report screen: option whose report title the user types."},
+  "incidentReportCustomTitleHint": "Nhập tiêu đề báo cáo...",
+  "@incidentReportCustomTitleHint": {"description": "Work report screen: hint of the typed report title."},
+  "incidentReportPhotosSection": "Ảnh đính kèm",
+  "@incidentReportPhotosSection": {"description": "Work report screen: title of the photo attachments section."},
+  "incidentReportVoiceUnsupported": "Máy chủ chưa hỗ trợ ghi âm cho báo cáo.",
+  "@incidentReportVoiceUnsupported": {"description": "Work report screen: voice recordings cannot be attached (no audio upload type on the server)."},
+  "incidentReportDescriptionSection": "Mô tả chi tiết *",
+  "@incidentReportDescriptionSection": {"description": "Work report screen: title of the required description."},
+  "incidentReportDescriptionHint": "Nhập thông tin chi tiết về công việc...",
+  "@incidentReportDescriptionHint": {"description": "Work report screen: hint of the description."},
+  "incidentReportLocationSection": "Vị trí thực hiện *",
+  "@incidentReportLocationSection": {"description": "Work report screen: title of the required location."},
+  "incidentReportLocationHint": "Nhập địa chỉ...",
+  "@incidentReportLocationHint": {"description": "Work report screen: hint of the location."},
+  "incidentReportGpsValue": "{latitude}, {longitude} (GPS)",
+  "@incidentReportGpsValue": {"description": "Work report screen: the location filled in from GPS coordinates.", "placeholders": {"latitude": {"type": "String", "example": "10.762622"}, "longitude": {"type": "String", "example": "106.660172"}}},
+  "incidentReportGpsFailed": "Không lấy được vị trí GPS: {reason} Vui lòng nhập địa chỉ.",
+  "@incidentReportGpsFailed": {"description": "Work report screen: the GPS position could not be read, with why.", "placeholders": {"reason": {"type": "String", "example": "Dịch vụ vị trí đang tắt. Hãy bật GPS trên thiết bị."}}},
+  "incidentReportSubmitButton": "Gửi Báo Cáo",
+  "@incidentReportSubmitButton": {"description": "Work report screen: submit button."},
+  "incidentReportSuccessTitle": "Gửi Báo Cáo Thành Công!",
+  "@incidentReportSuccessTitle": {"description": "Work report screen: title shown after the report was sent."},
+  "incidentReportSuccessSubtitle": "Báo cáo của bạn đã được ghi nhận",
+  "@incidentReportSuccessSubtitle": {"description": "Work report screen: subtitle shown after the report was sent."},
+  "incidentReportPhotosUploading": "Ảnh đang được tải lên. Vui lòng đợi rồi gửi báo cáo.",
+  "@incidentReportPhotosUploading": {"description": "Work report screen: the report waits for its photos to finish uploading."},
+  "incidentReportPhotosFailed": "Có ảnh chưa tải lên được. Tải lên lại hoặc bỏ ảnh đó rồi gửi báo cáo.",
+  "@incidentReportPhotosFailed": {"description": "Work report screen: a photo failed to upload, so the report is not sent yet."},
+  "incidentReportInvalid": "Báo cáo chưa hợp lệ. Vui lòng kiểm tra tiêu đề, mô tả và vị trí rồi gửi lại.",
+  "@incidentReportInvalid": {"description": "Work report screen: a 400 without a code the error table knows."},
+  "incidentReportInvalidDetail": "Báo cáo chưa hợp lệ: {detail}",
+  "@incidentReportInvalidDetail": {"description": "Work report screen: a 400 validation_failed with the first class-validator message (English).", "placeholders": {"detail": {"type": "String", "example": "title should not be empty"}}},
+  "incidentReportServerError": "Máy chủ đang gặp sự cố, báo cáo chưa được gửi. Vui lòng thử lại sau.",
+  "@incidentReportServerError": {"description": "Work report screen: a 5xx answer to the report."},
+  "incidentReportIssueTitleRequired": "Vui lòng chọn hoặc nhập tiêu đề báo cáo.",
+  "@incidentReportIssueTitleRequired": {"description": "Local check: the report has no title."},
+  "incidentReportIssueTitleTooLong": "{max, plural, other{Tiêu đề tối đa {max} ký tự.}}",
+  "@incidentReportIssueTitleTooLong": {"description": "Local check: the title is over the server's limit.", "placeholders": {"max": {"type": "int", "example": "255"}}},
+  "incidentReportIssueContentRequired": "Vui lòng nhập mô tả chi tiết.",
+  "@incidentReportIssueContentRequired": {"description": "Local check: the report has no description."},
+  "incidentReportIssueContentTooLong": "{max, plural, other{Mô tả tối đa {max} ký tự.}}",
+  "@incidentReportIssueContentTooLong": {"description": "Local check: the description is over the server's limit.", "placeholders": {"max": {"type": "int", "example": "10000"}}},
+  "incidentReportIssueLocationRequired": "Vui lòng nhập vị trí thực hiện.",
+  "@incidentReportIssueLocationRequired": {"description": "Local check: the report has no location."},
+  "incidentReportIssueLocationTooLong": "{max, plural, other{Vị trí tối đa {max} ký tự.}}",
+  "@incidentReportIssueLocationTooLong": {"description": "Local check: the location is over the server's limit.", "placeholders": {"max": {"type": "int", "example": "255"}}},
+  "incidentReportIssueTooManyAttachments": "{max, plural, other{Báo cáo đính kèm tối đa {max} ảnh.}}",
+  "@incidentReportIssueTooManyAttachments": {"description": "Local check: more attachments than the server accepts.", "placeholders": {"max": {"type": "int", "example": "10"}}},
+  "incidentReportIssueDuplicateAttachments": "Một ảnh được đính kèm nhiều lần.",
+  "@incidentReportIssueDuplicateAttachments": {"description": "Local check: the same upload is attached twice."}
+}

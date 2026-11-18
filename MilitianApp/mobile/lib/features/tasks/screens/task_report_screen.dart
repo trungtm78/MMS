@@ -1,23 +1,19 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:dio/dio.dart';
+
+import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../l10n/error_texts.dart';
+import '../../../l10n/l10n.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../task_location.dart';
+import '../task_report_request.dart';
 
-// record package removed: record_linux-0.7.2 incompatible with record_platform_interface-1.5.0
-class _AudioRecorderStub {
-  Future<bool> hasPermission() async => false;
-  Future<void> start(dynamic config, {required String path}) async {}
-  Future<String?> stop() async => null;
-  void dispose() {}
-}
-
+/// Task completion report: POST /tasks/:id/report (Web/backend/src/tasks/tasks.controller.ts).
+/// Photos and voice notes are not offered: uploaded files get a filename id that
+/// SubmitReportDto.photoIds (UUID[]) rejects, and voice recording is not available.
 class TaskReportScreen extends ConsumerStatefulWidget {
   final String taskId;
   const TaskReportScreen({super.key, required this.taskId});
@@ -34,18 +30,6 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
   // Task info (loaded from API)
   Map<String, dynamic>? _task;
   bool _loadingTask = true;
-
-  // Photos
-  final List<File> _photos = [];
-  final _picker = ImagePicker();
-
-  // Audio (recording disabled — record package removed for build compatibility)
-  final _recorder = _AudioRecorderStub();
-  final _player = AudioPlayer();
-  String? _audioPath;
-  bool _isRecording = false;
-  bool _isPlaying = false;
-  int _recordingSecs = 0;
 
   // Date/time
   DateTime _completedAt = DateTime.now();
@@ -65,75 +49,32 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
   void initState() {
     super.initState();
     _loadTask();
-    _player.playerStateStream.listen((state) {
-      if (!mounted) return;
-      setState(() => _isPlaying = state.playing);
-    });
   }
 
   @override
   void dispose() {
     _descCtrl.dispose();
     _locationCtrl.dispose();
-    _recorder.dispose();
-    _player.dispose();
     super.dispose();
   }
 
+  /// GET /tasks/:id → the task object (no envelope)
   Future<void> _loadTask() async {
     try {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
-      final res = await dio.get('/tasks/${widget.taskId}');
-      if (mounted) setState(() { _task = res.data as Map<String, dynamic>?; _loadingTask = false; });
+      final res = await dio.get(ApiConstants.taskById.replaceFirst('{id}', widget.taskId));
+      final data = res.data;
+      if (mounted) {
+        setState(() {
+          _task = data is Map ? Map<String, dynamic>.from(data) : null;
+          _loadingTask = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingTask = false);
     }
   }
-
-  Future<void> _pickPhoto() async {
-    final xfile = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 80,
-    );
-    if (xfile == null) return;
-    setState(() => _photos.add(File(xfile.path)));
-  }
-
-  Future<void> _startRecording() async {
-    final hasPermission = await _recorder.hasPermission();
-    if (!hasPermission) return;
-    final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/task_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(null, path: path);
-    setState(() { _isRecording = true; _recordingSecs = 0; _audioPath = null; });
-    // Count seconds
-    _countRecordingSecs();
-  }
-
-  void _countRecordingSecs() async {
-    while (_isRecording && mounted) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted && _isRecording) setState(() => _recordingSecs++);
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    final path = await _recorder.stop();
-    setState(() { _isRecording = false; _audioPath = path; });
-  }
-
-  Future<void> _playAudio() async {
-    if (_audioPath == null) return;
-    if (_isPlaying) {
-      await _player.pause();
-    } else {
-      await _player.setFilePath(_audioPath!);
-      await _player.play();
-    }
-  }
-
-  void _deleteAudio() => setState(() { _audioPath = null; _isRecording = false; });
 
   Future<void> _getGPS() async {
     try {
@@ -166,38 +107,31 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
     setState(() => _completedAt = DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
 
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+
+  /// POST /tasks/:id/report {description, completedAt, location}
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_submitting || !_formKey.currentState!.validate()) return;
+    final Map<String, dynamic> body;
+    try {
+      body = buildTaskReportBody(
+        description: _descCtrl.text,
+        completedAt: _completedAt,
+        location: _locationCtrl.text,
+      );
+    } on ArgumentError catch (e) {
+      _showError('${e.message}');
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final storage = ref.read(secureStorageProvider);
       final dio = DioClient.getInstance(storage);
-
-      // Upload photos first
-      final photoIds = <String>[];
-      for (final photo in _photos) {
-        final fd = FormData.fromMap({'file': await MultipartFile.fromFile(photo.path)});
-        final res = await dio.post('/files/upload', data: fd);
-        final fileId = (res.data as Map<String, dynamic>)['fileId'] as String?;
-        if (fileId != null) photoIds.add(fileId);
-      }
-
-      // Upload audio if present
-      String? audioNoteUrl;
-      if (_audioPath != null) {
-        final fd = FormData.fromMap({'file': await MultipartFile.fromFile(_audioPath!)});
-        final res = await dio.post('/files/upload', data: fd);
-        final data = res.data as Map<String, dynamic>;
-        audioNoteUrl = data['url'] as String?;
-      }
-
-      await dio.post('/tasks/${widget.taskId}/report', data: {
-        'description': _descCtrl.text.trim(),
-        'completedAt': _completedAt.toIso8601String(),
-        'location': _locationCtrl.text.trim().isNotEmpty ? _locationCtrl.text.trim() : null,
-        'audioNoteUrl': audioNoteUrl,
-        'photoIds': photoIds,
-      });
+      await dio.post(ApiConstants.submitTaskReport.replaceFirst('{id}', widget.taskId), data: body);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -209,9 +143,7 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi gửi báo cáo: $e'), backgroundColor: AppColors.error),
-      );
+      _showError(errorTextFor(context.l10n, e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -239,10 +171,11 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                     const SizedBox(height: 16),
 
                     // Description
-                    _SectionLabel('Mô tả kết quả *'),
+                    const _SectionLabel('Mô tả kết quả *'),
                     TextFormField(
                       controller: _descCtrl,
                       maxLines: 4,
+                      maxLength: maxTaskReportDescriptionLength,
                       decoration: const InputDecoration(
                         hintText: 'Mô tả công việc đã thực hiện...',
                         border: OutlineInputBorder(),
@@ -254,7 +187,7 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                     const SizedBox(height: 16),
 
                     // DateTime
-                    _SectionLabel('Thời điểm hoàn thành'),
+                    const _SectionLabel('Thời điểm hoàn thành'),
                     InkWell(
                       onTap: _pickDateTime,
                       child: InputDecorator(
@@ -270,15 +203,17 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                     const SizedBox(height: 16),
 
                     // Location
-                    _SectionLabel('Vị trí'),
+                    const _SectionLabel('Vị trí'),
                     Row(
                       children: [
                         Expanded(
                           child: TextFormField(
                             controller: _locationCtrl,
+                            maxLength: maxTaskReportLocationLength,
                             decoration: const InputDecoration(
                               hintText: 'Nhập địa điểm hoặc chọn',
                               border: OutlineInputBorder(),
+                              counterText: '',
                             ),
                           ),
                         ),
@@ -292,7 +227,7 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                         PopupMenuButton<String>(
                           icon: const Icon(Icons.arrow_drop_down_circle_outlined),
                           onSelected: (v) => _locationCtrl.text = v,
-                          itemBuilder: (_) => _presets
+                          itemBuilder: (context) => _presets
                               .map((p) => PopupMenuItem(value: p, child: Text(p)))
                               .toList(),
                         ),
@@ -300,60 +235,9 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Photos
-                    _SectionLabel('Ảnh đính kèm'),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ..._photos.asMap().entries.map((e) => Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(e.value, width: 80, height: 80, fit: BoxFit.cover),
-                            ),
-                            Positioned(
-                              top: 2, right: 2,
-                              child: GestureDetector(
-                                onTap: () => setState(() => _photos.removeAt(e.key)),
-                                child: const CircleAvatar(
-                                  radius: 10,
-                                  backgroundColor: Colors.red,
-                                  child: Icon(Icons.close, size: 12, color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
-                        )),
-                        if (_photos.length < 5)
-                          GestureDetector(
-                            onTap: _pickPhoto,
-                            child: Container(
-                              width: 80, height: 80,
-                              decoration: BoxDecoration(
-                                border: Border.all(color: AppColors.primary, width: 2),
-                                borderRadius: BorderRadius.circular(8),
-                                color: AppColors.primary.withOpacity(0.05),
-                              ),
-                              child: const Icon(Icons.add_a_photo, color: AppColors.primary),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Voice note
-                    _SectionLabel('Ghi âm báo cáo'),
-                    _AudioRecorderWidget(
-                      isRecording: _isRecording,
-                      isPlaying: _isPlaying,
-                      audioPath: _audioPath,
-                      recordingSecs: _recordingSecs,
-                      onStartRecord: _startRecording,
-                      onStopRecord: _stopRecording,
-                      onPlayAudio: _playAudio,
-                      onDeleteAudio: _deleteAudio,
-                    ),
+                    // Attachments: not supported by the backend
+                    const _SectionLabel('Ảnh và ghi âm'),
+                    const _UnsupportedAttachments(),
                     const SizedBox(height: 24),
 
                     // Submit
@@ -390,8 +274,9 @@ class _TaskInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final location = taskLocationText(task);
     return Card(
-      color: AppColors.primary.withOpacity(0.07),
+      color: AppColors.primary.withValues(alpha: 0.07),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -405,6 +290,19 @@ class _TaskInfoCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text('Loại: ${task['type']}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              ),
+            if (location != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.location_on_outlined, size: 14, color: Colors.black54),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(location, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                    ),
+                  ],
+                ),
               ),
           ],
         ),
@@ -424,61 +322,31 @@ class _SectionLabel extends StatelessWidget {
       );
 }
 
-class _AudioRecorderWidget extends StatelessWidget {
-  final bool isRecording;
-  final bool isPlaying;
-  final String? audioPath;
-  final int recordingSecs;
-  final VoidCallback onStartRecord;
-  final VoidCallback onStopRecord;
-  final VoidCallback onPlayAudio;
-  final VoidCallback onDeleteAudio;
-
-  const _AudioRecorderWidget({
-    required this.isRecording,
-    required this.isPlaying,
-    required this.audioPath,
-    required this.recordingSecs,
-    required this.onStartRecord,
-    required this.onStopRecord,
-    required this.onPlayAudio,
-    required this.onDeleteAudio,
-  });
-
-  String _fmtSecs(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+/// Disabled attachments section: SubmitReportDto.photoIds must be UUIDs but POST /files/upload
+/// returns a filename, and voice recording is not available in the app.
+class _UnsupportedAttachments extends StatelessWidget {
+  const _UnsupportedAttachments();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          if (isRecording) ...[
-            const Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
-            const SizedBox(width: 6),
-            Text(_fmtSecs(recordingSecs), style: const TextStyle(fontWeight: FontWeight.w600)),
-            const Spacer(),
-            IconButton(onPressed: onStopRecord, icon: const Icon(Icons.stop_circle, color: Colors.red, size: 32)),
-          ] else if (audioPath != null) ...[
-            IconButton(
-              onPressed: onPlayAudio,
-              icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle, color: AppColors.primary, size: 32),
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.attach_file, color: Colors.grey),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Máy chủ chưa hỗ trợ đính kèm ảnh và ghi âm cho báo cáo nhiệm vụ.',
+                style: TextStyle(color: Colors.black54),
+              ),
             ),
-            const SizedBox(width: 4),
-            const Expanded(child: Text('Ghi âm sẵn sàng', style: TextStyle(fontWeight: FontWeight.w500))),
-            IconButton(onPressed: onDeleteAudio, icon: const Icon(Icons.delete_outline, color: Colors.red)),
-          ] else ...[
-            const Icon(Icons.mic_none, color: Colors.grey),
-            const SizedBox(width: 8),
-            const Expanded(child: Text('Chưa có ghi âm', style: TextStyle(color: Colors.grey))),
-            IconButton(onPressed: onStartRecord, icon: const Icon(Icons.mic, color: AppColors.primary, size: 32)),
           ],
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }

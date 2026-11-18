@@ -3,26 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../core/constants/app_strings.dart';
-import '../../core/constants/api_constants.dart';
-import '../../core/network/dio_client.dart';
 import '../../core/router/routes.dart';
-import '../../features/auth/providers/auth_provider.dart';
-
-// Provider to count pending tasks for badge
-final _pendingTaskCountProvider = FutureProvider.autoDispose<int>((ref) async {
-  try {
-    final storage = ref.read(secureStorageProvider);
-    final dio = DioClient.getInstance(storage);
-    final res = await dio.get(
-      ApiConstants.tasks,
-      queryParameters: {'status': 'pending', 'limit': 1},
-    );
-    return res.data['pagination']?['total'] as int? ?? 0;
-  } catch (_) {
-    return 0;
-  }
-});
+import '../../features/tasks/repositories/tasks_repository.dart';
+import '../../l10n/l10n.dart';
 
 class MainShell extends ConsumerWidget {
   final Widget child;
@@ -42,8 +25,9 @@ class MainShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final idx = _selectedIndex(context);
-    final pendingAsync = ref.watch(_pendingTaskCountProvider);
-    final pendingCount = pendingAsync.valueOrNull ?? 0;
+    final l10n = context.l10n;
+    // Same number as the waiting tab of the task list
+    final pendingCount = ref.watch(waitingTaskCountProvider).valueOrNull ?? 0;
 
     Widget taskIcon(bool active) {
       final icon = Icon(
@@ -84,30 +68,30 @@ class MainShell extends ConsumerWidget {
           }
         },
         items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: AppStrings.home,
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.home_outlined),
+            activeIcon: const Icon(Icons.home),
+            label: l10n.shellNavHome,
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.location_on_outlined),
-            activeIcon: Icon(Icons.location_on),
-            label: AppStrings.checkin,
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.location_on_outlined),
+            activeIcon: const Icon(Icons.location_on),
+            label: l10n.shellNavCheckin,
           ),
           BottomNavigationBarItem(
             icon: taskIcon(false),
             activeIcon: taskIcon(true),
-            label: AppStrings.tasks,
+            label: l10n.shellNavTasks,
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.notifications_outlined),
-            activeIcon: Icon(Icons.notifications),
-            label: AppStrings.notifications,
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.notifications_outlined),
+            activeIcon: const Icon(Icons.notifications),
+            label: l10n.shellNavNotifications,
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: AppStrings.profile,
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.person_outline),
+            activeIcon: const Icon(Icons.person),
+            label: l10n.shellNavProfile,
           ),
         ],
       ),

@@ -6,6 +6,7 @@ class Routes {
   static const String otpVerify = '/otp-verify';
   static const String mfaSetup = '/mfa-setup';
   static const String recoveryCodes = '/recovery-codes';
+  static const String forgotPassword = '/forgot-password';
 
   // Main shell (bottom nav)
   static const String home = '/home';
@@ -15,6 +16,8 @@ class Routes {
   static const String notifications = '/notifications';
   static const String profile = '/profile';
   static const String settings = '/settings';
+  static const String security = '/security';
+  static const String changePassword = '/change-password';
 
   // Features reachable from shell
   static const String leaveRequest = '/leave-request';
