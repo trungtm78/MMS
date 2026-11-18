@@ -134,3 +134,53 @@ the new schema.
      `RUN_MIGRATIONS=false` on the instances.
 
   Release notes must say which kind a release is.
+
+## Multi-tenancy migrations (036 and 037)
+
+Migrations 036 and 037 start the multi-tenant work (M0, see `tenancy.md`). They are the
+first migrations that need a privileged migrator, and 037 is an incompatible release.
+Milestone M1 continues with **038 and later** (the design spec's `036b/037/038` names are
+superseded).
+
+- **`036_tenants.sql`**: the `tenants` table with the first tenant
+  (`a1000000-0000-4000-8000-000000000001`, code `phu-dinh`); `app_tenant_id()`, which
+  reads the `app.tenant_id` session setting; the cluster-wide roles `mms_app` and
+  `mms_platform` (created `NOLOGIN NOSUPERUSER NOBYPASSRLS`, and tolerated if they exist);
+  grants (`mms_app` reads and writes the application tables but never
+  `schema_migrations`); and two `SECURITY DEFINER` functions, `auth_tenant_by_code(text)`
+  for sign-in and `maintenance_tenant_ids()` for background jobs.
+- **`037_tenant_slice_rls.sql`**: `tenant_id uuid NOT NULL REFERENCES tenants(id)` on
+  `users`, `units`, `militia_profiles`, `tasks`, `task_assignments`, `files`,
+  `notifications`, `notification_receipts` and `audit_logs`. Every existing row becomes the
+  first tenant's (the column is added with that constant, then its default becomes
+  `app_tenant_id()`). Each table gets `ENABLE` and `FORCE ROW LEVEL SECURITY` and a
+  `tenant_isolation` policy. The natural keys become unique per tenant:
+  `(tenant_id, username)`, `(tenant_id, email)`, `(tenant_id, code)` on units and tasks,
+  `(tenant_id, militia_code)`, `(tenant_id, cccd)` and the CCCD lookup index.
+
+### The legacy database default
+
+At its end 037 runs `ALTER DATABASE <db> SET app.tenant_id = '<first tenant>'`. Sessions
+that never write a tenant (the migrator, admin tools, and the application itself in
+`TENANCY_MODE=legacy`) therefore inherit the first tenant and see all their old data, as
+before. The setting reaches **new** sessions only: after migrating, restart the
+application so its pool reconnects. M1 removes the default with
+`ALTER DATABASE <db> RESET app.tenant_id`, and `TENANCY_MODE=enforced` refuses to start
+while it exists.
+
+### Requirements and release kind
+
+- **Run the migrator as a superuser or a BYPASSRLS role.** 036 creates cluster roles and
+  037 changes a database-level setting; FORCE ROW LEVEL SECURITY would also lock a plain
+  table-owner role out of the tables. In the Docker image set `DATABASE_URL` to the owner
+  when the application runs as `DB_USER=mms_app` (see `tenancy.md`).
+- **037 is an incompatible release.** It drops the single-column unique constraints that
+  earlier code names in `ON CONFLICT (username)` and `ON CONFLICT (code)`. Old instances
+  fail on those statements once 037 is applied, so deploy a release that contains it
+  drained, as described above under "Releases with incompatible changes".
+- 037 adds the columns and foreign keys under table locks. That is quick on these nine
+  tables but is not an online change; M1 builds the indexes for the other tables
+  `CONCURRENTLY`.
+- After 037, give the application role a login (`ALTER ROLE mms_app LOGIN PASSWORD '...'`)
+  only when you run `TENANCY_MODE=enforced`; legacy deployments keep their current
+  database user.

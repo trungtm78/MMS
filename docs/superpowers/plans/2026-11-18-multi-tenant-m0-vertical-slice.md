@@ -1232,7 +1232,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Create: `src/database/tenancy/tenant-scope.middleware.ts`, `src/database/tenancy/tenant-scope.middleware.spec.ts`
 - Create: `src/database/tenancy/tenant-job-runner.ts`, `src/database/tenancy/tenant-job-runner.spec.ts`, `src/database/tenancy/tenancy.module.ts`
 - Modify: `src/app.module.ts`, `src/database/typeorm.options.ts`, `src/database/seeder.service.ts`, `src/database/seeder.service.spec.ts`
-- Create: `src/database/tenancy/legacy-default-guard.ts`, `src/database/tenancy/legacy-default-guard.spec.ts`
+- Create: `src/database/tenancy/boot-guards.ts`, `src/database/tenancy/boot-guards.spec.ts`
 - Create: `test/tenancy-binding.e2e-spec.ts`
 
 **Interfaces:**
@@ -1457,10 +1457,10 @@ describe('tenant binding on a real pool (e2e)', () => {
 });
 ```
 
-Enforced mode must not start on a database that still carries the legacy single-tenant default of migration 037 (`ALTER DATABASE … SET app.tenant_id`): a request without a scope would then read and write the first tenant instead of seeing nothing (fail-open). `src/database/tenancy/legacy-default-guard.spec.ts`:
+Enforced mode must not start on a database that still carries the legacy single-tenant default of migration 037 (`ALTER DATABASE … SET app.tenant_id`): a request without a scope would then read and write the first tenant instead of seeing nothing (fail-open). `src/database/tenancy/boot-guards.spec.ts`:
 
 ```ts
-import { assertNoLegacyTenantDefault } from './legacy-default-guard';
+import { assertNoLegacyTenantDefault } from './boot-guards';
 
 describe('assertNoLegacyTenantDefault', () => {
   it('accepts a database with no app.tenant_id default', async () => {
@@ -1680,7 +1680,7 @@ and in both inserts: `ON CONFLICT (tenant_id, username) DO NOTHING`.
 
 Update `src/database/seeder.service.spec.ts` for the new conflict target (the spec asserts the SQL text; adjust the expected `ON CONFLICT (username)` to `ON CONFLICT (tenant_id, username)`). Add one test: under `TENANCY_MODE=enforced` the inserts run with `TenantContext.current()?.tenantId === 'a1000000-0000-4000-8000-000000000001'` (capture it inside the mocked `dataSource.query`).
 
-`src/database/tenancy/legacy-default-guard.ts`:
+`src/database/tenancy/boot-guards.ts`:
 
 ```ts
 import type { DataSource } from 'typeorm';
