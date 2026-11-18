@@ -118,7 +118,7 @@ export class SosService {
     });
 
     if (dto.status === 'resolved') {
-      this.notifications.broadcast('sos:resolved', { id: incident['id'] });
+      this.notifications.emitToTenant('sos:resolved', { id: incident['id'] });
     }
     return incident;
   }
@@ -134,7 +134,8 @@ export class SosService {
     if (!rows.length) throw new BadRequestException('assignee_not_found');
   }
 
-  // sos:new to the reporter's unit room, or to everyone when the reporter has no unit
+  // sos:new to the reporter's unit room, or to everyone of the tenant when the reporter has
+  // no unit
   private announce(unitCode: string | null, incident: Record<string, unknown>) {
     const payload = {
       id: incident['id'],
@@ -146,7 +147,7 @@ export class SosService {
     if (unitCode) {
       this.notifications.emitToUnit(unitCode, 'sos:new', payload);
     } else {
-      this.notifications.broadcast('sos:new', payload);
+      this.notifications.emitToTenant('sos:new', payload);
     }
   }
 }

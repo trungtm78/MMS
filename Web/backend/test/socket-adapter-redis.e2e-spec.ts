@@ -13,6 +13,7 @@ import {
   type Socket as ClientSocket,
 } from 'socket.io-client';
 import { createSocketIoAdapter } from '../src/common/realtime/socket-io-adapter';
+import { rooms } from '../src/notifications/rooms';
 
 jest.setTimeout(60_000);
 
@@ -133,7 +134,7 @@ describe('Socket.IO over Redis (e2e)', () => {
 
   it('delivers a room event emitted on one instance to a client of the other', async () => {
     const [emitting, serving] = await startPair();
-    const room = `unit:e2e-${Date.now()}`;
+    const room = rooms.unit(undefined, `e2e-${Date.now()}`);
     const member = await connectTo(serving, room);
     await seesRoom(emitting, room, 1);
 
@@ -145,9 +146,12 @@ describe('Socket.IO over Redis (e2e)', () => {
 
   it('keeps a room event from clients outside the room on the other instance', async () => {
     const [emitting, serving] = await startPair();
-    const room = `unit:e2e-in-${Date.now()}`;
+    const room = rooms.unit(undefined, `e2e-in-${Date.now()}`);
     await connectTo(serving, room);
-    const outsider = await connectTo(serving, `unit:e2e-out-${Date.now()}`);
+    const outsider = await connectTo(
+      serving,
+      rooms.unit(undefined, `e2e-out-${Date.now()}`),
+    );
     await seesRoom(emitting, room, 1);
 
     const alerts: unknown[] = [];
@@ -163,7 +167,7 @@ describe('Socket.IO over Redis (e2e)', () => {
 
   it('delivers again once both instances reconnected after Redis dropped their connections', async () => {
     const [emitting, serving] = await startPair();
-    const room = `unit:e2e-reconnect-${Date.now()}`;
+    const room = rooms.unit(undefined, `e2e-reconnect-${Date.now()}`);
     const member = await connectTo(serving, room);
     await seesRoom(emitting, room, 1);
 

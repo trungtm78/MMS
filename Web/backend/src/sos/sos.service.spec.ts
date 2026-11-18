@@ -19,7 +19,7 @@ const dataSource = {
     work(manager),
   ),
 };
-const gateway = { emitToUnit: jest.fn(), broadcast: jest.fn() };
+const gateway = { emitToUnit: jest.fn(), emitToTenant: jest.fn() };
 const assignments = { getAssignedDqtvIds: jest.fn() };
 
 const sqlOf = (call: number) => query.mock.calls[call][0];
@@ -115,7 +115,7 @@ describe('SosService', () => {
         'sos:new',
         expect.objectContaining({ id: 'inc-1', code: 'SOS-1' }),
       );
-      expect(gateway.broadcast).toHaveBeenCalledWith(
+      expect(gateway.emitToTenant).toHaveBeenCalledWith(
         'sos:new',
         expect.objectContaining({ id: 'inc-2', code: 'SOS-2' }),
       );
@@ -195,7 +195,7 @@ describe('SosService', () => {
         'w-1',
         'inc-1',
       ]);
-      expect(gateway.broadcast).toHaveBeenCalledWith('sos:resolved', {
+      expect(gateway.emitToTenant).toHaveBeenCalledWith('sos:resolved', {
         id: 'inc-1',
       });
     });
@@ -211,7 +211,7 @@ describe('SosService', () => {
 
       expect(paramsOf(1)[0]).toBe('responding');
       expect(paramsOf(3)[0]).toBe('closed');
-      expect(gateway.broadcast).not.toHaveBeenCalled();
+      expect(gateway.emitToTenant).not.toHaveBeenCalled();
     });
 
     it('assigns the alert only to an active account', async () => {

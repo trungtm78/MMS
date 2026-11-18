@@ -1,4 +1,9 @@
-import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
+import {
+  HttpException,
+  Logger,
+  UseInterceptors,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -22,8 +27,12 @@ import {
   AuthRevocationFeed,
   type AuthRevocation,
 } from '../auth/auth-revocation-feed';
+import { TenantContext } from '../database/tenancy/tenant-context';
+import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
 import { gpsRoomOf } from '../gps/gps-rooms';
 import { RecentRevocations, revocationEnds } from './recent-revocations';
+import { rooms } from './rooms';
+import { WsTenantScopeInterceptor } from './ws-tenant-scope.interceptor';
 
 // Web clients send the bare conversation id, the mobile apps { conversationId }
 function conversationIdOf(
@@ -43,17 +52,24 @@ type HandshakeRefusal =
 /** Why an open socket is closed; sent in the session_expired event before disconnecting. */
 type SessionEnd = 'token_expired' | 'session_revoked';
 
-// Access tokens carry the roles and unit scope of JwtPayload
+// Access tokens carry the roles and unit scope of JwtPayload, and the tenant under
+// TENANCY_MODE=enforced
 type SocketUser = AccessClaims & {
   role: string;
   roles?: string[];
   unitScope?: string | null;
+  tid?: string;
   typ?: string;
   exp?: number;
 };
 
 const userOf = (client: { data: unknown }): SocketUser | undefined =>
   (client.data as { user?: SocketUser } | undefined)?.user;
+
+// The tenant whose rooms a socket lives in. The legacy mode has one fixed namespace
+// whatever a token claims, so emitters (which have no claim to read) and sockets agree.
+const roomTenantOf = (user: { tid?: string }): string | undefined =>
+  isTenancyEnforced() ? user.tid : undefined;
 
 /** A local socket, or one another replica holds (fetchSockets): what closing it needs. */
 interface ClosableSocket {
@@ -68,6 +84,8 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+// Every socket event runs under the tenant of its socket (WsTenantScopeInterceptor)
+@UseInterceptors(WsTenantScopeInterceptor)
 @WebSocketGateway({
   cors: {
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173'],
@@ -106,11 +124,12 @@ export class NotificationsGateway
   // learns why through connect_error instead of being accepted and dropped. The Redis
   // adapter is attached in main.ts.
   //
-  // A connected socket sits in user:, unit: and GPS rooms and receives what the server
-  // pushes there without emitting anything, so its session is also ended from the server
-  // side: at its access token's expiry (a timer), and as soon as Postgres announces that
-  // its session ended or its account changed (AuthRevocationFeed). Each replica closes the
-  // sockets it holds; every replica receives every announcement.
+  // A connected socket sits in the tenant, user, unit and GPS rooms of its tenant and
+  // receives what the server pushes there without emitting anything, so its session is
+  // also ended from the server side: at its access token's expiry (a timer), and as soon
+  // as Postgres announces that its session ended or its account changed
+  // (AuthRevocationFeed). Each replica closes the sockets it holds; every replica
+  // receives every announcement.
   afterInit(server: Server) {
     server.use((client, next) => {
       void this.authenticate(client).then((refusal) =>
@@ -143,6 +162,26 @@ export class NotificationsGateway
     this.expiryTimers.clear();
   }
 
+  // Enforced mode checks a session under its own tenant; legacy mode has none
+  private inTenant<T>(
+    tid: string | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    return isTenancyEnforced()
+      ? TenantContext.runAs({ tenantId: tid ?? '' }, fn)
+      : fn();
+  }
+
+  // The tenant of whoever emits (the request, job or socket event that is running)
+  private currentTid(): string | undefined {
+    const tid = TenantContext.current()?.tenantId;
+    if (tid === undefined && isTenancyEnforced()) {
+      // Every socket is in the rooms of a tenant: with none named, nobody receives it
+      this.logger.warn('A socket event was emitted outside any tenant scope');
+    }
+    return tid;
+  }
+
   // Same rules as JwtAuthGuard: only access tokens, and only while their session is live
   // and the account unchanged since they were issued
   private async authenticate(client: Socket): Promise<HandshakeRefusal | null> {
@@ -160,9 +199,16 @@ export class NotificationsGateway
       return 'invalid_token';
     }
     if (claims.typ !== 'access') return 'invalid_token';
+    // The session below is read in a tenant's rows: a token without one has no tenant to
+    // read them under
+    if (isTenancyEnforced() && !isUUID(claims.tid)) return 'invalid_token';
 
     try {
-      if (!(await this.authState.isAccessValid(claims))) {
+      if (
+        !(await this.inTenant(claims.tid, () =>
+          this.authState.isAccessValid(claims),
+        ))
+      ) {
         return 'session_revoked';
       }
     } catch (error) {
@@ -188,14 +234,20 @@ export class NotificationsGateway
       return;
     }
     if (!this.scheduleExpiry(client, user)) return;
-    void client.join(`user:${user.sub}`);
-    if (user.unitScope) void client.join(`unit:${user.unitScope}`);
+    const tid = roomTenantOf(user);
+    // The tenant room reaches every socket of the tenant (it replaces the system-wide emit)
+    void client.join(rooms.tenant(tid));
+    void client.join(rooms.user(tid, user.sub));
+    if (user.unitScope) void client.join(rooms.unit(tid, user.unitScope));
     // Live positions travel in staff-only rooms: members share the unit room
-    const gpsRoom = gpsRoomOf({
-      role: user.role,
-      roles: user.roles,
-      unitScope: user.unitScope ?? null,
-    });
+    const gpsRoom = gpsRoomOf(
+      {
+        role: user.role,
+        roles: user.roles,
+        unitScope: user.unitScope ?? null,
+      },
+      tid,
+    );
     if (gpsRoom) void client.join(gpsRoom);
   }
 
@@ -226,12 +278,13 @@ export class NotificationsGateway
     return true;
   }
 
-  // The sockets of this replica whose session the announced change ended
+  // The sockets of this replica whose session the announced change ended. The announcement
+  // names no tenant, so the user's sockets are picked out of all the replica's sockets.
   private async closeRevoked(event: AuthRevocation): Promise<void> {
     this.recentRevocations.record(event);
-    const sockets = await this.server.local
-      .in(`user:${event.userId}`)
-      .fetchSockets();
+    const sockets = (await this.server.local.fetchSockets()).filter(
+      (client) => userOf(client)?.sub === event.userId,
+    );
     for (const client of sockets) {
       const user = userOf(client);
       if (user && revocationEnds(event, user)) {
@@ -240,45 +293,74 @@ export class NotificationsGateway
     }
   }
 
-  // Announcements may have been missed: every socket of this replica is checked again
+  // Announcements may have been missed: every socket of this replica is checked again,
+  // the sockets of each tenant in one batch under that tenant's scope. A tenant that cannot
+  // be checked does not leave the others unchecked.
   private async closeInvalid(): Promise<void> {
     const held = (await this.server.local.fetchSockets()).flatMap((client) => {
       const user = userOf(client);
       return user ? [{ client, user }] : [];
     });
-    if (held.length === 0) return;
-    const valid = await this.authState.validAccess(
-      held.map(({ user }) => user),
-    );
-    held.forEach(({ client }, index) => {
-      if (!valid[index]) this.endSession(client, 'session_revoked');
-    });
+    const byTenant = new Map<string | undefined, typeof held>();
+    for (const entry of held) {
+      const tid = roomTenantOf(entry.user);
+      const group = byTenant.get(tid) ?? [];
+      group.push(entry);
+      byTenant.set(tid, group);
+    }
+    const failures: string[] = [];
+    for (const [tid, group] of byTenant) {
+      try {
+        const valid = await this.inTenant(tid, () =>
+          this.authState.validAccess(group.map(({ user }) => user)),
+        );
+        group.forEach(({ client }, index) => {
+          if (!valid[index]) this.endSession(client, 'session_revoked');
+        });
+      } catch (error) {
+        failures.push(errorMessage(error));
+      }
+    }
+    if (failures.length > 0) throw new Error(failures.join('; '));
   }
 
   // One emit over several rooms: a socket in more than one of them receives it once
-  emitToRooms(rooms: string[], event: string, data: unknown) {
-    if (rooms.length === 0) return;
-    this.server.to(rooms).emit(event, data);
+  emitToRooms(targets: string[], event: string, data: unknown) {
+    if (targets.length === 0) return;
+    this.server.to(targets).emit(event, data);
   }
+
+  // The emitters below address the tenant of the scope they run in (the request or job
+  // that emits): a room is never named without one
 
   // Broadcast to all clients in a unit
   emitToUnit(unitCode: string, event: string, data: unknown) {
-    this.server.to(`unit:${unitCode}`).emit(event, data);
+    this.server.to(rooms.unit(this.currentTid(), unitCode)).emit(event, data);
   }
 
   // Send to specific user
   emitToUser(userId: string, event: string, data: unknown) {
-    this.server.to(`user:${userId}`).emit(event, data);
+    this.server.to(rooms.user(this.currentTid(), userId)).emit(event, data);
   }
 
-  // Broadcast system-wide
-  broadcast(event: string, data: unknown) {
-    this.server.emit(event, data);
+  // To every socket of the current tenant (replaces the old system-wide broadcast)
+  emitToTenant(event: string, data: unknown) {
+    this.server.to(rooms.tenant(this.currentTid())).emit(event, data);
   }
 
   // Broadcast to everyone who joined a conversation room
   emitToConversation(conversationId: string, event: string, data: unknown) {
-    this.server.to(`conv_${conversationId}`).emit(event, data);
+    this.emitToConversationOf(this.currentTid(), conversationId, event, data);
+  }
+
+  // A socket event names the tenant of its socket, whatever scope it runs in
+  private emitToConversationOf(
+    tid: string | undefined,
+    conversationId: string,
+    event: string,
+    data: unknown,
+  ) {
+    this.server.to(rooms.conversation(tid, conversationId)).emit(event, data);
   }
 
   // ── Chat handlers (P2-11) ────────────────────────────────────────────────
@@ -287,21 +369,23 @@ export class NotificationsGateway
   // The claims verified at connect, as long as the token has not expired and its session
   // has not been revoked since (account suspended, roles, password or MFA changed). Such a
   // socket is told why and closed: the client reconnects with a refreshed token, and for a
-  // revoked session the refresh is refused too.
+  // revoked session the refresh is refused too. The tenant is the one of the socket's rooms.
   private async sessionOf(
     client: Socket,
-  ): Promise<{ sub: string } | 'expired' | null> {
+  ): Promise<{ sub: string; tid: string | undefined } | 'expired' | null> {
     const user = userOf(client);
     if (!user?.sub) return null;
     if (typeof user.exp === 'number' && user.exp * 1000 <= Date.now()) {
       this.endSession(client, 'token_expired');
       return 'expired';
     }
-    if (!(await this.authState.isAccessValid(user))) {
+    if (
+      !(await this.inTenant(user.tid, () => this.authState.isAccessValid(user)))
+    ) {
       this.endSession(client, 'session_revoked');
       return 'expired';
     }
-    return { sub: user.sub };
+    return { sub: user.sub, tid: roomTenantOf(user) };
   }
 
   // The event is written before the disconnect packet, so it reaches the client; an
@@ -333,7 +417,7 @@ export class NotificationsGateway
       return { error: 'not_a_participant' };
     }
 
-    await client.join(`conv_${conversationId}`);
+    await client.join(rooms.conversation(session.tid, conversationId));
     return { joined: conversationId };
   }
 
@@ -350,7 +434,7 @@ export class NotificationsGateway
     const conversationId = conversationIdOf(body);
     if (!conversationId) return { error: 'invalid_conversation_id' };
 
-    await client.leave(`conv_${conversationId}`);
+    await client.leave(rooms.conversation(session.tid, conversationId));
     return { left: conversationId };
   }
 
@@ -391,7 +475,7 @@ export class NotificationsGateway
     if (session === 'expired') return { error: 'session_expired' };
     const conversationId = conversationIdOf(body);
     if (!conversationId) return { error: 'invalid_conversation_id' };
-    const room = `conv_${conversationId}`;
+    const room = rooms.conversation(session.tid, conversationId);
     if (!client.rooms.has(room)) return { error: 'not_joined' };
 
     client
@@ -418,7 +502,7 @@ export class NotificationsGateway
         session.sub,
         conversationId,
       );
-      this.emitToConversation(conversationId, 'chat:read', {
+      this.emitToConversationOf(session.tid, conversationId, 'chat:read', {
         conversationId,
         userId: session.sub,
         readAt,
@@ -458,7 +542,12 @@ export class NotificationsGateway
         conversationId,
         payload.content,
       );
-      this.emitToConversation(conversationId, 'chat:message', message);
+      this.emitToConversationOf(
+        session.tid,
+        conversationId,
+        'chat:message',
+        message,
+      );
       return message;
     } catch (error) {
       if (error instanceof HttpException) return { error: error.message };

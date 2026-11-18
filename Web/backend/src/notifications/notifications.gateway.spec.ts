@@ -9,6 +9,8 @@ import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
 import { ChatService } from '../chat/chat.service';
 import { NotificationsGateway } from './notifications.gateway';
+import { rooms } from './rooms';
+import { TenantContext } from '../database/tenancy/tenant-context';
 import { AuthStateService } from '../auth/auth-state.service';
 import {
   AuthRevocationFeed,
@@ -16,6 +18,8 @@ import {
 } from '../auth/auth-revocation-feed';
 
 const CONV_ID = '0b6f3c1e-3a53-4f4f-9d1a-6c1c2f7f1a01';
+const TID_A = '11111111-1111-4111-8111-111111111111';
+const TID_B = '22222222-2222-4222-8222-222222222222';
 
 const chatService = {
   isMember: jest.fn(),
@@ -29,9 +33,9 @@ const authState = { isAccessValid: jest.fn(), validAccess: jest.fn() };
 const unsubscribe = jest.fn();
 const revocationFeed = { subscribe: jest.fn() };
 
-function socket(sub?: string) {
+function socket(sub?: string, tid?: string) {
   return {
-    data: { user: sub ? { sub } : undefined },
+    data: { user: sub ? { sub, tid } : undefined },
     join: jest.fn(),
   } as unknown as Socket & { join: jest.Mock };
 }
@@ -39,6 +43,9 @@ function socket(sub?: string) {
 describe('NotificationsGateway', () => {
   let gateway: NotificationsGateway;
   let to: jest.Mock;
+
+  // Only the tests that name it run under enforced tenancy
+  afterEach(() => delete process.env.TENANCY_MODE);
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -180,6 +187,58 @@ describe('NotificationsGateway', () => {
         secret: 'jwt-secret',
       });
     });
+
+    // users is under Row-Level Security: the session is read under the tenant of the token
+    describe('under enforced tenancy', () => {
+      beforeEach(() => {
+        process.env.TENANCY_MODE = 'enforced';
+      });
+
+      it('checks the session under the tenant of the token', async () => {
+        const claims = { ...ACCESS_CLAIMS, tid: TID_A };
+        jwtVerify.mockReturnValueOnce(claims);
+        const scopes: Array<string | undefined> = [];
+        authState.isAccessValid.mockImplementationOnce(() => {
+          scopes.push(TenantContext.current()?.tenantId);
+          return Promise.resolve(true);
+        });
+        const client = handshaking({ token: 'good-token' });
+
+        await expect(authenticate(client)).resolves.toBeUndefined();
+
+        expect(scopes).toEqual([TID_A]);
+        expect(userOf(client)).toEqual(claims);
+        // The scope ends with the check: nothing leaks into the connection
+        expect(TenantContext.current()).toBeUndefined();
+      });
+
+      it.each([
+        ['without a tenant', ACCESS_CLAIMS],
+        ['with a tenant that is not an id', { ...ACCESS_CLAIMS, tid: 'x' }],
+      ])('refuses a token %s', async (_label, claims) => {
+        jwtVerify.mockReturnValueOnce(claims);
+        const client = handshaking({ token: 'no-tenant' });
+
+        const error = await authenticate(client);
+
+        expect(error?.message).toBe('invalid_token');
+        expect(authState.isAccessValid).not.toHaveBeenCalled();
+        expect(userOf(client)).toBeUndefined();
+      });
+
+      it('still reports a session that cannot be checked as unavailable', async () => {
+        jwtVerify.mockReturnValueOnce({ ...ACCESS_CLAIMS, tid: TID_A });
+        authState.isAccessValid.mockRejectedValueOnce(new Error('db down'));
+        const warn = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+
+        const error = await authenticate(handshaking({ token: 'good-token' }));
+
+        expect(error?.message).toBe('authentication_unavailable');
+        warn.mockRestore();
+      });
+    });
   });
 
   describe('connection', () => {
@@ -197,8 +256,56 @@ describe('NotificationsGateway', () => {
 
       gateway.handleConnection(client);
 
-      expect(client.join).toHaveBeenCalledWith('user:u1');
-      expect(client.join).toHaveBeenCalledWith('unit:KV1');
+      expect(client.join).toHaveBeenCalledWith(rooms.user(undefined, 'u1'));
+      expect(client.join).toHaveBeenCalledWith(rooms.unit(undefined, 'KV1'));
+      expect(client.disconnect).not.toHaveBeenCalled();
+    });
+
+    // What used to reach everyone (the system-wide broadcast) still reaches everyone connected
+    it('joins every legacy socket to the one tenant room', () => {
+      const client = connected({ sub: 'u1', typ: 'access', role: 'dqtv' });
+
+      gateway.handleConnection(client);
+
+      expect(client.join).toHaveBeenCalledWith(rooms.tenant(undefined));
+      expect(rooms.tenant(undefined)).toBe('t:legacy');
+    });
+
+    // The room namespace of a mode is fixed by the mode, not by a leftover claim
+    it('ignores the tenant claim of a token in legacy mode', () => {
+      const client = connected({
+        sub: 'u1',
+        typ: 'access',
+        role: 'dqtv',
+        tid: TID_A,
+      });
+
+      gateway.handleConnection(client);
+
+      expect(client.join.mock.calls.map(([room]) => String(room))).toEqual([
+        rooms.tenant(undefined),
+        rooms.user(undefined, 'u1'),
+      ]);
+    });
+
+    it('joins a socket only to the rooms of its own tenant under enforced tenancy', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      const client = connected({
+        sub: 'u1',
+        typ: 'access',
+        role: 'police_area',
+        unitScope: 'KV1',
+        tid: TID_A,
+      });
+
+      gateway.handleConnection(client);
+
+      expect(client.join.mock.calls.map(([room]) => String(room))).toEqual([
+        rooms.tenant(TID_A),
+        rooms.user(TID_A, 'u1'),
+        rooms.unit(TID_A, 'KV1'),
+        rooms.gpsUnit(TID_A, 'KV1'),
+      ]);
       expect(client.disconnect).not.toHaveBeenCalled();
     });
 
@@ -213,19 +320,31 @@ describe('NotificationsGateway', () => {
 
     // T31: members share unit:<code> rooms, so positions travel in staff-only GPS rooms
     it.each([
-      ['unit staff', { role: 'police_area', unitScope: 'KV1' }, 'gps:unit:KV1'],
-      ['CA area staff', { role: 'ca_area', unitScope: 'KV2' }, 'gps:unit:KV2'],
-      ['ward-wide staff', { role: 'police_ward', unitScope: null }, 'gps:ward'],
+      [
+        'unit staff',
+        { role: 'police_area', unitScope: 'KV1' },
+        rooms.gpsUnit(undefined, 'KV1'),
+      ],
+      [
+        'CA area staff',
+        { role: 'ca_area', unitScope: 'KV2' },
+        rooms.gpsUnit(undefined, 'KV2'),
+      ],
+      [
+        'ward-wide staff',
+        { role: 'police_ward', unitScope: null },
+        rooms.gpsWard(undefined),
+      ],
       // The unit grant of a ward-level role without a unit scope is the whole ward
       [
         'ward CA staff without a unit',
         { role: 'ca_ward', unitScope: null },
-        'gps:ward',
+        rooms.gpsWard(undefined),
       ],
       [
         'administrators',
         { role: 'system_admin', unitScope: 'KV1' },
-        'gps:ward',
+        rooms.gpsWard(undefined),
       ],
       // Every role held counts: a unit role beside ca_officer joins the unit's room, and
       // the positions of the assigned DQTV still reach the user room
@@ -236,7 +355,7 @@ describe('NotificationsGateway', () => {
           roles: ['police_area', 'ca_officer'],
           unitScope: 'KV1',
         },
-        'gps:unit:KV1',
+        rooms.gpsUnit(undefined, 'KV1'),
       ],
       [
         'police_area with ca_officer (primary ca_officer)',
@@ -245,7 +364,7 @@ describe('NotificationsGateway', () => {
           roles: ['police_area', 'ca_officer'],
           unitScope: 'KV1',
         },
-        'gps:unit:KV1',
+        rooms.gpsUnit(undefined, 'KV1'),
       ],
     ])('joins %s to the GPS room of their scope', (_label, claims, room) => {
       const client = connected({ sub: 'u1', typ: 'access', ...claims });
@@ -269,8 +388,8 @@ describe('NotificationsGateway', () => {
 
       gateway.handleConnection(client);
 
-      const rooms = client.join.mock.calls.map(([room]) => String(room));
-      expect(rooms.filter((room) => room.startsWith('gps:'))).toEqual([]);
+      const joinedRooms = client.join.mock.calls.map(([room]) => String(room));
+      expect(joinedRooms.filter((room) => room.includes(':gps:'))).toEqual([]);
     });
   });
 
@@ -309,9 +428,8 @@ describe('NotificationsGateway', () => {
         disconnect: jest.fn(),
       }) as unknown as FakeSocket;
 
-    // The sockets this replica holds, all of them or those of a room
+    // The sockets this replica holds
     let localSockets: FakeSocket[];
-    let roomQueried: string[];
     let subscriber: AuthRevocationSubscriber;
 
     const notTold = (client: FakeSocket) => {
@@ -325,25 +443,9 @@ describe('NotificationsGateway', () => {
     beforeEach(() => {
       jest.useFakeTimers({ now: NOW_S * 1000 });
       localSockets = [];
-      roomQueried = [];
       gateway.server = {
         to,
-        local: {
-          in: (room: string) => {
-            roomQueried.push(room);
-            return {
-              fetchSockets: () =>
-                Promise.resolve(
-                  localSockets.filter(
-                    (client) =>
-                      room ===
-                      `user:${(client.data as { user: { sub: string } }).user.sub}`,
-                  ),
-                ),
-            };
-          },
-          fetchSockets: () => Promise.resolve(localSockets),
-        },
+        local: { fetchSockets: () => Promise.resolve(localSockets) },
       } as unknown as Server;
       gateway.afterInit({ use: jest.fn() } as unknown as Server);
       [[subscriber]] = revocationFeed.subscribe.mock.calls as [
@@ -410,7 +512,9 @@ describe('NotificationsGateway', () => {
     });
 
     describe('revocation', () => {
-      it("closes only the sockets of the session that ended, in that user's room", async () => {
+      // The announcement names no tenant, so the user's sockets are found among all the
+      // sockets of the replica, whatever tenant they belong to
+      it('closes only the sockets of the session that ended, among all the sockets of the replica', async () => {
         const ended = live();
         const sameUserOtherSession = live({ sid: OTHER_SID });
         const otherUser = live({ sub: '22222222-2222-4222-8222-222222222222' });
@@ -419,10 +523,28 @@ describe('NotificationsGateway', () => {
         subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
         await flush();
 
-        expect(roomQueried).toEqual([`user:${USER}`]);
         toldBeforeDisconnect(ended, 'session_revoked');
         notTold(sameUserOtherSession);
         notTold(otherUser);
+      });
+
+      // The announcement names a user, not a tenant: the user's sockets are found whatever
+      // tenant they were opened under
+      it('closes the sockets of the session that ended under enforced tenancy', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        const ended = live({ tid: TID_A });
+        const otherTenant = live({
+          tid: TID_B,
+          sub: '22222222-2222-4222-8222-222222222222',
+          sid: OTHER_SID,
+        });
+        localSockets = [otherTenant, ended];
+
+        subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
+        await flush();
+
+        toldBeforeDisconnect(ended, 'session_revoked');
+        notTold(otherTenant);
       });
 
       it('closes the sockets of tokens issued before the account changed', async () => {
@@ -485,7 +607,9 @@ describe('NotificationsGateway', () => {
         expect(late.join).not.toHaveBeenCalled();
         toldBeforeDisconnect(lateOldVersion, 'session_revoked');
         notTold(unaffected);
-        expect(unaffected.join).toHaveBeenCalledWith(`user:${USER}`);
+        expect(unaffected.join).toHaveBeenCalledWith(
+          rooms.user(undefined, USER),
+        );
       });
 
       it('forgets ended sessions after a while', async () => {
@@ -512,9 +636,7 @@ describe('NotificationsGateway', () => {
           .mockImplementation(() => undefined);
         gateway.server = {
           local: {
-            in: () => ({
-              fetchSockets: () => Promise.reject(new Error('adapter down')),
-            }),
+            fetchSockets: () => Promise.reject(new Error('adapter down')),
           },
         } as unknown as Server;
 
@@ -549,6 +671,75 @@ describe('NotificationsGateway', () => {
         toldBeforeDisconnect(ended, 'session_revoked');
       });
 
+      // users is under Row-Level Security: each tenant's sockets are checked under its scope
+      describe('under enforced tenancy', () => {
+        const claimsOf = (client: FakeSocket) =>
+          (client.data as { user: Record<string, unknown> }).user;
+        // The sockets of the session OTHER_SID have ended
+        const stillValid = (claims: Array<Record<string, unknown>>) =>
+          claims.map((claim) => claim['sid'] !== OTHER_SID);
+
+        beforeEach(() => {
+          process.env.TENANCY_MODE = 'enforced';
+        });
+
+        it('re-checks the sockets once per tenant, each batch under its own tenant', async () => {
+          const a1 = live({ tid: TID_A });
+          const b2 = live({ tid: TID_B, sid: OTHER_SID });
+          const a2 = live({ tid: TID_A, sid: OTHER_SID });
+          const b1 = live({ tid: TID_B });
+          localSockets = [a1, b2, a2, b1];
+          const batches: Array<{ tenant?: string; claims: unknown[] }> = [];
+          authState.validAccess.mockImplementation(
+            (claims: Array<Record<string, unknown>>) => {
+              batches.push({
+                tenant: TenantContext.current()?.tenantId,
+                claims,
+              });
+              return Promise.resolve(stillValid(claims));
+            },
+          );
+
+          subscriber.resync();
+          await flush();
+
+          expect(batches).toEqual([
+            { tenant: TID_A, claims: [claimsOf(a1), claimsOf(a2)] },
+            { tenant: TID_B, claims: [claimsOf(b2), claimsOf(b1)] },
+          ]);
+          notTold(a1);
+          notTold(b1);
+          toldBeforeDisconnect(a2, 'session_revoked');
+          toldBeforeDisconnect(b2, 'session_revoked');
+        });
+
+        // One tenant whose sessions cannot be read must not leave the others unchecked
+        it('still checks the other tenants when one cannot be checked, and logs', async () => {
+          const warn = jest
+            .spyOn(Logger.prototype, 'warn')
+            .mockImplementation(() => undefined);
+          const broken = live({ tid: TID_A });
+          const ended = live({ tid: TID_B, sid: OTHER_SID });
+          localSockets = [broken, ended];
+          authState.validAccess.mockImplementation(
+            (claims: Array<Record<string, unknown>>) =>
+              claims.some((claim) => claim['tid'] === TID_A)
+                ? Promise.reject(new Error('tenant a down'))
+                : Promise.resolve(stillValid(claims)),
+          );
+
+          subscriber.resync();
+          await flush();
+
+          notTold(broken);
+          toldBeforeDisconnect(ended, 'session_revoked');
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('tenant a down'),
+          );
+          warn.mockRestore();
+        });
+      });
+
       it('does not query when the replica holds no socket', async () => {
         subscriber.resync();
         await flush();
@@ -577,11 +768,11 @@ describe('NotificationsGateway', () => {
   // One emit over several rooms: a socket in more than one of them receives the event once
   describe('emitToRooms', () => {
     it('sends the event once to every socket in any of the rooms', () => {
-      gateway.emitToRooms(['gps:ward', 'user:ca-1'], 'gps:update', {
-        id: 'm1',
-      });
+      const targets = [rooms.gpsWard(undefined), rooms.user(undefined, 'ca-1')];
 
-      expect(to).toHaveBeenCalledWith(['gps:ward', 'user:ca-1']);
+      gateway.emitToRooms(targets, 'gps:update', { id: 'm1' });
+
+      expect(to).toHaveBeenCalledWith(targets);
       expect(emit).toHaveBeenCalledWith('gps:update', { id: 'm1' });
     });
 
@@ -590,6 +781,89 @@ describe('NotificationsGateway', () => {
 
       expect(to).not.toHaveBeenCalled();
       expect(emit).not.toHaveBeenCalled();
+    });
+  });
+
+  // Emitters address the tenant of the current scope (the request or job that emits)
+  describe('tenant-scoped emitters', () => {
+    const inTenant = <T>(tenantId: string, fn: () => T) =>
+      TenantContext.runAs({ tenantId }, fn);
+
+    it.each([
+      [
+        'emitToUnit',
+        (tenantId: string) => rooms.unit(tenantId, 'KV1'),
+        () => gateway.emitToUnit('KV1', 'probe', { n: 1 }),
+      ],
+      [
+        'emitToUser',
+        (tenantId: string) => rooms.user(tenantId, 'u1'),
+        () => gateway.emitToUser('u1', 'probe', { n: 1 }),
+      ],
+      [
+        'emitToConversation',
+        (tenantId: string) => rooms.conversation(tenantId, CONV_ID),
+        () => gateway.emitToConversation(CONV_ID, 'probe', { n: 1 }),
+      ],
+      [
+        'emitToTenant',
+        (tenantId: string) => rooms.tenant(tenantId),
+        () => gateway.emitToTenant('probe', { n: 1 }),
+      ],
+    ])(
+      '%s emits to the room of the tenant it runs under',
+      (_name, roomOf, emitNow) => {
+        inTenant(TID_A, emitNow);
+        inTenant(TID_B, emitNow);
+
+        expect(to.mock.calls).toEqual([[roomOf(TID_A)], [roomOf(TID_B)]]);
+        expect(emit).toHaveBeenCalledTimes(2);
+        expect(emit).toHaveBeenCalledWith('probe', { n: 1 });
+      },
+    );
+
+    it('addresses the legacy namespace outside any tenant scope', () => {
+      gateway.emitToUnit('KV1', 'probe', {});
+      gateway.emitToTenant('probe', {});
+
+      expect(to.mock.calls).toEqual([
+        [rooms.unit(undefined, 'KV1')],
+        [rooms.tenant(undefined)],
+      ]);
+    });
+
+    // Every socket of an enforced deployment is in the rooms of a tenant: an emit that names
+    // none reaches nobody, which is worth a line in the log
+    it('warns when it is emitted outside any scope under enforced tenancy', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      gateway.emitToTenant('probe', {});
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('outside any tenant scope'),
+      );
+      warn.mockRestore();
+    });
+
+    it('does not warn about a missing scope in legacy mode', () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      gateway.emitToTenant('probe', {});
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    // The system-wide emit is gone: nothing can reach the sockets of every tenant by name
+    it('has no system-wide broadcast', () => {
+      expect(
+        (gateway as unknown as Record<string, unknown>)['broadcast'],
+      ).toBeUndefined();
     });
   });
 
@@ -602,7 +876,9 @@ describe('NotificationsGateway', () => {
         joined: CONV_ID,
       });
       expect(chatService.isMember).toHaveBeenCalledWith('u1', CONV_ID);
-      expect(client.join).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+      expect(client.join).toHaveBeenCalledWith(
+        rooms.conversation(undefined, CONV_ID),
+      );
     });
 
     it('refuses callers who are not participants', async () => {
@@ -632,7 +908,9 @@ describe('NotificationsGateway', () => {
       await expect(
         gateway.handleChatJoin(client, { conversationId: CONV_ID }),
       ).resolves.toEqual({ joined: CONV_ID });
-      expect(client.join).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+      expect(client.join).toHaveBeenCalledWith(
+        rooms.conversation(undefined, CONV_ID),
+      );
     });
 
     it('answers unauthenticated sockets with an error instead of no acknowledgement', async () => {
@@ -711,7 +989,7 @@ describe('NotificationsGateway', () => {
         },
         join: jest.fn(),
         leave: jest.fn(),
-        rooms: new Set([`conv_${CONV_ID}`]),
+        rooms: new Set([rooms.conversation(undefined, CONV_ID)]),
         to: jest.fn(() => ({ emit })),
         emit: jest.fn(),
         disconnect: jest.fn(),
@@ -769,11 +1047,11 @@ describe('NotificationsGateway', () => {
 
   // Events the mobile apps emit besides join and send
   describe('room membership, typing and read receipts', () => {
-    const joined = (sub: string, rooms: string[] = []) => {
+    const joined = (sub: string, joinedRooms: string[] = []) => {
       const roomEmit = jest.fn();
       const client = {
         data: { user: { sub } },
-        rooms: new Set(rooms),
+        rooms: new Set(joinedRooms),
         leave: jest.fn(),
         to: jest.fn(() => ({ emit: roomEmit })),
       } as unknown as Socket & { leave: jest.Mock; to: jest.Mock };
@@ -783,12 +1061,16 @@ describe('NotificationsGateway', () => {
     it.each(['chat:leave', 'leave_conversation'])(
       'leaves the conversation room (%s)',
       async () => {
-        const { client } = joined('u1', [`conv_${CONV_ID}`]);
+        const { client } = joined('u1', [
+          rooms.conversation(undefined, CONV_ID),
+        ]);
 
         await expect(
           gateway.handleChatLeave(client, { conversationId: CONV_ID }),
         ).resolves.toEqual({ left: CONV_ID });
-        expect(client.leave).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+        expect(client.leave).toHaveBeenCalledWith(
+          rooms.conversation(undefined, CONV_ID),
+        );
       },
     );
 
@@ -802,14 +1084,18 @@ describe('NotificationsGateway', () => {
     });
 
     it('tells the other participants who is typing', async () => {
-      const { client, roomEmit } = joined('u1', [`conv_${CONV_ID}`]);
+      const { client, roomEmit } = joined('u1', [
+        rooms.conversation(undefined, CONV_ID),
+      ]);
 
       await expect(
         gateway.handleTyping(client, { conversationId: CONV_ID }, true),
       ).resolves.toEqual({
         ok: true,
       });
-      expect(client.to).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+      expect(client.to).toHaveBeenCalledWith(
+        rooms.conversation(undefined, CONV_ID),
+      );
       expect(roomEmit).toHaveBeenCalledWith('chat:typing', {
         conversationId: CONV_ID,
         userId: 'u1',
@@ -839,7 +1125,7 @@ describe('NotificationsGateway', () => {
         gateway.handleMarkRead(client, { conversationId: CONV_ID }),
       ).resolves.toEqual({ read: CONV_ID, readAt });
       expect(chatService.markRead).toHaveBeenCalledWith('u1', CONV_ID);
-      expect(to).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+      expect(to).toHaveBeenCalledWith(rooms.conversation(undefined, CONV_ID));
       expect(emit).toHaveBeenCalledWith('chat:read', {
         conversationId: CONV_ID,
         userId: 'u1',
@@ -880,7 +1166,7 @@ describe('NotificationsGateway', () => {
 
       expect(result).toEqual(stored);
       expect(chatService.saveMessage).toHaveBeenCalledWith('u1', CONV_ID, 'hi');
-      expect(to).toHaveBeenCalledWith(`conv_${CONV_ID}`);
+      expect(to).toHaveBeenCalledWith(rooms.conversation(undefined, CONV_ID));
       expect(emit).toHaveBeenCalledWith('chat:message', stored);
     });
 
@@ -955,6 +1241,104 @@ describe('NotificationsGateway', () => {
         }),
       ).resolves.toEqual({ error: 'unauthenticated' });
       expect(chatService.isMember).not.toHaveBeenCalled();
+    });
+  });
+
+  // A socket event has no request: its session is checked under the tenant of the socket
+  // and its rooms are those of that tenant
+  describe('chat events under enforced tenancy', () => {
+    beforeEach(() => {
+      process.env.TENANCY_MODE = 'enforced';
+    });
+
+    const sessionScopes = () => {
+      const scopes: Array<string | undefined> = [];
+      authState.isAccessValid.mockImplementation(() => {
+        scopes.push(TenantContext.current()?.tenantId);
+        return Promise.resolve(true);
+      });
+      return scopes;
+    };
+
+    it('checks the session under the tenant of the socket and joins the room of that tenant', async () => {
+      const scopes = sessionScopes();
+      chatService.isMember.mockResolvedValueOnce(true);
+      const client = socket('u1', TID_A);
+
+      await expect(gateway.handleChatJoin(client, CONV_ID)).resolves.toEqual({
+        joined: CONV_ID,
+      });
+
+      expect(scopes).toEqual([TID_A]);
+      expect(client.join).toHaveBeenCalledWith(
+        rooms.conversation(TID_A, CONV_ID),
+      );
+      expect(client.join).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the room of its own tenant', async () => {
+      sessionScopes();
+      const leave = jest.fn();
+      const client = {
+        ...socket('u1', TID_A),
+        leave,
+      } as unknown as Socket;
+
+      await gateway.handleChatLeave(client, CONV_ID);
+
+      expect(leave).toHaveBeenCalledWith(rooms.conversation(TID_A, CONV_ID));
+    });
+
+    it('sends the message to the conversation room of the tenant of the socket', async () => {
+      sessionScopes();
+      chatService.isMember.mockResolvedValueOnce(true);
+      chatService.saveMessage.mockResolvedValueOnce({ id: 'm1' });
+
+      await gateway.handleChatSend(socket('u1', TID_B), {
+        conversationId: CONV_ID,
+        content: 'hi',
+      });
+
+      expect(to).toHaveBeenCalledWith(rooms.conversation(TID_B, CONV_ID));
+      expect(emit).toHaveBeenCalledWith('chat:message', { id: 'm1' });
+    });
+
+    it('sends the read receipt to the conversation room of the tenant of the socket', async () => {
+      sessionScopes();
+      const readAt = new Date('2026-10-01T02:00:00Z');
+      chatService.markRead.mockResolvedValueOnce({ readAt });
+
+      await gateway.handleMarkRead(socket('u1', TID_A), {
+        conversationId: CONV_ID,
+      });
+
+      expect(to).toHaveBeenCalledWith(rooms.conversation(TID_A, CONV_ID));
+    });
+
+    it('signals typing only in the room of the tenant the socket joined', async () => {
+      sessionScopes();
+      const roomEmit = jest.fn();
+      const typist = (joinedRooms: string[]) =>
+        ({
+          data: { user: { sub: 'u1', tid: TID_A } },
+          rooms: new Set(joinedRooms),
+          to: jest.fn(() => ({ emit: roomEmit })),
+        }) as unknown as Socket & { to: jest.Mock };
+
+      // The same conversation id in another tenant is another room
+      const stranger = typist([rooms.conversation(TID_B, CONV_ID)]);
+      await expect(
+        gateway.handleTyping(stranger, { conversationId: CONV_ID }, true),
+      ).resolves.toEqual({ error: 'not_joined' });
+      expect(roomEmit).not.toHaveBeenCalled();
+
+      const member = typist([rooms.conversation(TID_A, CONV_ID)]);
+      await expect(
+        gateway.handleTyping(member, { conversationId: CONV_ID }, true),
+      ).resolves.toEqual({ ok: true });
+      expect(member.to).toHaveBeenCalledWith(
+        rooms.conversation(TID_A, CONV_ID),
+      );
     });
   });
 });

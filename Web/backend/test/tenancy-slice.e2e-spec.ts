@@ -9,13 +9,19 @@ import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import * as path from 'path';
 import request from 'supertest';
+import {
+  io as connectClient,
+  type Socket as ClientSocket,
+} from 'socket.io-client';
 import type { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/app.setup';
 import { LOGIN_FAILURE_LIMIT } from '../src/auth/login-attempts.service';
+import { TenantContext } from '../src/database/tenancy/tenant-context';
 import { FilesService } from '../src/files/files.service';
+import { NotificationsGateway } from '../src/notifications/notifications.gateway';
 import {
   ADMIN_PASSWORD,
   createTenantDatabase,
@@ -712,6 +718,264 @@ describe('tenant slice (e2e)', () => {
           fs.existsSync(path.join(uploadDir, row.tenant_id, row.storage_key)),
         ).toBe(false),
       );
+    });
+  });
+
+  describe('sockets', () => {
+    const clients: ClientSocket[] = [];
+    afterEach(() => clients.splice(0).forEach((c) => c.disconnect()));
+
+    const open = (who: string) =>
+      new Promise<ClientSocket>((resolve, reject) => {
+        const client = connectClient(baseUrl, {
+          path: '/socket.io/',
+          auth: { token: tokens[who] },
+          transports: ['websocket'],
+          reconnection: false,
+          forceNew: true,
+        });
+        clients.push(client);
+        client.once('connect', () => resolve(client));
+        client.once('connect_error', reject);
+      });
+
+    const received = (client: ClientSocket, event: string) => {
+      const events: unknown[] = [];
+      client.on(event, (payload: unknown) => events.push(payload));
+      return events;
+    };
+
+    // An acknowledged request is answered after anything already written to the socket
+    const drained = (client: ClientSocket): Promise<unknown> =>
+      client
+        .timeout(10_000)
+        .emitWithAck('chat:join', '00000000-0000-4000-8000-000000000000');
+
+    beforeAll(async () => {
+      await db.admin(async (c) => {
+        for (const t of [a, b]) {
+          const { rows } = await c.query<{ id: string }>(
+            `INSERT INTO units (tenant_id, code, name, type) VALUES ($1, 'KP-SHARED', 'Shared', 'area') RETURNING id`,
+            [t.id],
+          );
+          await c.query(
+            `INSERT INTO user_unit_scopes (user_id, unit_id, scope_type) VALUES ($1, $2, 'unit')`,
+            [t.adminId, rows[0].id],
+          );
+        }
+      });
+      // The unit scope is a claim: sign in again so the tokens carry it
+      tokens.a = (await signIn('phu-dinh', a.adminUsername)).tokens.accessToken;
+      tokens.b = (await signIn('tenant-b', b.adminUsername)).tokens.accessToken;
+    });
+
+    it('delivers a unit event only to the sockets of the same tenant', async () => {
+      const [sa, sb] = await Promise.all([open('a'), open('b')]);
+      const gotA = received(sa, 'probe');
+      const gotB = received(sb, 'probe');
+      TenantContext.runAs({ tenantId: a.id }, () =>
+        app
+          .get(NotificationsGateway)
+          .emitToUnit('KP-SHARED', 'probe', { for: 'A' }),
+      );
+      await Promise.all([drained(sa), drained(sb)]);
+      expect(gotA).toEqual([{ for: 'A' }]);
+      expect(gotB).toEqual([]);
+    });
+
+    it('delivers a tenant-wide event only inside the tenant', async () => {
+      const [sa, sb] = await Promise.all([open('a'), open('b')]);
+      const gotA = received(sa, 'probe');
+      const gotB = received(sb, 'probe');
+      TenantContext.runAs({ tenantId: b.id }, () =>
+        app.get(NotificationsGateway).emitToTenant('probe', { for: 'B' }),
+      );
+      await Promise.all([drained(sa), drained(sb)]);
+      expect(gotA).toEqual([]);
+      expect(gotB).toEqual([{ for: 'B' }]);
+    });
+
+    it('runs a socket event under the tenant of the socket', async () => {
+      // The handler checks the session in the users table; with no tenant scope that read
+      // would return nothing and the socket would be told it is unauthenticated
+      const sa = await open('a');
+      const ended = received(sa, 'session_expired');
+      const ack = await drained(sa);
+      expect(ack).not.toEqual({ error: 'unauthenticated' });
+      expect(ended).toEqual([]);
+      expect(sa.connected).toBe(true);
+    });
+
+    // The emitters name the room of the tenant they run under: a request must carry its
+    // tenant to them, or what it emits reaches nobody
+    describe('events emitted by a request', () => {
+      const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const raise = (token: string) =>
+        api()
+          .post(url('/sos'))
+          .set(bearer(token))
+          .send({ incidentType: 'sos', severity: 'urgent', title: 'Probe' })
+          .expect(201);
+
+      it('delivers an alert of a unit to that unit of its own tenant only', async () => {
+        const [sa, sb] = await Promise.all([open('a'), open('b')]);
+        const gotA = received(sa, 'sos:new');
+        const gotB = received(sb, 'sos:new');
+
+        const alert = (await raise(tokens.a)).body as { id: string };
+
+        await Promise.all([drained(sa), drained(sb)]);
+        expect(gotA).toMatchObject([{ id: alert.id, title: 'Probe' }]);
+        expect(gotB).toEqual([]);
+      });
+
+      it('delivers an alert without a unit, and its resolution, to every socket of its tenant only', async () => {
+        // Same account, no unit scope: its socket is in the tenant room and no unit room
+        tokens.aNoUnit = forge(tokens.a, process.env.JWT_SECRET, (claims) => ({
+          ...claims,
+          unitScope: null,
+        }));
+        const [inUnit, noUnit, other] = await Promise.all([
+          open('a'),
+          open('aNoUnit'),
+          open('b'),
+        ]);
+        const newA = received(inUnit, 'sos:new');
+        const newNoUnit = received(noUnit, 'sos:new');
+        const newB = received(other, 'sos:new');
+        const resolvedA = received(inUnit, 'sos:resolved');
+        const resolvedNoUnit = received(noUnit, 'sos:resolved');
+        const resolvedB = received(other, 'sos:resolved');
+
+        const alert = (await raise(tokens.aNoUnit)).body as { id: string };
+        await api()
+          .patch(url(`/sos/${alert.id}/status`))
+          .set(auth('a'))
+          .send({ status: 'resolved' })
+          .expect(200);
+
+        await Promise.all([drained(inUnit), drained(noUnit), drained(other)]);
+        expect(newA).toMatchObject([{ id: alert.id }]);
+        expect(newNoUnit).toMatchObject([{ id: alert.id }]);
+        expect(resolvedA).toEqual([{ id: alert.id }]);
+        expect(resolvedNoUnit).toEqual([{ id: alert.id }]);
+        expect(newB).toEqual([]);
+        expect(resolvedB).toEqual([]);
+      });
+
+      it('delivers a recorded position to the staff of its own tenant only', async () => {
+        const member = (await signIn(a.code, `member-${a.code}`)).tokens
+          .accessToken;
+        const [staffA, staffB] = await Promise.all([open('a'), open('b')]);
+        const gotA = received(staffA, 'gps:update');
+        const gotB = received(staffB, 'gps:update');
+
+        await api()
+          .post(url('/gps/record'))
+          .set(bearer(member))
+          .send({ lat: 10.762, lng: 106.66 })
+          .expect(200);
+
+        await Promise.all([drained(staffA), drained(staffB)]);
+        expect(gotA).toMatchObject([
+          { militiaId: a.memberId, name: 'Member CANARY-A' },
+        ]);
+        expect(gotB).toEqual([]);
+      });
+    });
+
+    // chat:send answers with the sender read from users, a table under Row-Level Security:
+    // the handler reads it only when it runs under the tenant of the socket itself, not just
+    // for the session check that precedes it
+    describe('chat events', () => {
+      let conversationId: string;
+
+      beforeAll(async () => {
+        conversationId = await db.admin(async (c) => {
+          const { rows } = await c.query<{ id: string }>(
+            `INSERT INTO conversations (type, name, created_by) VALUES ('group', 'Probe', $1) RETURNING id`,
+            [a.adminId],
+          );
+          await c.query(
+            `INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)`,
+            [rows[0].id, a.adminId],
+          );
+          return rows[0].id;
+        });
+      });
+
+      it('stores and delivers a message from a handler that reads tenant data', async () => {
+        const [sa, sb] = await Promise.all([open('a'), open('b')]);
+        const gotA = received(sa, 'chat:message');
+        const gotB = received(sb, 'chat:message');
+        await expect(
+          sa.timeout(10_000).emitWithAck('chat:join', conversationId),
+        ).resolves.toEqual({ joined: conversationId });
+
+        const ack: unknown = await sa
+          .timeout(10_000)
+          .emitWithAck('chat:send', { conversationId, content: 'hello' });
+
+        expect(ack).toMatchObject({
+          conversationId,
+          senderName: a.adminUsername,
+          content: 'hello',
+        });
+        await Promise.all([drained(sa), drained(sb)]);
+        expect(gotA).toEqual([ack]);
+        expect(gotB).toEqual([]);
+      });
+
+      // The HTTP twin of chat:send emits from the request, under the tenant of its token
+      it('delivers a message posted over HTTP to the sockets that joined, in its tenant only', async () => {
+        const [sa, sb] = await Promise.all([open('a'), open('b')]);
+        const gotA = received(sa, 'chat:message');
+        const gotB = received(sb, 'chat:message');
+        await sa.timeout(10_000).emitWithAck('chat:join', conversationId);
+
+        const posted = await api()
+          .post(url(`/chat/conversations/${conversationId}/messages`))
+          .set(auth('a'))
+          .send({ content: 'over http' })
+          .expect(201);
+
+        await Promise.all([drained(sa), drained(sb)]);
+        expect(gotA).toMatchObject([{ content: 'over http' }]);
+        expect((posted.body as { content: string }).content).toBe('over http');
+        expect(gotB).toEqual([]);
+      });
+
+      it('does not let a socket of another tenant join or write to the conversation', async () => {
+        const sb = await open('b');
+        const gotB = received(sb, 'chat:message');
+
+        await expect(
+          sb.timeout(10_000).emitWithAck('chat:join', conversationId),
+        ).resolves.toEqual({ error: 'not_a_participant' });
+        await expect(
+          sb
+            .timeout(10_000)
+            .emitWithAck('chat:send', { conversationId, content: 'intruder' }),
+        ).resolves.toEqual({ error: 'not_a_participant' });
+        expect(gotB).toEqual([]);
+      });
+    });
+
+    it('refuses a handshake whose token is not valid', async () => {
+      const sa = connectClient(baseUrl, {
+        path: '/socket.io/',
+        auth: { token: 'not-a-token' },
+        transports: ['websocket'],
+        reconnection: false,
+        forceNew: true,
+      });
+      clients.push(sa);
+      await expect(
+        new Promise((resolve, reject) => {
+          sa.once('connect', () => resolve(undefined));
+          sa.once('connect_error', (error: Error) => reject(error));
+        }),
+      ).rejects.toThrow('invalid_token');
     });
   });
 });

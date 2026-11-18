@@ -9,13 +9,15 @@ import {
   type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
+import { TenantContext } from '../database/tenancy/tenant-context';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { rooms } from '../notifications/rooms';
 import {
   GPS_OFFLINE_AFTER_MINUTES,
   GPS_STAFF_ROLE_SET,
   GPS_UPDATE_EVENT,
-  GPS_WARD_ROOM,
   gpsUnitRoom,
+  gpsWardRoom,
 } from './gps-rooms';
 
 export interface GpsPointDto {
@@ -109,7 +111,7 @@ export class GpsService {
 
   // gps:update carries the member's /gps/live row to everyone whose scope holds the member:
   // ward-wide staff, staff of the member's unit, the CA officers the member is assigned to.
-  // Never the unit room, which the member's teammates share.
+  // Never the unit room, which the member's teammates share. Every room is the tenant's own.
   private async publish(militiaId: string, userId: string): Promise<void> {
     const [row] = await this.ds.query<GpsLiveDto[]>(
       liveRowsSql('gl.militia_id = $1', '$2'),
@@ -117,11 +119,12 @@ export class GpsService {
     );
     if (!row) return;
     const caOfficers = await this.assignments.getCaOfficerIds(userId);
+    const tid = TenantContext.current()?.tenantId;
     this.gateway.emitToRooms(
       [
-        GPS_WARD_ROOM,
-        gpsUnitRoom(row.unitCode),
-        ...caOfficers.map((id) => `user:${id}`),
+        gpsWardRoom(tid),
+        gpsUnitRoom(tid, row.unitCode),
+        ...caOfficers.map((id) => rooms.user(tid, id)),
       ],
       GPS_UPDATE_EVENT,
       row,
