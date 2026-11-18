@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { Logger } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { TenantJobRunner } from './tenant-job-runner';
 import { TenantContext } from './tenant-context';
@@ -13,6 +14,16 @@ const runnerFor = (ids: string[]) =>
   } as unknown as DataSource);
 
 describe('TenantJobRunner', () => {
+  let logError: jest.SpyInstance;
+
+  beforeEach(() => {
+    logError = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+  });
+
+  afterEach(() => {
+    logError.mockRestore();
+  });
+
   it('runs the job once per tenant, each under that tenant scope', async () => {
     const seen: Array<[string, string | undefined]> = [];
     await runnerFor([T1, T2]).forEachTenant(async (tenantId) => {
@@ -38,6 +49,31 @@ describe('TenantJobRunner', () => {
       { tenantId: T2, ok: false, error: 'boom' },
       { tenantId: T3, ok: true },
     ]);
+  });
+
+  it('logs the failing tenant with the stack of the error', async () => {
+    const failure = new Error('boom');
+    await runnerFor([T1, T2]).forEachTenant((tenantId) =>
+      tenantId === T2 ? Promise.reject(failure) : Promise.resolve(),
+    );
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      `Job failed for tenant ${T2}: boom`,
+      failure.stack,
+    );
+  });
+
+  it('reports a job that rejects with something other than an Error', async () => {
+    const outcomes = await runnerFor([T1]).forEachTenant(() =>
+      Promise.reject('plain failure' as unknown as Error),
+    );
+    expect(outcomes).toEqual([
+      { tenantId: T1, ok: false, error: 'plain failure' },
+    ]);
+    expect(logError).toHaveBeenCalledWith(
+      `Job failed for tenant ${T1}: plain failure`,
+      undefined,
+    );
   });
 
   it('enumerates tenants with no scope, through the narrow function', async () => {

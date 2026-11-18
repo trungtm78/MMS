@@ -1,4 +1,9 @@
-import { isTenancyEnforced, tenancyMode } from './tenancy-mode';
+import { thrownBy } from '../../../test/support/thrown-by';
+import {
+  TenancyConfigError,
+  isTenancyEnforced,
+  tenancyMode,
+} from './tenancy-mode';
 
 describe('tenancyMode', () => {
   it('defaults to legacy', () => {
@@ -15,5 +20,11 @@ describe('tenancyMode', () => {
     expect(() => tenancyMode({ TENANCY_MODE: 'enforce' })).toThrow(
       /Invalid TENANCY_MODE "enforce"/,
     );
+  });
+
+  it('reports it as a configuration error, which startup never retries', () => {
+    const error = thrownBy(() => tenancyMode({ TENANCY_MODE: 'enforce' }));
+    expect(error).toBeInstanceOf(TenancyConfigError);
+    expect(error).toMatchObject({ name: 'TenancyConfigError' });
   });
 });

@@ -1,11 +1,23 @@
 // The connection hook on a real pool: connections are reused between tenants and
 // the tenant a query sees is always the tenant of the code that issued it.
+import type { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { bindTenantToConnections } from '../src/database/tenancy/bind-tenant';
-import { assertNoLegacyTenantDefault } from '../src/database/tenancy/legacy-default-guard';
-import { TenantContext } from '../src/database/tenancy/tenant-context';
-import { tenantAwareDataSource } from '../src/database/typeorm.options';
 import {
+  assertNoLegacyTenantDefault,
+  assertRuntimeRoleEnforcesRls,
+} from '../src/database/tenancy/boot-guards';
+import { TenantContext } from '../src/database/tenancy/tenant-context';
+import { TenancyConfigError } from '../src/database/tenancy/tenancy-mode';
+import {
+  buildTypeOrmOptions,
+  tenantAwareDataSource,
+} from '../src/database/typeorm.options';
+import { eventually } from './support/eventually';
+import {
+  TENANT_1,
   createTenantDatabase,
   seedTenant,
   type SeededTenant,
@@ -118,31 +130,84 @@ describe('tenant binding on a real pool (e2e)', () => {
   });
 });
 
-describe('legacy tenant default guard (e2e)', () => {
-  it('passes on an enforced database and refuses one that kept the legacy default', async () => {
-    const enforced = await createTenantDatabase();
-    const legacy = await createTenantDatabase({ keepLegacyDefault: true });
-    const connect = (url: string) => {
-      const ds = new DataSource({
-        type: 'postgres',
-        url,
-        installExtensions: false,
-      });
-      return ds.initialize();
-    };
-    const good = await connect(enforced.appUrl);
-    const bad = await connect(legacy.appUrl);
-    try {
+// What the databases and roles of an enforced deployment must look like, checked on real
+// Postgres catalogs (the settings live in pg_db_role_setting, the role flags in pg_roles)
+describe('boot guards (e2e)', () => {
+  const dbs: TenantDatabase[] = [];
+  const sources: DataSource[] = [];
+
+  const database = async (
+    options?: Parameters<typeof createTenantDatabase>[0],
+  ): Promise<TenantDatabase> => {
+    const created = await createTenantDatabase(options);
+    dbs.push(created);
+    return created;
+  };
+  const connect = async (url: string): Promise<DataSource> => {
+    const ds = await new DataSource({
+      type: 'postgres',
+      url,
+      installExtensions: false,
+    }).initialize();
+    sources.push(ds);
+    return ds;
+  };
+  const setForAppRole = (db: TenantDatabase, tenantId: string) =>
+    db.admin((c) =>
+      c.query(
+        `ALTER ROLE mms_app IN DATABASE ${db.name} SET app.tenant_id = '${tenantId}'`,
+      ),
+    );
+
+  afterEach(async () => {
+    await Promise.all(sources.splice(0).map((ds) => ds.destroy()));
+    await Promise.all(dbs.splice(0).map((db) => db.drop()));
+  });
+
+  describe('assertNoLegacyTenantDefault', () => {
+    it('passes on an enforced database and refuses one that kept the legacy default', async () => {
+      const enforced = await database();
+      const legacy = await database({ keepLegacyDefault: true });
+      const good = await connect(enforced.appUrl);
+      const bad = await connect(legacy.appUrl);
+
       await expect(assertNoLegacyTenantDefault(good)).resolves.toBeUndefined();
       await expect(assertNoLegacyTenantDefault(bad)).rejects.toThrow(
         /legacy_tenant_default_present/,
       );
-    } finally {
-      await good.destroy();
-      await bad.destroy();
-      await enforced.drop();
-      await legacy.drop();
-    }
+    });
+
+    it('refuses a default set for a role in this database', async () => {
+      const db = await database();
+      await setForAppRole(db, TENANT_1);
+      const ds = await connect(db.appUrl);
+
+      await expect(assertNoLegacyTenantDefault(ds)).rejects.toThrow(
+        /legacy_tenant_default_present.*app\.tenant_id=a1000000/,
+      );
+    });
+
+    it('ignores defaults that belong to another database', async () => {
+      const other = await database({ keepLegacyDefault: true });
+      await setForAppRole(other, TENANT_1);
+      const clean = await database();
+      const ds = await connect(clean.appUrl);
+
+      await expect(assertNoLegacyTenantDefault(ds)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('assertRuntimeRoleEnforcesRls', () => {
+    it('passes for the application role and refuses a superuser', async () => {
+      const db = await database();
+      const app = await connect(db.appUrl);
+      const superuser = await connect(db.adminUrl);
+
+      await expect(assertRuntimeRoleEnforcesRls(app)).resolves.toBeUndefined();
+      await expect(assertRuntimeRoleEnforcesRls(superuser)).rejects.toThrow(
+        /runtime_role_bypasses_rls/,
+      );
+    });
   });
 });
 
@@ -166,21 +231,21 @@ describe('tenantAwareDataSource (e2e)', () => {
     else process.env.TENANCY_MODE = mode;
     return fn();
   };
-  const open = async (db: TenantDatabase): Promise<DataSource> => {
+  const open = async (url: string): Promise<DataSource> => {
     const ds = await tenantAwareDataSource({
       type: 'postgres',
-      url: db.appUrl,
+      url,
       installExtensions: false,
     });
     sources.push(ds);
     return ds;
   };
-  const appConnections = (db: TenantDatabase): Promise<number> =>
+  const connectionsOf = (db: TenantDatabase, user: string): Promise<number> =>
     db.admin(async (c) => {
       const { rows } = await c.query<{ n: string }>(
         `SELECT count(*) AS n FROM pg_stat_activity
-          WHERE datname = $1 AND usename = 'mms_app'`,
-        [db.name],
+          WHERE datname = $1 AND usename = $2 AND pid <> pg_backend_pid()`,
+        [db.name, user],
       );
       return Number(rows[0].n);
     });
@@ -195,7 +260,7 @@ describe('tenantAwareDataSource (e2e)', () => {
   it('binds every connection to the caller tenant in enforced mode', async () => {
     const db = await database();
     const seeded = await seedTenant(db, 'phu-dinh', 'CANARY-A');
-    const ds = await withMode('enforced', () => open(db));
+    const ds = await withMode('enforced', () => open(db.appUrl));
 
     const titles = () =>
       ds
@@ -211,29 +276,73 @@ describe('tenantAwareDataSource (e2e)', () => {
   it('refuses to start on a database that kept the legacy default, and closes its connections', async () => {
     const db = await database({ keepLegacyDefault: true });
 
-    await expect(withMode('enforced', () => open(db))).rejects.toThrow(
+    await expect(withMode('enforced', () => open(db.appUrl))).rejects.toThrow(
       /legacy_tenant_default_present/,
     );
-    await expect(appConnections(db)).resolves.toBe(0);
+    await eventually(
+      async () => (await connectionsOf(db, 'mms_app')) === 0,
+      'the refused data source closing its connections',
+    );
+  });
+
+  it('refuses to start as a superuser, and closes its connections', async () => {
+    const db = await database();
+
+    await expect(withMode('enforced', () => open(db.adminUrl))).rejects.toThrow(
+      /runtime_role_bypasses_rls/,
+    );
+    await eventually(
+      async () => (await connectionsOf(db, 'mms')) === 0,
+      'the refused data source closing its connections',
+    );
   });
 
   it('leaves legacy mode alone: no binding and no guard', async () => {
     const db = await database({ keepLegacyDefault: true });
     const seeded = await seedTenant(db, 'phu-dinh', 'CANARY-A');
 
-    const ds = await withMode(undefined, () => open(db));
+    const ds = await withMode(undefined, () => open(db.appUrl));
 
     // The legacy default still gives the first tenant to a session that sets none
     const rows = await ds.query<{ title: string }[]>(`SELECT title FROM tasks`);
-    expect(seeded.id).toBe('a1000000-0000-4000-8000-000000000001');
+    expect(seeded.id).toBe(TENANT_1);
     expect(rows.map((r) => r.title)).toEqual(['Task CANARY-A']);
   });
 
   it('fails startup on an unknown TENANCY_MODE', async () => {
     const db = await database();
 
-    await expect(withMode('enforce', () => open(db))).rejects.toThrow(
+    await expect(withMode('enforce', () => open(db.appUrl))).rejects.toThrow(
       /Invalid TENANCY_MODE/,
     );
+  });
+
+  it('is not retried by TypeOrmModule when the configuration is what is wrong', async () => {
+    // The module retries a failing factory 9 times, 3 s apart, unless toRetry says no
+    const db = await database();
+    const url = new URL(db.adminUrl);
+    const settings: Record<string, unknown> = {
+      'database.host': url.hostname,
+      'database.port': Number(url.port),
+      'database.username': decodeURIComponent(url.username),
+      'database.password': decodeURIComponent(url.password),
+      'database.database': db.name,
+    };
+    const config = { get: (key: string) => settings[key] } as ConfigService;
+    const factory = jest.fn(tenantAwareDataSource);
+
+    await expect(
+      withMode('enforced', () =>
+        Test.createTestingModule({
+          imports: [
+            TypeOrmModule.forRootAsync({
+              useFactory: () => buildTypeOrmOptions(config),
+              dataSourceFactory: factory,
+            }),
+          ],
+        }).compile(),
+      ),
+    ).rejects.toBeInstanceOf(TenancyConfigError);
+    expect(factory).toHaveBeenCalledTimes(1);
   });
 });

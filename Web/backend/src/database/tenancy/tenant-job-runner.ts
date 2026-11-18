@@ -30,7 +30,10 @@ export class TenantJobRunner {
         outcomes.push({ tenantId, ok: true });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Job failed for tenant ${tenantId}: ${message}`);
+        this.logger.error(
+          `Job failed for tenant ${tenantId}: ${message}`,
+          error instanceof Error ? error.stack : undefined,
+        );
         outcomes.push({ tenantId, ok: false, error: message });
       }
     }
