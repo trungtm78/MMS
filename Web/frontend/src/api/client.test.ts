@@ -196,6 +196,242 @@ describe('api client 401 handling', () => {
     })
   })
 
+  // The refresh token lives in localStorage, shared by every tab; access tokens live in each tab's
+  // sessionStorage. Every refresh rotates the token and revokes the session the old one belonged
+  // to, and presenting a rotated token again ends every session of the user (refresh_token_reused).
+  describe('across browser tabs', () => {
+    // Each tab loads its own copy of the module: its own single-flight, its own lease owner
+    async function openTab() {
+      vi.resetModules()
+      return import('./client')
+    }
+
+    // FIFO exclusive lock shared by the simulated tabs, as navigator.locks is in a browser
+    function installWebLocks() {
+      let tail: Promise<unknown> = Promise.resolve()
+      const request = vi.fn(<T>(_name: string, callback: () => Promise<T>): Promise<T> => {
+        const run = tail.then(() => callback())
+        // The next holder waits for this one to finish, whatever the outcome
+        tail = run.then(
+          () => undefined,
+          () => undefined,
+        )
+        return run
+      })
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } })
+      return request
+    }
+
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => undefined
+      const promise = new Promise<T>((res) => {
+        resolve = res
+      })
+      return { promise, resolve }
+    }
+
+    beforeEach(() => {
+      sessionStorage.setItem(TOKEN_KEYS.access, 'old-access')
+    })
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'locks')
+    })
+
+    describe.each([
+      ['with the Web Locks API', true],
+      ['without the Web Locks API (plain HTTP)', false],
+    ])('%s', (_label, withLocks) => {
+      beforeEach(() => {
+        if (withLocks) installWebLocks()
+      })
+
+      it('sends the refresh token once when two tabs refresh at the same time', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi.spyOn(axios, 'post').mockReturnValueOnce(answer.promise)
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const a = tabA.refreshAccessToken()
+        const b = tabB.refreshAccessToken()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        answer.resolve({ data: FRESH_TOKENS })
+
+        await expect(Promise.all([a, b])).resolves.toEqual(['fresh-access', 'fresh-access'])
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(refresh).toHaveBeenCalledWith(
+          expect.stringContaining('/auth/refresh'),
+          { refreshToken: 'remembered-refresh-token' },
+          expect.anything(),
+        )
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBe('fresh-refresh')
+        expect(sessionExpired).not.toHaveBeenCalled()
+      })
+
+      it('uses the access token another tab already obtained instead of refreshing again', async () => {
+        const refresh = vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+        const tabA = await openTab()
+        const tabB = await openTab()
+        await tabA.refreshAccessToken()
+        // Tab B still holds the access token of the session tab A's refresh just revoked
+        sessionStorage.setItem(TOKEN_KEYS.access, 'old-access')
+
+        await expect(tabB.refreshAccessToken()).resolves.toBe('fresh-access')
+
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(sessionStorage.getItem(TOKEN_KEYS.access)).toBe('fresh-access')
+      })
+
+      it('presents the current refresh token when another tab rotated it while this one waited', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi
+          .spyOn(axios, 'post')
+          .mockReturnValueOnce(answer.promise)
+          .mockResolvedValueOnce({ data: { ...FRESH_TOKENS, accessToken: 'newest-access', refreshToken: 'newest-refresh' } })
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const a = tabA.refreshAccessToken()
+        const b = tabB.refreshAccessToken()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        // Tab A's answer carries no lifetime, so tab B cannot reuse its access token
+        answer.resolve({ data: { accessToken: 'fresh-access', refreshToken: 'fresh-refresh' } })
+
+        await expect(a).resolves.toBe('fresh-access')
+        await expect(b).resolves.toBe('newest-access')
+        expect(refresh).toHaveBeenCalledTimes(2)
+        expect(refresh.mock.calls.map((call) => call[1])).toEqual([
+          { refreshToken: 'remembered-refresh-token' },
+          { refreshToken: 'fresh-refresh' },
+        ])
+        expect(sessionExpired).not.toHaveBeenCalled()
+      })
+
+      it('does not present a refused refresh token again from a waiting tab', async () => {
+        const answer = deferred<unknown>()
+        const refresh = vi.spyOn(axios, 'post').mockReturnValueOnce(answer.promise)
+        const tabA = await openTab()
+        const tabB = await openTab()
+
+        const a = tabA.refreshAccessToken()
+        const b = tabB.refreshAccessToken()
+        const settled = Promise.allSettled([a, b])
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+        answer.resolve(Promise.reject(refusal(401, 'refresh_token_revoked')))
+
+        const [resultA, resultB] = await settled
+        expect(resultA.status).toBe('rejected')
+        expect(resultB.status).toBe('rejected')
+        expect(refresh).toHaveBeenCalledTimes(1)
+        expect(sessionExpired).toHaveBeenCalled()
+        expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBeNull()
+      })
+    })
+
+    it('waits for the refresh another tab holds the lock for and then reads the token again', async () => {
+      const locks = installWebLocks()
+      const refresh = vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+      const otherTab = deferred<void>()
+      void locks('mms-auth-refresh', () => otherTab.promise)
+      const tab = await openTab()
+
+      const result = tab.refreshAccessToken()
+      // The other tab rotates the token (without leaving its access token) and lets go
+      localStorage.setItem(TOKEN_KEYS.refresh, 'rotated-by-other-tab')
+      otherTab.resolve()
+
+      await expect(result).resolves.toBe('fresh-access')
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(refresh).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        { refreshToken: 'rotated-by-other-tab' },
+        expect.anything(),
+      )
+    })
+
+    it('refreshes when the access token another tab left is the one that was just refused', async () => {
+      const refresh = vi
+        .spyOn(axios, 'post')
+        .mockResolvedValueOnce({ data: FRESH_TOKENS })
+        .mockResolvedValueOnce({ data: { ...FRESH_TOKENS, accessToken: 'newest-access', refreshToken: 'newest-refresh' } })
+      const tab = await openTab()
+      await tab.refreshAccessToken()
+
+      await expect(tab.refreshAccessToken()).resolves.toBe('newest-access')
+
+      expect(refresh).toHaveBeenCalledTimes(2)
+      expect(refresh.mock.calls[1][1]).toEqual({ refreshToken: 'fresh-refresh' })
+    })
+
+    it('refreshes when the access token another tab left has expired', async () => {
+      const refresh = vi
+        .spyOn(axios, 'post')
+        .mockResolvedValueOnce({ data: { ...FRESH_TOKENS, expiresIn: 0 } })
+        .mockResolvedValueOnce({ data: { ...FRESH_TOKENS, accessToken: 'newest-access', refreshToken: 'newest-refresh' } })
+      const tabA = await openTab()
+      const tabB = await openTab()
+      await tabA.refreshAccessToken()
+      sessionStorage.setItem(TOKEN_KEYS.access, 'old-access')
+
+      await expect(tabB.refreshAccessToken()).resolves.toBe('newest-access')
+
+      expect(refresh.mock.calls[1][1]).toEqual({ refreshToken: 'fresh-refresh' })
+    })
+
+    it('bounds the refresh request so a hung one cannot hold the other tabs back', async () => {
+      const refresh = vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+      const tab = await openTab()
+
+      await tab.refreshAccessToken()
+
+      expect(refresh).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        expect.anything(),
+        expect.objectContaining({ timeout: 30_000 }),
+      )
+    })
+
+    it('signing out forgets the access token left for the other tabs', async () => {
+      vi.spyOn(axios, 'post').mockResolvedValueOnce({ data: FRESH_TOKENS })
+      const tab = await openTab()
+      await tab.refreshAccessToken()
+      expect(localStorage.getItem(TOKEN_KEYS.handoff)).not.toBeNull()
+
+      tab.clearTokens()
+
+      expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBeNull()
+      expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBeNull()
+    })
+
+    it('neither keeps nor shares new tokens when another tab signed out during the refresh', async () => {
+      const answer = deferred<unknown>()
+      const refresh = vi.spyOn(axios, 'post').mockReturnValueOnce(answer.promise)
+      const tab = await openTab()
+
+      const result = tab.refreshAccessToken()
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+      tab.clearTokens()
+      answer.resolve({ data: FRESH_TOKENS })
+
+      await expect(result).resolves.toBe('fresh-access')
+      expect(localStorage.getItem(TOKEN_KEYS.refresh)).toBeNull()
+      expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBeNull()
+    })
+
+    // "Remember me" off: no refresh token is kept, so the session ends with its access token
+    it('ends the session without a request when no refresh token was kept', async () => {
+      localStorage.removeItem(TOKEN_KEYS.refresh)
+      const refresh = vi.spyOn(axios, 'post')
+      const tab = await openTab()
+
+      await expect(tab.refreshAccessToken()).rejects.toThrow()
+
+      expect(refresh).not.toHaveBeenCalled()
+      expect(sessionExpired).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem(TOKEN_KEYS.handoff)).toBeNull()
+    })
+  })
+
   // Access tokens can be revoked before they expire (jwt-auth.guard.ts:46 session_revoked);
   // refresh tokens rotate, and presenting a rotated one again ends every session
   describe('revoked sessions', () => {
