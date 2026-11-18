@@ -26,29 +26,9 @@ class AppStrings {
 
   // Tasks
   static const String myTasks = 'Nhiệm vụ của tôi';
-  static const String taskDetail = 'Chi tiết nhiệm vụ';
-  static const String taskDescription = 'Mô tả';
-  static const String updateStatus = 'Cập nhật trạng thái';
-  static const String submitReport = 'Nộp báo cáo';
-  static const String reportContent = 'Nội dung báo cáo';
-  static const String filterPending = 'Chờ';
-  static const String filterInProgress = 'Đang làm';
-  static const String filterCompleted = 'Hoàn thành';
-  static const String filterOverdue = 'Quá hạn';
-
-  // Task statuses
-  static const String statusInProgress = 'Đang thực hiện';
-  static const String statusCompleted = 'Hoàn thành';
-  static const String statusOverdue = 'Quá hạn';
-  static const String statusCancelled = 'Đã hủy';
 
   // Leave
   static const String leaveRequest = 'Đăng ký nghỉ phép';
-
-  // Actions
-  static const String retry = 'Thử lại';
-  static const String loading = 'Đang tải...';
-  static const String noData = 'Không có dữ liệu';
 
   // Errors
   static const String errorGeneral = 'Có lỗi xảy ra. Vui lòng thử lại.';

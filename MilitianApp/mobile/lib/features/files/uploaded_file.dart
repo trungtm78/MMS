@@ -1,3 +1,5 @@
+import '../../shared/utils/number_format.dart';
+
 /// A stored file as every backend endpoint returns it: FileView in Web/backend/src/files/files.service.ts
 /// ({id, url, name, mimeType, size}).
 class UploadedFile {
@@ -23,14 +25,13 @@ class UploadedFile {
   factory UploadedFile.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
     if (id == null) throw const FormatException('file without id');
-    final size = json['size'];
     return UploadedFile(
       id: id.toString(),
       url: json['url'] as String? ?? '',
       name: json['name'] as String? ?? '',
       mimeType: json['mimeType'] as String? ?? '',
       // files.size is BIGINT: node-postgres may send it as text
-      size: size is num ? size.toInt() : int.tryParse('$size') ?? 0,
+      size: parseWholeNumber(json['size']) ?? 0,
     );
   }
 

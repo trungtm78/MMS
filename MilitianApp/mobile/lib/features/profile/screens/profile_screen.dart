@@ -5,8 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/router/routes.dart';
+import '../../../l10n/error_texts.dart';
 import '../../../l10n/l10n.dart';
+import '../../../shared/utils/number_format.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../kpi/kpi_repository.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -15,9 +18,14 @@ class ProfileScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+/// The signed-in member: GET /users/me (Web/backend/src/users/users.service.ts getProfile, a bare object:
+/// fullName, email, phone, status, unitScope...) and this month's KPI standing from GET /kpi/current.
+/// Only what the backend returns is shown: it keeps no seniority, neighbourhood, area officer or join
+/// date for an account, so none is displayed.
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Map<String, dynamic>? _profileData;
   bool _loadingProfile = false;
+  Object? _profileError;
 
   @override
   void initState() {
@@ -26,33 +34,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _fetchProfile() async {
-    setState(() => _loadingProfile = true);
+    setState(() {
+      _loadingProfile = true;
+      _profileError = null;
+    });
     try {
-      final dio = ref.read(apiDioProvider);
-      final res = await dio.get(ApiConstants.profile);
-      final data = res.data['data'] as Map<String, dynamic>?;
-      if (mounted && data != null) {
-        setState(() { _profileData = data; _loadingProfile = false; });
-      } else {
-        if (mounted) setState(() => _loadingProfile = false);
+      final res = await ref.read(apiDioProvider).get<dynamic>(ApiConstants.profile);
+      final data = res.data;
+      if (!mounted) return;
+      setState(() {
+        _profileData = data is Map ? Map<String, dynamic>.from(data) : null;
+        _loadingProfile = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _profileError = e;
+          _loadingProfile = false;
+        });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadingProfile = false);
     }
+  }
+
+  String? _text(String key) {
+    final value = _profileData?[key];
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final authUser = ref.watch(authStateProvider).user;
-    final fullName = _profileData?['fullName'] as String?
-        ?? _profileData?['full_name'] as String?
-        ?? authUser?.fullName ?? '—';
-    final rank = _profileData?['rank'] as String? ?? authUser?.rank ?? '';
-    final position = _profileData?['position'] as String? ?? authUser?.position ?? '';
-    final unit = _profileData?['unit'] as String? ?? authUser?.unit ?? '—';
-    final phone = _profileData?['phone'] as String? ?? authUser?.phone ?? '—';
-    final email = _profileData?['email'] as String? ?? authUser?.email ?? '—';
+    final fullName = _text('fullName') ?? authUser?.fullName ?? '—';
+    final unit = _text('unitScope') ?? '—';
+    final phone = _text('phone') ?? authUser?.phone ?? '—';
+    final email = _text('email') ?? authUser?.email ?? '—';
+    final active = _text('status') == 'active';
+    final profileError = _profileError;
 
     // Initials
     final parts = fullName.trim().split(' ');
@@ -94,7 +112,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: AppColors.tertiary, width: 2),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
                     ),
                     child: Column(
                       children: [
@@ -134,47 +152,39 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(height: 12),
                         Text(fullName,
                           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                        const SizedBox(height: 4),
-                        if (rank.isNotEmpty || position.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.textPrimary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              rank.isNotEmpty && position.isNotEmpty
-                                  ? '$rank · $position'
-                                  : rank.isNotEmpty ? rank : position,
-                              style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-                            ),
+                        // users.status as the backend reports it; nothing is claimed without an answer
+                        if (active) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(width: 8, height: 8,
+                                decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              Text(l10n.profileScreenStatusActive,
+                                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                            ],
                           ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(width: 8, height: 8,
-                              decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle)),
-                            const SizedBox(width: 6),
-                            Text(l10n.profileScreenStatusActive,
-                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                          ],
-                        ),
+                        ],
                       ],
                     ),
                   ),
+                  if (profileError != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(l10n.profileScreenLoadFailed(errorTextFor(l10n, profileError)),
+                              style: const TextStyle(fontSize: 12, color: AppColors.error)),
+                        ),
+                        TextButton(onPressed: _fetchProfile, child: Text(l10n.commonRetryButton)),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 16),
 
-                  // ── Quick stats ──────────────────────────────────────────
-                  Row(
-                    children: [
-                      Expanded(child: _StatCard(l10n.profileScreenStatSeniorityLabel, l10n.profileScreenStatSeniorityValue)),
-                      const SizedBox(width: 10),
-                      Expanded(child: _StatCard(l10n.profileScreenStatKpiLabel, '92.4')),
-                      const SizedBox(width: 10),
-                      Expanded(child: _StatCard(l10n.profileScreenStatRankLabel, '#3/28')),
-                    ],
-                  ),
+                  // ── Quick stats: this month's KPI (GET /kpi/current) ─────
+                  const _KpiStats(),
                   const SizedBox(height: 16),
 
                   // ── Personal info ────────────────────────────────────────
@@ -184,20 +194,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       _InfoRow(Icons.phone, l10n.profileScreenPhoneLabel, phone),
                       _InfoRow(Icons.email_outlined, l10n.profileScreenEmailLabel, email),
                       _InfoRow(Icons.badge_outlined, l10n.profileScreenUnitLabel, unit),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Work info ────────────────────────────────────────────
-                  _InfoCard(
-                    title: l10n.profileScreenWorkInfoTitle,
-                    children: [
-                      _InfoRow(Icons.location_on_outlined, l10n.profileScreenNeighborhoodLabel,
-                          l10n.profileScreenNeighborhoodValue),
-                      _InfoRow(Icons.people_outline, l10n.profileScreenAreaPoliceLabel,
-                          l10n.profileScreenAreaPoliceValue),
-                      _InfoRow(Icons.calendar_today_outlined, l10n.profileScreenJoinedLabel, '01/10/2022'),
-                      _InfoRow(Icons.work_outline, l10n.profileScreenPositionLabel, position),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -226,7 +222,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
                     ),
                     child: Column(
                       children: [
@@ -277,10 +273,72 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 }
 
+// ── KPI stats ─────────────────────────────────────────────────────────────────
+/// The month's score on the backend's scale and the standing within the unit (rankInUnit / unitSize)
+class _KpiStats extends ConsumerWidget {
+  const _KpiStats();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final (Widget score, Widget rank) = ref.watch(kpiCurrentProvider).when(
+          loading: () => (const _StatLoading(), const _StatLoading()),
+          error: (error, stackTrace) =>
+              (_StatValue(l10n.profileScreenStatUnavailable), _StatValue(l10n.profileScreenStatUnavailable)),
+          data: (kpi) {
+            final value = kpi.score;
+            final inUnit = kpi.rankInUnit;
+            final size = kpi.unitSize;
+            return (
+              _StatValue(value == null
+                  ? l10n.profileScreenStatNotEvaluated
+                  : l10n.kpiScoreOutOf(formatDecimal(value, fractionDigits: 1), formatDecimal(kpi.maxScore))),
+              _StatValue(inUnit == null
+                  ? l10n.profileScreenStatNotEvaluated
+                  : size != null && size >= inUnit
+                      ? l10n.profileScreenStatRankValue(inUnit, size)
+                      : l10n.profileScreenStatRankOnly(inUnit)),
+            );
+          },
+        );
+    return Row(
+      children: [
+        Expanded(child: _StatCard(l10n.profileScreenStatKpiLabel, score)),
+        const SizedBox(width: 10),
+        Expanded(child: _StatCard(l10n.profileScreenStatRankLabel, rank)),
+      ],
+    );
+  }
+}
+
+class _StatValue extends StatelessWidget {
+  final String text;
+  const _StatValue(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(text,
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+      textAlign: TextAlign.center);
+}
+
+class _StatLoading extends StatelessWidget {
+  const _StatLoading();
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+        dimension: 16,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: AppColors.navy,
+          semanticsLabel: context.l10n.profileScreenStatLoading,
+        ),
+      );
+}
+
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 class _StatCard extends StatelessWidget {
   final String label;
-  final String value;
+  final Widget value;
   const _StatCard(this.label, this.value);
 
   @override
@@ -289,13 +347,13 @@ class _StatCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(10),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6)],
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
     ),
     child: Column(
       children: [
         Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary), textAlign: TextAlign.center),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary), textAlign: TextAlign.center),
+        value,
       ],
     ),
   );
@@ -313,7 +371,7 @@ class _InfoCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,7 +428,7 @@ class _QuickAction extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
       ),
       child: Row(
         children: [

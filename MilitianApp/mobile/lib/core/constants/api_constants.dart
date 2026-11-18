@@ -70,7 +70,6 @@ class ApiConstants {
   static const String tasks = '/tasks';
   static const String taskById = '/tasks/{id}';
   static const String acceptTask = '/tasks/{id}/accept';
-  static const String updateTaskProgress = '/tasks/{id}/progress';
   static const String submitTaskReport = '/tasks/{id}/report';
 
   // Leave

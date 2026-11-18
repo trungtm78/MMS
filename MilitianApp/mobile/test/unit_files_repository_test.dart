@@ -187,7 +187,9 @@ void main() {
     expect(UploadedFile.listFromJson([_view('a'), {'name': 'no id'}, 'x', {..._view('b'), 'mimeType': 'application/pdf'}])
         .map((f) => (f.id, f.isImage)), [('a', true), ('b', false)]);
     expect(UploadedFile.listFromJson(null), isEmpty);
-    expect(FilePurpose.values.map((p) => p.wire), ['general', 'task_report', 'work_report', 'official_document']);
+    // Every purpose the backend accepts: test/unit_file_purpose_test.dart
+    expect(FilePurpose.values.map((p) => p.wire),
+        ['general', 'task_report', 'work_report', 'official_document', 'task', 'militia_profile']);
   });
 
   test('UT-FILES-10: every upload and attachment code has its row in the error table; local issues are worded',

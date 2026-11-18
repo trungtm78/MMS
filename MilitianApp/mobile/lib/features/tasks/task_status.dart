@@ -4,30 +4,28 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 
-/// tasks.status as the backend stores and returns it (Web/backend/migrations/003_tasks.sql:25,
-/// src/tasks/task.entity.ts:19-25). GET /tasks and GET /tasks/:id return the task's own status, never
-/// task_assignments.status ('accepted' and 'rejected' exist only there).
+/// tasks.status as the backend stores and returns it (Web/backend/src/tasks/task-sql.ts TASK_STATUSES).
+/// GET /tasks and GET /tasks/:id return the task's own status, never task_assignments.status
+/// ('accepted' and 'rejected' exist only there). Worded by taskStatusText (tasks_texts.dart).
 class TaskStatus {
   TaskStatus._();
 
-  /// Created with an assignee, not accepted yet (tasks.service.ts:101)
+  /// Created with an assignee, not accepted yet
   static const pending = 'pending';
 
-  /// Allowed by the CHECK constraint but written by no service code; not started
+  /// Assigned, not started
   static const assigned = 'assigned';
 
-  /// POST /tasks/:id/accept (from pending only) or PATCH /tasks/:id/progress
-  /// (tasks.service.ts:184-188, 226-230)
+  /// Accepted (POST /tasks/:id/accept)
   static const inProgress = 'in_progress';
 
-  /// POST /tasks/:id/report or PATCH /tasks/:id/progress (tasks.service.ts:284-287)
+  /// Reported (POST /tasks/:id/report)
   static const completed = 'completed';
 
-  /// DELETE /tasks/:id (tasks.service.ts:368-371)
+  /// Cancelled by its author (DELETE /tasks/:id)
   static const cancelled = 'cancelled';
 
-  /// Allowed by the CHECK constraint but written by no service code, so lateness is also
-  /// derived from the deadline
+  /// Marked late
   static const overdue = 'overdue';
 
   static const values = [pending, assigned, inProgress, completed, cancelled, overdue];
@@ -36,22 +34,19 @@ class TaskStatus {
 /// Unfinished statuses: these can run past their deadline
 const _open = {TaskStatus.pending, TaskStatus.assigned, TaskStatus.inProgress};
 
-/// Tabs of the task list, in display order. Every known status belongs to exactly one tab.
+/// Tabs of the task list, in display order. Every known status belongs to exactly one tab. Worded by
+/// taskTabText (tasks_texts.dart).
 enum TaskTab {
-  /// in_progress, deadline not passed
-  inProgress(AppStrings.filterInProgress),
+  /// in_progress, not late
+  inProgress,
 
-  /// pending / assigned (not started), deadline not passed
-  waiting(AppStrings.filterPending),
-  completed(AppStrings.filterCompleted),
+  /// pending / assigned (not started), not late
+  waiting,
+  completed,
 
-  /// status overdue, or past the deadline and neither completed nor cancelled
-  overdue(AppStrings.filterOverdue),
-  cancelled(AppStrings.statusCancelled);
-
-  const TaskTab(this.label);
-
-  final String label;
+  /// status overdue, or an unfinished task that is late
+  overdue,
+  cancelled,
 }
 
 /// The backend status of a task row, or '' when it has none.
@@ -66,11 +61,15 @@ DateTime? taskDeadlineOf(Map<String, dynamic> task) {
   return deadline is String ? DateTime.tryParse(deadline) : null;
 }
 
-/// Status overdue, or an unfinished task whose deadline is before [now].
+/// Whether [task] is late. Status overdue always is, a completed or cancelled task never is. For an
+/// unfinished task the server's `overdue` flag (TASK_OVERDUE_SQL, computed against the server clock)
+/// decides; a row without a boolean flag falls back to the same rule on the deadline against [now].
 bool isTaskOverdue(Map<String, dynamic> task, DateTime now) {
   final status = taskStatusOf(task);
   if (status == TaskStatus.overdue) return true;
   if (!_open.contains(status)) return false;
+  final flag = task['overdue'];
+  if (flag is bool) return flag;
   final deadline = taskDeadlineOf(task);
   return deadline != null && deadline.isBefore(now);
 }
@@ -112,18 +111,6 @@ List<Map<String, dynamic>> tasksInTab(
 ) =>
     tasks.where((task) => taskTabOf(task, now) == tab).toList();
 
-/// Vietnamese label of a backend status; an unknown code is shown as is.
-String taskStatusLabel(String status) => switch (status) {
-      TaskStatus.pending => 'Chờ tiếp nhận',
-      TaskStatus.assigned => 'Đã giao',
-      TaskStatus.inProgress => AppStrings.statusInProgress,
-      TaskStatus.completed => AppStrings.statusCompleted,
-      TaskStatus.cancelled => AppStrings.statusCancelled,
-      TaskStatus.overdue => AppStrings.statusOverdue,
-      '' => 'Không rõ',
-      _ => status,
-    };
-
 /// Badge colour of a backend status.
 Color taskStatusColor(String status) => switch (status) {
       TaskStatus.pending || TaskStatus.assigned => AppColors.warning,
@@ -134,24 +121,15 @@ Color taskStatusColor(String status) => switch (status) {
       _ => AppColors.textSecondary,
     };
 
-/// POST /tasks/:id/accept only moves a pending task (tasks.service.ts:184-188); on any other
-/// status it answers 200 and changes nothing.
-bool canAcceptTask(Map<String, dynamic> task) => taskStatusOf(task) == TaskStatus.pending;
+/// POST /tasks/:id/accept moves a task that is not under way yet to in_progress
+/// (tasks.service.ts ACCEPTABLE_STATUSES); any other status is refused with 409 task_not_acceptable.
+bool canAcceptTask(Map<String, dynamic> task) =>
+    const {TaskStatus.pending, TaskStatus.assigned, TaskStatus.overdue}.contains(taskStatusOf(task));
 
-/// A completion report (POST /tasks/:id/report) is offered once the task is assigned, under way or late.
+/// A completion report (POST /tasks/:id/report) is offered once the task is assigned, under way or late;
+/// a completed or cancelled task is closed (409 task_closed).
 bool canReportTask(Map<String, dynamic> task) =>
     const {TaskStatus.assigned, TaskStatus.inProgress, TaskStatus.overdue}.contains(taskStatusOf(task));
-
-/// Statuses the assignee can set with PATCH /tasks/:id/progress (UpdateProgressDto.status,
-/// tasks.controller.ts:104-106).
-List<String> taskStatusTargets(Map<String, dynamic> task) => switch (taskStatusOf(task)) {
-      TaskStatus.pending ||
-      TaskStatus.assigned ||
-      TaskStatus.overdue =>
-        const <String>[TaskStatus.inProgress, TaskStatus.completed],
-      TaskStatus.inProgress => const <String>[TaskStatus.completed],
-      _ => const <String>[],
-    };
 
 /// The deadline in local time ('dd/MM/yyyy HH:mm'), or '' without one.
 String formatTaskDeadline(Map<String, dynamic> task) {

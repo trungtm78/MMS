@@ -65,7 +65,6 @@ void main() {
         'leave_request_not_pending': _l.errorLeaveRequestNotPending,
         // tasks/tasks.service.ts
         'task_not_found': _l.errorTaskNotFound,
-        'not_task_assignee': _l.errorTaskNotAssignee,
         // users/users.service.ts:180-219
         'password_complexity': _l.errorPasswordComplexity,
         'password_reuse': _l.errorPasswordReuse,

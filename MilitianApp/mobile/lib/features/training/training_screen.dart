@@ -11,19 +11,13 @@ import '../../l10n/l10n.dart';
 import '../../shared/utils/number_format.dart';
 import '../auth/providers/auth_provider.dart';
 import 'training_result.dart';
+import 'training_texts.dart';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const _requiredDays = 15;
 
-/// Filter chips by training_type code (Web/backend/src/training/training.service.ts)
-const _filterTypes = [
-  ('all', 'Tất cả'),
-  ('military', 'Quân sự'),
-  ('political', 'Chính trị'),
-  ('fire', 'PCCC'),
-  ('first_aid', 'Sơ cứu'),
-  ('other', 'Khác'),
-];
+/// Filter chips: every record, then one per training_type code
+const _filters = [trainingFilterAll, ...trainingTypeCodes];
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 class TrainingScreen extends ConsumerStatefulWidget {
@@ -38,7 +32,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
   List<Map<String, dynamic>> _records = [];
   bool _loading = true;
   String? _error;
-  String _filter = 'all';
+  String _filter = trainingFilterAll;
 
   @override
   void initState() {
@@ -110,7 +104,8 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
   Widget _buildHeader(BuildContext context) {
     final total = _totalDays;
     final progress = (total / _requiredDays).clamp(0.0, 1.0);
-    final statusInfo = _statusInfo(total);
+    final l10n = context.l10n;
+    final statusInfo = _statusInfo(l10n, total);
 
     return Container(
       color: Colors.white,
@@ -128,11 +123,11 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                     icon: const Icon(Icons.chevron_left, color: AppColors.navy, size: 28),
                     onPressed: () => context.pop(),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Huấn luyện',
+                      l10n.trainingScreenTitle,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textPrimary,
@@ -153,7 +148,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Tiến độ huấn luyện năm $_year',
+                        l10n.trainingProgressTitle(_year),
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,
@@ -194,7 +189,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        '${formatDecimal(total)}/$_requiredDays ngày',
+                        l10n.trainingProgressDays(formatDecimal(total), _requiredDays),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -204,9 +199,9 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Luật DQTV 2019 Điều 26 — yêu cầu tối thiểu $_requiredDays ngày/năm',
-                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                  Text(
+                    l10n.trainingRequirementNote(_requiredDays),
+                    style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                   ),
                 ],
               ),
@@ -217,10 +212,10 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
-                children: _filterTypes.map((f) {
-                  final active = _filter == f.$1;
+                children: _filters.map((f) {
+                  final active = _filter == f;
                   return GestureDetector(
-                    onTap: () => setState(() => _filter = f.$1),
+                    onTap: () => setState(() => _filter = f),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       margin: const EdgeInsets.only(right: 8),
@@ -234,7 +229,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                         ),
                       ),
                       child: Text(
-                        f.$2,
+                        f == trainingFilterAll ? l10n.trainingFilterAll : trainingTypeText(l10n, f),
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -258,17 +253,17 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
     final filtered = _filtered;
     if (filtered.isEmpty) {
       return ListView(
-        children: const [
-          SizedBox(height: 80),
+        children: [
+          const SizedBox(height: 80),
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('🔍', style: TextStyle(fontSize: 48)),
-                SizedBox(height: 12),
+                const Text('🔍', style: TextStyle(fontSize: 48)),
+                const SizedBox(height: 12),
                 Text(
-                  'Không có đợt huấn luyện loại này',
-                  style: TextStyle(
+                  context.l10n.trainingFilterEmpty,
+                  style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
@@ -289,26 +284,27 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
   }
 
   Widget _buildEmpty() {
+    final l10n = context.l10n;
     return ListView(
-      children: const [
-        SizedBox(height: 100),
+      children: [
+        const SizedBox(height: 100),
         Column(
           children: [
-            Text('🎖', style: TextStyle(fontSize: 56)),
-            SizedBox(height: 12),
+            const Text('🎖', style: TextStyle(fontSize: 56)),
+            const SizedBox(height: 12),
             Text(
-              'Chưa có đợt huấn luyện nào trong năm',
-              style: TextStyle(
+              l10n.trainingEmptyTitle,
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary,
               ),
             ),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             Text(
-              'Các đợt huấn luyện sẽ được cập nhật\nkhi có lịch từ đơn vị',
+              l10n.trainingEmptyHint,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -337,7 +333,7 @@ class _TrainingScreenState extends ConsumerState<TrainingScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-              label: const Text('Thử lại', style: TextStyle(color: Colors.white)),
+              label: Text(context.l10n.commonRetryButton, style: const TextStyle(color: Colors.white)),
               onPressed: _load,
             ),
           ],
@@ -355,14 +351,14 @@ class _StatusInfo {
   const _StatusInfo(this.label, this.color);
 }
 
-_StatusInfo _statusInfo(double total) {
+_StatusInfo _statusInfo(AppLocalizations l10n, double total) {
   if (total >= _requiredDays) {
-    return const _StatusInfo('✓ Đạt yêu cầu', AppColors.success);
+    return _StatusInfo(l10n.trainingStatusMet, AppColors.success);
   } else if (total >= (_requiredDays * 2 / 3).round()) {
     final remaining = _requiredDays - total;
-    return _StatusInfo('⚠ Cần thêm ${formatDecimal(remaining)} ngày', AppColors.warning);
+    return _StatusInfo(l10n.trainingStatusDaysLeft(formatDecimal(remaining)), AppColors.warning);
   } else {
-    return const _StatusInfo('✗ Chưa đạt', AppColors.error);
+    return _StatusInfo(l10n.trainingStatusNotMet, AppColors.error);
   }
 }
 
@@ -374,6 +370,7 @@ class _TrainingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final rawType = record['trainingType'];
     final type = rawType is String ? rawType : '';
     final days = trainingDays(record['totalDays']);
@@ -425,7 +422,7 @@ class _TrainingCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  type.isEmpty ? 'Huấn luyện' : trainingTypeLabel(type),
+                  type.isEmpty ? l10n.trainingRecordUntyped : trainingTypeText(l10n, type),
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
@@ -473,7 +470,7 @@ class _TrainingCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${formatDecimal(days)} ngày',
+                l10n.trainingRecordDays(formatDecimal(days)),
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
@@ -488,7 +485,7 @@ class _TrainingCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  outcome.label,
+                  trainingOutcomeText(l10n, outcome),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,

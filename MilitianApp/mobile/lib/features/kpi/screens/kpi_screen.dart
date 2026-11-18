@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_strings.dart';
-import '../../../core/network/dio_client.dart';
 import '../../../l10n/error_texts.dart';
 import '../../../l10n/l10n.dart';
 import '../../../shared/utils/number_format.dart';
-import '../../auth/providers/auth_provider.dart';
 import '../kpi_data.dart';
+import '../kpi_repository.dart';
 
-/// Monthly KPI from GET /kpi/current and GET /kpi/history
-/// (Web/backend/src/kpi/kpi.controller.ts:80-121). Only what the backend returns is shown:
-/// it has no leaderboard or achievements endpoint.
+/// Monthly KPI from GET /kpi/current and GET /kpi/history (Web/backend/src/kpi/kpi.controller.ts).
+/// Scores are shown on the backend's scale (KpiCurrent.maxScore), the standing overall and within the
+/// unit as the backend ranks it. Only what the backend returns is shown: it has no leaderboard or
+/// achievements endpoint.
 class KpiScreen extends ConsumerStatefulWidget {
   const KpiScreen({super.key});
 
@@ -33,22 +31,18 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
     _load();
   }
 
-  /// Both endpoints return bare JSON, without a {data} envelope
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final dio = DioClient.getInstance(ref.read(secureStorageProvider));
-      final responses = await Future.wait([
-        dio.get<dynamic>(ApiConstants.kpiCurrent),
-        dio.get<dynamic>(ApiConstants.kpiHistory),
-      ]);
+      final repository = ref.read(kpiRepositoryProvider);
+      final results = await Future.wait<Object>([repository.current(), repository.trend()]);
       if (!mounted) return;
       setState(() {
-        _current = KpiCurrent.fromJson(responses[0].data);
-        _trend = kpiTrend(responses[1].data);
+        _current = results[0] as KpiCurrent;
+        _trend = results[1] as List<KpiTrendPoint>;
         _loading = false;
       });
     } catch (e) {
@@ -62,6 +56,7 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
@@ -82,8 +77,8 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
                 ),
               ),
               automaticallyImplyLeading: false,
-              title: const Text('Chỉ Tiêu',
-                  style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20)),
+              title: Text(l10n.kpiScreenTitle,
+                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 20)),
               centerTitle: false,
             ),
             SliverToBoxAdapter(
@@ -95,7 +90,7 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
                         child: Center(child: CircularProgressIndicator(color: AppColors.navy)),
                       )
                     : _error != null
-                        ? _buildError()
+                        ? _buildError(l10n)
                         : _buildContent(),
               ),
             ),
@@ -105,7 +100,7 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
     );
   }
 
-  Widget _buildError() => Padding(
+  Widget _buildError(AppLocalizations l10n) => Padding(
         padding: const EdgeInsets.only(top: 60),
         child: Column(
           children: [
@@ -121,7 +116,7 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.navy),
               onPressed: _load,
               icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-              label: const Text(AppStrings.retry, style: TextStyle(color: Colors.white)),
+              label: Text(l10n.commonRetryButton, style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -134,7 +129,7 @@ class _KpiScreenState extends ConsumerState<KpiScreen> {
           const SizedBox(height: 16),
           _ComponentScoresCard(kpi: _current),
           const SizedBox(height: 16),
-          _TrendCard(points: _trend),
+          _TrendCard(points: _trend, maxScore: _current.maxScore),
           const SizedBox(height: 16),
           const _UnsupportedNote(),
         ],
@@ -147,6 +142,9 @@ BoxDecoration _cardDecoration() => BoxDecoration(
       boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
     );
 
+/// [score] as a share of [max], 0..1
+double _ratio(double score, double max) => (score / max).clamp(0.0, 1.0);
+
 // ── Overall score ─────────────────────────────────────────────────────────────
 class _OverallCard extends StatelessWidget {
   final KpiCurrent kpi;
@@ -154,9 +152,12 @@ class _OverallCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final score = kpi.score;
     final change = kpi.change;
     final rank = kpi.rank;
+    final rankInUnit = kpi.rankInUnit;
+    final unitSize = kpi.unitSize;
     final month = kpi.month;
     final year = kpi.year;
 
@@ -173,21 +174,21 @@ class _OverallCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Expanded(
-                child: Text('Điểm chỉ tiêu tổng thể',
-                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              Expanded(
+                child: Text(l10n.kpiOverallTitle,
+                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               ),
               if (month != null && year != null)
-                Text('Tháng $month/$year',
+                Text(l10n.kpiMonthOfYear(month, year),
                     style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
             ],
           ),
           const SizedBox(height: 8),
           if (score == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('Chưa có đánh giá tháng này',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(l10n.kpiNotEvaluated,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
             )
           else
             Row(
@@ -200,14 +201,15 @@ class _OverallCard extends StatelessWidget {
                       Text(formatDecimal(score, fractionDigits: 1),
                           style: const TextStyle(
                               fontSize: 48, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                      const Text('/100', style: TextStyle(fontSize: 18, color: AppColors.textSecondary)),
+                      Text(l10n.kpiScoreScale(formatDecimal(kpi.maxScore)),
+                          style: const TextStyle(fontSize: 18, color: AppColors.textSecondary)),
                     ],
                   ),
                 ),
-                _CircularScore(score),
+                _CircularScore(_ratio(score, kpi.maxScore)),
               ],
             ),
-          if (change != null || rank != null) ...[
+          if (change != null || rank != null || rankInUnit != null) ...[
             const SizedBox(height: 12),
             const Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: 12),
@@ -217,9 +219,16 @@ class _OverallCard extends StatelessWidget {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (change != null) _ChangeText(change),
+                if (rankInUnit != null)
+                  Text(
+                    unitSize != null && unitSize >= rankInUnit
+                        ? l10n.kpiRankInUnitOf(rankInUnit, unitSize)
+                        : l10n.kpiRankInUnit(rankInUnit),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.navy),
+                  ),
                 if (rank != null)
-                  Text('Hạng #$rank',
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.navy)),
+                  Text(l10n.kpiRankOverall(rank),
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               ],
             ),
           ],
@@ -256,16 +265,17 @@ class _ChangeText extends StatelessWidget {
       children: [
         Icon(icon, color: color, size: 18),
         const SizedBox(width: 4),
-        Text('$sign${formatDecimal(change.abs())} so với tháng trước',
+        Text(context.l10n.kpiChangeFromLastMonth('$sign${formatDecimal(change.abs())}'),
             style: TextStyle(fontSize: 12, color: color)),
       ],
     );
   }
 }
 
+/// The score as a share of the scale
 class _CircularScore extends StatelessWidget {
-  final double value;
-  const _CircularScore(this.value);
+  final double ratio;
+  const _CircularScore(this.ratio);
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -277,14 +287,14 @@ class _CircularScore extends StatelessWidget {
               width: 100,
               height: 100,
               child: CircularProgressIndicator(
-                value: (value / 100).clamp(0.0, 1.0),
+                value: ratio,
                 strokeWidth: 8,
                 backgroundColor: AppColors.divider,
                 valueColor: const AlwaysStoppedAnimation(AppColors.navy),
               ),
             ),
             Center(
-              child: Text('${formatDecimal(value, fractionDigits: 1)}%',
+              child: Text(context.l10n.kpiPercent(formatDecimal(ratio * 100, fractionDigits: 0)),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.navy)),
             ),
           ],
@@ -298,30 +308,35 @@ class _ComponentScoresCard extends StatelessWidget {
   const _ComponentScoresCard({required this.kpi});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: _cardDecoration(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Điểm thành phần',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
-            const SizedBox(height: 12),
-            _ScoreRow('Chấm công', kpi.attendanceScore),
-            const Divider(height: 16, color: AppColors.divider),
-            _ScoreRow('Nhiệm vụ', kpi.taskScore),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.kpiComponentsTitle,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
+          const SizedBox(height: 12),
+          _ScoreRow(l10n.kpiComponentAttendance, kpi.attendanceScore, kpi.maxScore),
+          const Divider(height: 16, color: AppColors.divider),
+          _ScoreRow(l10n.kpiComponentTask, kpi.taskScore, kpi.maxScore),
+        ],
+      ),
+    );
+  }
 }
 
 class _ScoreRow extends StatelessWidget {
   final String label;
   final double? score;
-  const _ScoreRow(this.label, this.score);
+  final double maxScore;
+  const _ScoreRow(this.label, this.score, this.maxScore);
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final value = score;
     return Row(
       children: [
@@ -329,7 +344,9 @@ class _ScoreRow extends StatelessWidget {
           child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
         ),
         Text(
-          value == null ? '—' : '${formatDecimal(value, fractionDigits: 1)}/100',
+          value == null
+              ? l10n.kpiScoreMissing
+              : l10n.kpiScoreOutOf(formatDecimal(value, fractionDigits: 1), formatDecimal(maxScore)),
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.navy),
         ),
       ],
@@ -340,39 +357,45 @@ class _ScoreRow extends StatelessWidget {
 // ── Trend ─────────────────────────────────────────────────────────────────────
 class _TrendCard extends StatelessWidget {
   final List<KpiTrendPoint> points;
-  const _TrendCard({required this.points});
+  final double maxScore;
+  const _TrendCard({required this.points, required this.maxScore});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: _cardDecoration(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Xu hướng 6 tháng',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
-            const SizedBox(height: 16),
-            if (points.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Text('Chưa có dữ liệu',
-                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                ),
-              )
-            else
-              SizedBox(height: 160, child: _TrendChart(points: points)),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.kpiTrendTitle,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
+          const SizedBox(height: 16),
+          if (points.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(l10n.kpiTrendEmpty,
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              ),
+            )
+          else
+            SizedBox(height: 160, child: _TrendChart(points: points, maxScore: maxScore)),
+        ],
+      ),
+    );
+  }
 }
 
 class _TrendChart extends StatelessWidget {
   final List<KpiTrendPoint> points;
-  const _TrendChart({required this.points});
+  final double maxScore;
+  const _TrendChart({required this.points, required this.maxScore});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -385,8 +408,8 @@ class _TrendChart extends StatelessWidget {
                     style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.navy)),
                 const SizedBox(height: 2),
                 Container(
-                  // Max bar height 120 for a score of 100
-                  height: (p.score / 100).clamp(0.0, 1.0) * 120,
+                  // Max bar height 120 for the top of the scale
+                  height: _ratio(p.score, maxScore) * 120,
                   margin: const EdgeInsets.symmetric(horizontal: 3),
                   decoration: const BoxDecoration(
                     gradient: AppColors.checkInGradient,
@@ -394,7 +417,8 @@ class _TrendChart extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(p.label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                Text(l10n.kpiTrendMonth(p.month),
+                    style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
               ],
             ),
           ),
@@ -415,13 +439,13 @@ class _UnsupportedNote extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.divider),
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
-            SizedBox(width: 8),
+            const Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text('Máy chủ chưa hỗ trợ bảng xếp hạng chi tiết và thành tích.',
-                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              child: Text(context.l10n.kpiUnsupportedNote,
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
             ),
           ],
         ),

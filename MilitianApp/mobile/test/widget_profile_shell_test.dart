@@ -1,11 +1,14 @@
 // Widget Tests: the bottom navigation shell, the profile screen and the settings screen
 //   - shell: tab labels from the resources, the active tab follows the location, taps navigate, the
 //     task badge counts the caller's waiting tasks (GET /tasks, tasks_repository.dart)
-//   - profile: GET /users/me {data} fills the card; quick actions and menu open their routes; logout
-//     calls POST /auth/logout and opens the login screen
+//   - profile: GET /users/me (bare profile) and GET /kpi/current fill the card and the stats, nothing is
+//     made up; quick actions and menu open their routes; logout calls POST /auth/logout and opens the
+//     login screen
 //   - settings: biometric switch when the device supports it, change-password entry, push opt-in
 // Text is asserted through the resources (viL10n).
 // Run: flutter test test/widget_profile_shell_test.dart
+
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -149,25 +152,51 @@ void main() {
   });
 
   group('ProfileScreen', () {
+    // GET /users/me answers the bare profile (Web/backend/src/users/users.service.ts getProfile):
+    // id, username, fullName, email, phone, status, createdAt, role, roles, unitScope (unit code)
+    Map<String, dynamic> me() => {
+          'id': 'u1',
+          'username': 'dqtv01',
+          'fullName': 'Nguyen Van An',
+          'email': 'an@example.com',
+          'phone': '0901234567',
+          'status': 'active',
+          'createdAt': '2024-01-05T01:00:00.000Z',
+          'role': 'dqtv',
+          'roles': ['dqtv'],
+          'unitScope': 'PD-01',
+        };
+
+    // GET /kpi/current (Web/backend/src/kpi/kpi.service.ts getCurrentScore)
+    Map<String, dynamic> kpi({Object? score = 8.5, Object? rankInUnit = 2, Object? unitSize = 12}) => {
+          'score': score,
+          'totalScore': score,
+          'change': null,
+          'rank': score == null ? null : 5,
+          'rankInUnit': rankInUnit,
+          'unitSize': unitSize,
+          'month': 9,
+          'year': 2026,
+          'attendanceScore': null,
+          'taskScore': null,
+          'maxScore': 10,
+        };
+
     Future<(GoRouter, FakeAdapter, MemoryStorage)> pumpProfile(
       WidgetTester tester, {
       ResponseBody Function(RequestOptions)? profile,
+      ResponseBody Function(RequestOptions)? kpiCurrent,
+      Future<void>? Function(RequestOptions)? gate,
     }) async {
       final storage = MemoryStorage(roles: ['dqtv']);
-      final adapter = FakeAdapter(routeTable({
-        'GET /users/me': profile ??
-            (_) => jsonBody(200, {
-                  'data': {
-                    'fullName': 'Nguyen Van An',
-                    'rank': 'Binh nhat',
-                    'position': 'Chien si',
-                    'unit': 'Phu Dinh',
-                    'phone': '0901234567',
-                    'email': 'an@example.com',
-                  },
-                }),
-        'POST /auth/logout': noContent,
-      }));
+      final adapter = FakeAdapter(
+        routeTable({
+          'GET /users/me': profile ?? (_) => jsonBody(200, me()),
+          'GET /kpi/current': kpiCurrent ?? (_) => jsonBody(200, kpi()),
+          'POST /auth/logout': noContent,
+        }),
+        gate: gate,
+      );
       final dio = Dio(BaseOptions(baseUrl: 'http://test'))..httpClientAdapter = adapter;
       final router = GoRouter(
         initialLocation: Routes.profile,
@@ -189,34 +218,26 @@ void main() {
       return (router, adapter, storage);
     }
 
-    testWidgets('WT-PROFILE-01: the fetched profile fills the card under resource labels', (tester) async {
+    testWidgets('WT-PROFILE-01: the profile and the KPI standing come from the backend', (tester) async {
       final (_, adapter, _) = await pumpProfile(tester);
 
-      expect(adapter.requests.first.path, '/users/me');
+      expect(adapter.requests.map((r) => r.path), containsAll(['/users/me', '/kpi/current']));
       expect(find.text(viL10n.profileScreenTitle), findsOneWidget);
       expect(find.text('Nguyen Van An'), findsOneWidget);
       expect(find.text('NA'), findsOneWidget);
-      expect(find.text('Binh nhat · Chien si'), findsOneWidget);
       expect(find.text(viL10n.profileScreenStatusActive), findsOneWidget);
       for (final text in [
-        viL10n.profileScreenStatSeniorityLabel,
-        viL10n.profileScreenStatSeniorityValue,
         viL10n.profileScreenStatKpiLabel,
+        viL10n.kpiScoreOutOf('8,5', '10'),
         viL10n.profileScreenStatRankLabel,
+        viL10n.profileScreenStatRankValue(2, 12),
         viL10n.profileScreenPersonalInfoTitle,
         viL10n.profileScreenPhoneLabel,
         '0901234567',
         viL10n.profileScreenEmailLabel,
         'an@example.com',
         viL10n.profileScreenUnitLabel,
-        'Phu Dinh',
-        viL10n.profileScreenWorkInfoTitle,
-        viL10n.profileScreenNeighborhoodLabel,
-        viL10n.profileScreenNeighborhoodValue,
-        viL10n.profileScreenAreaPoliceLabel,
-        viL10n.profileScreenAreaPoliceValue,
-        viL10n.profileScreenJoinedLabel,
-        viL10n.profileScreenPositionLabel,
+        'PD-01',
         viL10n.profileScreenQuickWorkHistory,
         viL10n.profileScreenQuickHotline,
         viL10n.profileScreenMenuAbout,
@@ -224,6 +245,10 @@ void main() {
         viL10n.profileScreenLogout,
       ]) {
         expect(find.text(text), findsOneWidget, reason: text);
+      }
+      // No made-up figures: the backend has no seniority, neighbourhood, area officer or join date
+      for (final made in ['92.4', '#3/28', '2 năm 3 tháng', 'Khu phố 1', 'Trung úy Võ Văn Tân', '01/10/2022']) {
+        expect(find.text(made), findsNothing, reason: made);
       }
     });
 
@@ -254,11 +279,60 @@ void main() {
       expect(storage.access, isNull);
     });
 
-    testWidgets('WT-PROFILE-04: without a profile answer the placeholders are shown', (tester) async {
+    testWidgets('WT-PROFILE-04: without a profile answer placeholders are shown and no status is claimed',
+        (tester) async {
       await pumpProfile(tester, profile: (_) => jsonBody(500, backendError(500, 'Internal server error')));
 
       expect(find.text('—'), findsWidgets);
-      expect(find.text(viL10n.profileScreenStatusActive), findsOneWidget);
+      expect(find.text(viL10n.profileScreenStatusActive), findsNothing);
+      expect(find.textContaining(viL10n.profileScreenLoadFailed('').trim()), findsOneWidget);
+      expect(find.text(viL10n.commonRetryButton), findsOneWidget);
+      // The KPI standing is loaded on its own
+      expect(find.text(viL10n.profileScreenStatRankValue(2, 12)), findsOneWidget);
+    });
+
+    testWidgets('WT-PROFILE-05: a month without an evaluation says so for the score and the rank', (tester) async {
+      await pumpProfile(tester,
+          kpiCurrent: (_) => jsonBody(200, kpi(score: null, rankInUnit: null, unitSize: 4)));
+
+      expect(find.text(viL10n.profileScreenStatNotEvaluated), findsNWidgets(2));
+    });
+
+    testWidgets('WT-PROFILE-06: a KPI that cannot be loaded is shown as unavailable', (tester) async {
+      await pumpProfile(tester, kpiCurrent: (_) => jsonBody(503, backendError(503, 'Service unavailable')));
+
+      expect(find.text(viL10n.profileScreenStatUnavailable), findsNWidgets(2));
+      expect(find.text('Nguyen Van An'), findsOneWidget);
+    });
+
+    testWidgets('WT-PROFILE-07: the stats show a localized loading state until GET /kpi/current answers',
+        (tester) async {
+      final held = Completer<void>();
+      final storage = MemoryStorage(roles: ['dqtv']);
+      final adapter = FakeAdapter(
+        routeTable({
+          'GET /users/me': (_) => jsonBody(200, me()),
+          'GET /kpi/current': (_) => jsonBody(200, kpi()),
+        }),
+        gate: (o) => o.path == '/kpi/current' ? held.future : null,
+      );
+      final dio = Dio(BaseOptions(baseUrl: 'http://test'))..httpClientAdapter = adapter;
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(storage),
+          apiDioProvider.overrideWithValue(dio),
+        ],
+        child: localizedApp(const ProfileScreen()),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.bySemanticsLabel(viL10n.profileScreenStatLoading), findsNWidgets(2));
+
+      held.complete();
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel(viL10n.profileScreenStatLoading), findsNothing);
+      expect(find.text(viL10n.profileScreenStatRankValue(2, 12)), findsOneWidget);
     });
   });
 

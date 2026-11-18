@@ -16,6 +16,11 @@ import 'package:militian_app/features/chat/repositories/chat_repository.dart';
 import 'package:militian_app/features/files/files.dart';
 import 'package:militian_app/features/incident/incident_report_texts.dart';
 import 'package:militian_app/features/incident/repositories/incident_report_repository.dart';
+import 'package:militian_app/features/tasks/task_status.dart';
+import 'package:militian_app/features/tasks/tasks_exception.dart';
+import 'package:militian_app/features/tasks/tasks_texts.dart';
+import 'package:militian_app/features/training/training_result.dart';
+import 'package:militian_app/features/training/training_texts.dart';
 import 'package:militian_app/l10n/error_texts.dart';
 import 'package:militian_app/l10n/l10n.dart';
 import 'package:militian_app/l10n/validation_texts.dart';
@@ -137,5 +142,19 @@ void main() {
         'Vui lòng chọn hoặc nhập tiêu đề báo cáo.');
     expect(viL10n.incidentReportVoiceUnsupported, 'Máy chủ chưa hỗ trợ ghi âm cho báo cáo.');
     expect(viL10n.incidentReportGpsValue('10.1', '106.2'), '10.1, 106.2 (GPS)');
+  });
+
+  test('UT-L10N-10: tasks, training and KPI', () {
+    expect(taskTabText(viL10n, TaskTab.waiting), 'Chờ');
+    expect(taskStatusText(viL10n, TaskStatus.inProgress), 'Đang thực hiện');
+    expect(taskPriorityText(viL10n, 'urgent'), 'Khẩn cấp');
+    expect(taskTypeText(viL10n, 'guard'), 'Bảo vệ');
+    expect(viL10n.taskListTabWithCount('Chờ', 2), 'Chờ (2)');
+    expect(tasksIssueText(viL10n, TasksIssue.reportTooManyPhotos), 'Báo cáo đính kèm tối đa 10 ảnh.');
+    expect(errorText(viL10n, 'task_closed', status: 409), 'Nhiệm vụ đã hoàn thành hoặc đã bị hủy.');
+    expect(trainingOutcomeText(viL10n, TrainingOutcome.notEvaluated), 'Chưa đánh giá');
+    expect(trainingTypeText(viL10n, 'first_aid'), 'Sơ cứu');
+    expect(viL10n.kpiRankInUnitOf(2, 12), 'Hạng 2/12 trong đơn vị');
+    expect(viL10n.kpiScoreOutOf('8,5', '10'), '8,5/10');
   });
 }

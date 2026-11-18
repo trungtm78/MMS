@@ -84,7 +84,10 @@ String errorText(
       (_, 'leave_request_not_pending', _, _) => l10n.errorLeaveRequestNotPending,
       // tasks/tasks.service.ts
       (_, 'task_not_found', _, _) => l10n.errorTaskNotFound,
-      (_, 'not_task_assignee', _, _) => l10n.errorTaskNotAssignee,
+      (_, 'task_not_acceptable', _, _) => l10n.errorTaskNotAcceptable,
+      (_, 'task_closed', _, _) => l10n.errorTaskClosed,
+      (_, 'task_cannot_be_edited_in_current_status', _, _) => l10n.errorTaskCannotBeEdited,
+      (_, 'task_cannot_be_cancelled', _, _) => l10n.errorTaskCannotBeCancelled,
       // users/users.service.ts:180-219 (POST /users/me/change-password)
       (_, 'password_complexity', _, _) => l10n.errorPasswordComplexity,
       (_, 'password_reuse', _, _) => l10n.errorPasswordReuse,

@@ -4,32 +4,23 @@ import '../../shared/utils/number_format.dart';
 /// string. Anything that is not a number counts as 0.
 double trainingDays(Object? value) => parseDecimal(value) ?? 0;
 
-const _trainingTypeLabels = {
-  'military': 'Quân sự',
-  'political': 'Chính trị',
-  'fire': 'PCCC',
-  'first_aid': 'Sơ cứu',
-  'other': 'Khác',
-};
+/// training_records.training_type codes (Web/backend/src/training/training.service.ts), in the
+/// order the filter chips show them. Worded by trainingTypeText (training_texts.dart).
+const trainingTypeCodes = ['military', 'political', 'fire', 'first_aid', 'other'];
 
-/// Vietnamese name of a training_type code; unknown codes are shown as they are.
-String trainingTypeLabel(String code) => _trainingTypeLabels[code] ?? code;
+/// The filter chip that shows every record
+const trainingFilterAll = 'all';
 
-/// Whether [record] belongs under the filter chip [filter] ('all' or a training_type code).
+/// Whether [record] belongs under the filter chip [filter] ([trainingFilterAll] or a training_type code).
 bool trainingMatchesFilter(Map<String, dynamic> record, String filter) =>
-    filter == 'all' || record['trainingType'] == filter;
+    filter == trainingFilterAll || record['trainingType'] == filter;
 
-/// Outcome of a training record, from the Web backend's
-/// `training_records.result` code (pass | fail | not_evaluated).
+/// Outcome of a training record, from the Web backend's `training_records.result` code
+/// (pass | fail | not_evaluated). Worded by trainingOutcomeText (training_texts.dart).
 enum TrainingOutcome {
-  passed('Đạt'),
-  failed('Không đạt'),
-  notEvaluated('Chưa đánh giá');
-
-  const TrainingOutcome(this.label);
-
-  /// Vietnamese display text.
-  final String label;
+  passed,
+  failed,
+  notEvaluated;
 
   static TrainingOutcome fromRecord(Map<String, dynamic> record) {
     switch (record['result']) {

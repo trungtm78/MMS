@@ -1,19 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 
-import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/dio_client.dart';
+import '../../../core/constants/app_strings.dart';
 import '../../../l10n/error_texts.dart';
 import '../../../l10n/l10n.dart';
-import '../../auth/providers/auth_provider.dart';
+import '../../files/files.dart';
+import '../repositories/tasks_repository.dart';
 import '../task_location.dart';
 import '../task_report_request.dart';
+import '../tasks_texts.dart';
 
-/// Task completion report: POST /tasks/:id/report (Web/backend/src/tasks/tasks.controller.ts).
-/// Photos and voice notes are not offered: uploaded files get a filename id that
-/// SubmitReportDto.photoIds (UUID[]) rejects, and voice recording is not available.
+/// The device position for the location field: geolocator in the app, a stand-in in tests.
+final taskReportPositionProvider = Provider<Future<({double latitude, double longitude})> Function()>(
+  (ref) => () async {
+    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
+    return (latitude: pos.latitude, longitude: pos.longitude);
+  },
+);
+
+/// Task completion report: POST /tasks/:id/report {description, completedAt, location, photoIds}
+/// (Web/backend/src/tasks/tasks.controller.ts SubmitReportDto). Photos upload as soon as they are
+/// picked (POST /files/upload, purpose task_report) and are sent by id in display order. Voice notes are
+/// not offered: there is no voice upload route. Closes with true once the report is stored.
 class TaskReportScreen extends ConsumerStatefulWidget {
   final String taskId;
   const TaskReportScreen({super.key, required this.taskId});
@@ -26,134 +37,123 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
   final _formKey = GlobalKey<FormState>();
   final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
+  late final AttachmentUploads _photos;
 
-  // Task info (loaded from API)
   Map<String, dynamic>? _task;
   bool _loadingTask = true;
-
-  // Date/time
   DateTime _completedAt = DateTime.now();
-
-  // Location presets
-  static const _presets = [
-    'Trụ sở',
-    'Địa bàn A',
-    'Địa bàn B',
-    'Khu vực 1',
-    'Khu vực 2',
-  ];
-
+  bool _gettingLocation = false;
   bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
+    _photos = AttachmentUploads(
+      repository: ref.read(filesRepositoryProvider),
+      purpose: FilePurpose.taskReport,
+      max: maxTaskReportPhotos,
+    );
     _loadTask();
   }
 
   @override
   void dispose() {
+    _photos.dispose();
     _descCtrl.dispose();
     _locationCtrl.dispose();
     super.dispose();
   }
 
-  /// GET /tasks/:id → the task object (no envelope)
+  /// GET /tasks/:id, shown above the form. The report can be written without it.
   Future<void> _loadTask() async {
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      final res = await dio.get(ApiConstants.taskById.replaceFirst('{id}', widget.taskId));
-      final data = res.data;
-      if (mounted) {
-        setState(() {
-          _task = data is Map ? Map<String, dynamic>.from(data) : null;
-          _loadingTask = false;
-        });
-      }
-    } catch (_) {
+      final task = await ref.read(tasksRepositoryProvider).task(widget.taskId);
+      if (mounted) setState(() => _task = task);
+    } on TasksException catch (e) {
+      if (mounted) _showSnack(tasksErrorText(context.l10n, e), isError: true);
+    } finally {
       if (mounted) setState(() => _loadingTask = false);
     }
   }
 
   Future<void> _getGPS() async {
+    final l10n = context.l10n;
+    final position = ref.read(taskReportPositionProvider);
+    setState(() => _gettingLocation = true);
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      );
-      if (mounted) _locationCtrl.text = '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
-    } catch (_) {
+      final pos = await position();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không lấy được vị trí GPS')),
-        );
+        _locationCtrl.text = l10n.taskReportGpsValue(pos.latitude.toStringAsFixed(5), pos.longitude.toStringAsFixed(5));
       }
+    } catch (e) {
+      // Never fill in a made-up place: the report would carry a false location
+      if (mounted) _showSnack(l10n.taskReportGpsFailed(errorTextFor(l10n, e)), isError: true);
+    } finally {
+      if (mounted) setState(() => _gettingLocation = false);
     }
   }
 
   Future<void> _pickDateTime() async {
+    final now = DateTime.now();
     final date = await showDatePicker(
       context: context,
       initialDate: _completedAt,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now(),
+      firstDate: now.subtract(const Duration(days: 30)),
+      lastDate: now,
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_completedAt),
-    );
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_completedAt));
     if (time == null) return;
     setState(() => _completedAt = DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
+  void _showSnack(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.error : AppColors.success,
+      ));
   }
 
-  /// POST /tasks/:id/report {description, completedAt, location}
+  /// POST /tasks/:id/report once every picked photo is uploaded
   Future<void> _submit() async {
     if (_submitting || !_formKey.currentState!.validate()) return;
-    final Map<String, dynamic> body;
-    try {
-      body = buildTaskReportBody(
-        description: _descCtrl.text,
-        completedAt: _completedAt,
-        location: _locationCtrl.text,
-      );
-    } on ArgumentError catch (e) {
-      _showError('${e.message}');
+    final l10n = context.l10n;
+    if (_photos.isUploading) {
+      _showSnack(l10n.taskReportPhotosUploading, isError: true);
+      return;
+    }
+    if (_photos.hasFailures) {
+      _showSnack(l10n.taskReportPhotosFailed, isError: true);
       return;
     }
     setState(() => _submitting = true);
     try {
-      final storage = ref.read(secureStorageProvider);
-      final dio = DioClient.getInstance(storage);
-      await dio.post(ApiConstants.submitTaskReport.replaceFirst('{id}', widget.taskId), data: body);
-
+      await ref.read(tasksRepositoryProvider).submitReport(
+            widget.taskId,
+            description: _descCtrl.text,
+            completedAt: _completedAt,
+            location: _locationCtrl.text,
+            photoIds: _photos.uploadedIds,
+          );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Báo cáo đã được gửi thành công!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+      _showSnack(l10n.taskReportSent);
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      _showError(errorTextFor(context.l10n, e));
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+      setState(() => _submitting = false);
+      _showSnack(tasksErrorText(l10n, e), isError: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final task = _task;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Báo cáo nhiệm vụ', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(l10n.taskReportTitle, style: const TextStyle(fontWeight: FontWeight.w700)),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
@@ -166,81 +166,73 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Task info card
-                    if (_task != null) _TaskInfoCard(task: _task!),
+                    if (task != null) _TaskInfoCard(task: task),
                     const SizedBox(height: 16),
 
-                    // Description
-                    const _SectionLabel('Mô tả kết quả *'),
+                    _SectionLabel(l10n.taskReportDescriptionLabel),
                     TextFormField(
                       controller: _descCtrl,
+                      enabled: !_submitting,
                       maxLines: 4,
                       maxLength: maxTaskReportDescriptionLength,
-                      decoration: const InputDecoration(
-                        hintText: 'Mô tả công việc đã thực hiện...',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        hintText: l10n.taskReportDescriptionHint,
+                        border: const OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.trim().length < 10)
-                          ? 'Nhập ít nhất 10 ký tự'
+                      validator: (v) => (v ?? '').trim().isEmpty
+                          ? tasksIssueText(l10n, TasksIssue.reportDescriptionRequired)
                           : null,
                     ),
                     const SizedBox(height: 16),
 
-                    // DateTime
-                    const _SectionLabel('Thời điểm hoàn thành'),
+                    _SectionLabel(l10n.taskReportCompletedAtLabel),
                     InkWell(
-                      onTap: _pickDateTime,
+                      onTap: _submitting ? null : _pickDateTime,
                       child: InputDecorator(
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           suffixIcon: Icon(Icons.calendar_today),
                         ),
-                        child: Text(
-                          '${_completedAt.day}/${_completedAt.month}/${_completedAt.year} ${_completedAt.hour.toString().padLeft(2, '0')}:${_completedAt.minute.toString().padLeft(2, '0')}',
-                        ),
+                        child: Text(DateFormat(AppStrings.datetimeFormat).format(_completedAt)),
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Location
-                    const _SectionLabel('Vị trí'),
+                    _SectionLabel(l10n.taskReportLocationLabel),
                     Row(
                       children: [
                         Expanded(
                           child: TextFormField(
                             controller: _locationCtrl,
+                            enabled: !_submitting,
                             maxLength: maxTaskReportLocationLength,
-                            decoration: const InputDecoration(
-                              hintText: 'Nhập địa điểm hoặc chọn',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              hintText: l10n.taskReportLocationHint,
+                              border: const OutlineInputBorder(),
                               counterText: '',
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         IconButton.filled(
-                          onPressed: _getGPS,
-                          icon: const Icon(Icons.my_location),
+                          tooltip: l10n.taskReportGpsButton,
+                          onPressed: _gettingLocation || _submitting ? null : _getGPS,
+                          icon: _gettingLocation
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.my_location),
                           style: IconButton.styleFrom(backgroundColor: AppColors.primary),
-                        ),
-                        const SizedBox(width: 4),
-                        PopupMenuButton<String>(
-                          icon: const Icon(Icons.arrow_drop_down_circle_outlined),
-                          onSelected: (v) => _locationCtrl.text = v,
-                          itemBuilder: (context) => _presets
-                              .map((p) => PopupMenuItem(value: p, child: Text(p)))
-                              .toList(),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
 
-                    // Attachments: not supported by the backend
-                    const _SectionLabel('Ảnh và ghi âm'),
-                    const _UnsupportedAttachments(),
+                    _SectionLabel(l10n.taskReportPhotosLabel),
+                    AttachmentPickerField(uploads: _photos, enabled: !_submitting),
                     const SizedBox(height: 24),
 
-                    // Submit
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -253,10 +245,12 @@ class _TaskReportScreenState extends ConsumerState<TaskReportScreen> {
                         ),
                         child: _submitting
                             ? const SizedBox(
-                                width: 20, height: 20,
+                                width: 20,
+                                height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Text('GỬI BÁO CÁO', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                            : Text(l10n.taskReportSubmitButton,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -274,7 +268,9 @@ class _TaskInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final location = taskLocationText(task);
+    final type = task['type'];
     return Card(
       color: AppColors.primary.withValues(alpha: 0.07),
       child: Padding(
@@ -283,13 +279,14 @@ class _TaskInfoCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              task['title'] as String? ?? 'Nhiệm vụ',
+              task['title'] as String? ?? '',
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
-            if (task['type'] != null)
+            if (type is String && type.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text('Loại: ${task['type']}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                child: Text(l10n.taskDetailType(taskTypeText(l10n, type)),
+                    style: const TextStyle(fontSize: 13, color: Colors.black54)),
               ),
             if (location != null)
               Padding(
@@ -319,34 +316,5 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-      );
-}
-
-/// Disabled attachments section: SubmitReportDto.photoIds must be UUIDs but POST /files/upload
-/// returns a filename, and voice recording is not available in the app.
-class _UnsupportedAttachments extends StatelessWidget {
-  const _UnsupportedAttachments();
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.attach_file, color: Colors.grey),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Máy chủ chưa hỗ trợ đính kèm ảnh và ghi âm cho báo cáo nhiệm vụ.',
-                style: TextStyle(color: Colors.black54),
-              ),
-            ),
-          ],
-        ),
       );
 }

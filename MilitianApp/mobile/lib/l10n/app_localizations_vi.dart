@@ -222,16 +222,34 @@ class AppLocalizationsVi extends AppLocalizations {
   String get profileScreenStatusActive => 'Đang hoạt động';
 
   @override
-  String get profileScreenStatSeniorityLabel => 'Thâm niên';
-
-  @override
-  String get profileScreenStatSeniorityValue => '2 năm 3 tháng';
-
-  @override
   String get profileScreenStatKpiLabel => 'Điểm chỉ tiêu';
 
   @override
   String get profileScreenStatRankLabel => 'Xếp hạng';
+
+  @override
+  String profileScreenStatRankValue(int rank, int size) {
+    return '$rank/$size';
+  }
+
+  @override
+  String profileScreenStatRankOnly(int rank) {
+    return '#$rank';
+  }
+
+  @override
+  String get profileScreenStatNotEvaluated => 'Chưa đánh giá';
+
+  @override
+  String get profileScreenStatUnavailable => 'Không tải được';
+
+  @override
+  String get profileScreenStatLoading => 'Đang tải chỉ tiêu';
+
+  @override
+  String profileScreenLoadFailed(String reason) {
+    return 'Không tải được hồ sơ: $reason';
+  }
 
   @override
   String get profileScreenPersonalInfoTitle => 'Thông tin cá nhân';
@@ -244,27 +262,6 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get profileScreenUnitLabel => 'Đơn vị';
-
-  @override
-  String get profileScreenWorkInfoTitle => 'Thông tin công tác';
-
-  @override
-  String get profileScreenNeighborhoodLabel => 'Khu phố';
-
-  @override
-  String get profileScreenNeighborhoodValue => 'Khu phố 1';
-
-  @override
-  String get profileScreenAreaPoliceLabel => 'Công An KV';
-
-  @override
-  String get profileScreenAreaPoliceValue => 'Trung úy Võ Văn Tân';
-
-  @override
-  String get profileScreenJoinedLabel => 'Ngày vào lực lượng';
-
-  @override
-  String get profileScreenPositionLabel => 'Ngạch công tác';
 
   @override
   String get profileScreenQuickLeaveRequest => 'Đăng ký nghỉ phép';
@@ -582,9 +579,6 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get errorTaskNotFound => 'Không tìm thấy nhiệm vụ.';
-
-  @override
-  String get errorTaskNotAssignee => 'Bạn không được giao nhiệm vụ này.';
 
   @override
   String get errorPasswordComplexity =>
@@ -1112,4 +1106,386 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get incidentReportIssueDuplicateAttachments =>
       'Một ảnh được đính kèm nhiều lần.';
+
+  @override
+  String get commonRetryButton => 'Thử lại';
+
+  @override
+  String get kpiScreenTitle => 'Chỉ Tiêu';
+
+  @override
+  String get kpiOverallTitle => 'Điểm chỉ tiêu tổng thể';
+
+  @override
+  String kpiMonthOfYear(int month, int year) {
+    return 'Tháng $month/$year';
+  }
+
+  @override
+  String get kpiNotEvaluated => 'Chưa có đánh giá tháng này';
+
+  @override
+  String kpiScoreScale(String max) {
+    return '/$max';
+  }
+
+  @override
+  String kpiPercent(String value) {
+    return '$value%';
+  }
+
+  @override
+  String kpiChangeFromLastMonth(String change) {
+    return '$change so với tháng trước';
+  }
+
+  @override
+  String kpiRankInUnitOf(int rank, int size) {
+    return 'Hạng $rank/$size trong đơn vị';
+  }
+
+  @override
+  String kpiRankInUnit(int rank) {
+    return 'Hạng $rank trong đơn vị';
+  }
+
+  @override
+  String kpiRankOverall(int rank) {
+    return 'Hạng chung #$rank';
+  }
+
+  @override
+  String get kpiComponentsTitle => 'Điểm thành phần';
+
+  @override
+  String get kpiComponentAttendance => 'Chấm công';
+
+  @override
+  String get kpiComponentTask => 'Nhiệm vụ';
+
+  @override
+  String kpiScoreOutOf(String score, String max) {
+    return '$score/$max';
+  }
+
+  @override
+  String get kpiScoreMissing => '—';
+
+  @override
+  String get kpiTrendTitle => 'Xu hướng 6 tháng';
+
+  @override
+  String get kpiTrendEmpty => 'Chưa có dữ liệu';
+
+  @override
+  String kpiTrendMonth(int month) {
+    return 'T$month';
+  }
+
+  @override
+  String get kpiUnsupportedNote =>
+      'Máy chủ chưa hỗ trợ bảng xếp hạng chi tiết và thành tích.';
+
+  @override
+  String get trainingScreenTitle => 'Huấn luyện';
+
+  @override
+  String trainingProgressTitle(int year) {
+    return 'Tiến độ huấn luyện năm $year';
+  }
+
+  @override
+  String trainingProgressDays(String done, int required) {
+    return '$done/$required ngày';
+  }
+
+  @override
+  String trainingRequirementNote(int days) {
+    return 'Luật DQTV 2019 Điều 26 — yêu cầu tối thiểu $days ngày/năm';
+  }
+
+  @override
+  String get trainingStatusMet => '✓ Đạt yêu cầu';
+
+  @override
+  String trainingStatusDaysLeft(String days) {
+    return '⚠ Cần thêm $days ngày';
+  }
+
+  @override
+  String get trainingStatusNotMet => '✗ Chưa đạt';
+
+  @override
+  String get trainingFilterAll => 'Tất cả';
+
+  @override
+  String get trainingTypeMilitary => 'Quân sự';
+
+  @override
+  String get trainingTypePolitical => 'Chính trị';
+
+  @override
+  String get trainingTypeFire => 'PCCC';
+
+  @override
+  String get trainingTypeFirstAid => 'Sơ cứu';
+
+  @override
+  String get trainingTypeOther => 'Khác';
+
+  @override
+  String get trainingOutcomePassed => 'Đạt';
+
+  @override
+  String get trainingOutcomeFailed => 'Không đạt';
+
+  @override
+  String get trainingOutcomeNotEvaluated => 'Chưa đánh giá';
+
+  @override
+  String get trainingFilterEmpty => 'Không có đợt huấn luyện loại này';
+
+  @override
+  String get trainingEmptyTitle => 'Chưa có đợt huấn luyện nào trong năm';
+
+  @override
+  String get trainingEmptyHint =>
+      'Các đợt huấn luyện sẽ được cập nhật\nkhi có lịch từ đơn vị';
+
+  @override
+  String get trainingRecordUntyped => 'Huấn luyện';
+
+  @override
+  String trainingRecordDays(String days) {
+    return '$days ngày';
+  }
+
+  @override
+  String get taskListTitle => 'Nhiệm Vụ Của Tôi';
+
+  @override
+  String taskListTabWithCount(String label, int count) {
+    return '$label ($count)';
+  }
+
+  @override
+  String get taskListEmpty => 'Không có nhiệm vụ';
+
+  @override
+  String get taskTabInProgress => 'Đang làm';
+
+  @override
+  String get taskTabWaiting => 'Chờ';
+
+  @override
+  String get taskTabCompleted => 'Hoàn thành';
+
+  @override
+  String get taskTabOverdue => 'Quá hạn';
+
+  @override
+  String get taskTabCancelled => 'Đã hủy';
+
+  @override
+  String get taskStatusPending => 'Chờ tiếp nhận';
+
+  @override
+  String get taskStatusAssigned => 'Đã giao';
+
+  @override
+  String get taskStatusInProgress => 'Đang thực hiện';
+
+  @override
+  String get taskStatusCompleted => 'Hoàn thành';
+
+  @override
+  String get taskStatusCancelled => 'Đã hủy';
+
+  @override
+  String get taskStatusOverdue => 'Quá hạn';
+
+  @override
+  String get taskStatusUnknown => 'Không rõ';
+
+  @override
+  String get taskPriorityUrgent => 'Khẩn cấp';
+
+  @override
+  String get taskPriorityHigh => 'Cao';
+
+  @override
+  String get taskPriorityMedium => 'Trung bình';
+
+  @override
+  String get taskPriorityLow => 'Thấp';
+
+  @override
+  String get taskTypePatrol => 'Tuần tra';
+
+  @override
+  String get taskTypeGuard => 'Bảo vệ';
+
+  @override
+  String get taskTypeInspection => 'Kiểm tra';
+
+  @override
+  String get taskTypeSupport => 'Hỗ trợ';
+
+  @override
+  String get taskTypeTraining => 'Tập huấn';
+
+  @override
+  String get taskTypeAdmin => 'Hành chính';
+
+  @override
+  String get taskTypeOther => 'Khác';
+
+  @override
+  String taskDeadline(String deadline) {
+    return 'Hạn: $deadline';
+  }
+
+  @override
+  String get taskNoDeadline => 'Không có hạn';
+
+  @override
+  String get taskAcceptButton => 'Tiếp nhận';
+
+  @override
+  String get taskAccepting => 'Đang tiếp nhận...';
+
+  @override
+  String get taskAcceptDone => 'Đã tiếp nhận nhiệm vụ';
+
+  @override
+  String get taskReportButton => 'Báo cáo';
+
+  @override
+  String get taskDetailTitle => 'Chi tiết nhiệm vụ';
+
+  @override
+  String taskDetailType(String type) {
+    return 'Loại: $type';
+  }
+
+  @override
+  String taskDetailPriority(String priority) {
+    return 'Mức ưu tiên: $priority';
+  }
+
+  @override
+  String get taskDetailDescription => 'Mô tả';
+
+  @override
+  String get taskDetailNoDescription => 'Không có mô tả';
+
+  @override
+  String get taskDetailAttachments => 'Tệp đính kèm';
+
+  @override
+  String get taskReportTitle => 'Báo cáo nhiệm vụ';
+
+  @override
+  String get taskReportDescriptionLabel => 'Mô tả kết quả *';
+
+  @override
+  String get taskReportDescriptionHint => 'Mô tả công việc đã thực hiện...';
+
+  @override
+  String get taskReportCompletedAtLabel => 'Thời điểm hoàn thành';
+
+  @override
+  String get taskReportLocationLabel => 'Vị trí';
+
+  @override
+  String get taskReportLocationHint => 'Nhập địa điểm hoặc lấy vị trí GPS';
+
+  @override
+  String get taskReportGpsButton => 'Lấy vị trí GPS';
+
+  @override
+  String taskReportGpsValue(String latitude, String longitude) {
+    return '$latitude, $longitude (GPS)';
+  }
+
+  @override
+  String taskReportGpsFailed(String reason) {
+    return 'Không lấy được vị trí GPS: $reason';
+  }
+
+  @override
+  String get taskReportPhotosLabel => 'Ảnh đính kèm';
+
+  @override
+  String get taskReportPhotosUploading =>
+      'Ảnh đang được tải lên. Vui lòng đợi rồi gửi báo cáo.';
+
+  @override
+  String get taskReportPhotosFailed =>
+      'Có ảnh chưa tải lên được. Tải lên lại hoặc bỏ ảnh đó rồi gửi báo cáo.';
+
+  @override
+  String get taskReportSubmitButton => 'GỬI BÁO CÁO';
+
+  @override
+  String get taskReportSent => 'Báo cáo đã được gửi thành công!';
+
+  @override
+  String get taskIssueMalformedResponse =>
+      'Dữ liệu nhiệm vụ không đúng định dạng.';
+
+  @override
+  String get taskIssueReportDescriptionRequired =>
+      'Vui lòng nhập mô tả kết quả.';
+
+  @override
+  String taskIssueReportDescriptionTooLong(int max) {
+    String _temp0 = intl.Intl.pluralLogic(
+      max,
+      locale: localeName,
+      other: 'Mô tả tối đa $max ký tự.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String taskIssueReportLocationTooLong(int max) {
+    String _temp0 = intl.Intl.pluralLogic(
+      max,
+      locale: localeName,
+      other: 'Vị trí tối đa $max ký tự.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String taskIssueReportTooManyPhotos(int max) {
+    String _temp0 = intl.Intl.pluralLogic(
+      max,
+      locale: localeName,
+      other: 'Báo cáo đính kèm tối đa $max ảnh.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get taskIssueReportDuplicatePhotos =>
+      'Một ảnh được đính kèm nhiều lần.';
+
+  @override
+  String get errorTaskNotAcceptable =>
+      'Nhiệm vụ không còn ở trạng thái có thể tiếp nhận.';
+
+  @override
+  String get errorTaskClosed => 'Nhiệm vụ đã hoàn thành hoặc đã bị hủy.';
+
+  @override
+  String get errorTaskInvalidStatus => 'Trạng thái nhiệm vụ không hợp lệ.';
+
+  @override
+  String get errorTaskCannotBeEdited =>
+      'Nhiệm vụ đã bắt đầu nên không thể sửa.';
+
+  @override
+  String get errorTaskCannotBeCancelled => 'Nhiệm vụ này không thể hủy.';
 }

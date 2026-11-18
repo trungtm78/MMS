@@ -17,7 +17,13 @@ enum FilePurpose {
   general('general'),
   taskReport('task_report'),
   workReport('work_report'),
-  officialDocument('official_document');
+  officialDocument('official_document'),
+
+  /// Attachments of a task itself, uploaded by the task's author
+  task('task'),
+
+  /// Documents of a militia profile
+  militiaProfile('militia_profile');
 
   const FilePurpose(this.wire);
 

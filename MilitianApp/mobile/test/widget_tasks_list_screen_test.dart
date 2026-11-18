@@ -1,10 +1,10 @@
 // Widget Tests: task tabs follow the statuses the backend really writes
-//   GET /tasks → {data, total, page, limit}; rows from tasks.service.ts:427-445 (t.status, t.deadline,
-//   ta.assignee_id AS "assigneeId"); tasks.status ∈ pending | assigned | in_progress | completed |
-//   cancelled | overdue (migrations/003_tasks.sql:25).
+//   GET /tasks → {data, total, page, limit}, scoped by the server to the caller's tasks (task-sql.ts taskRowSelect:
+//   t.status, t.deadline, overdue flag); tasks.status ∈ pending | assigned | in_progress | completed |
+//   cancelled | overdue (TASK_STATUSES).
 //   "Đang làm" = in_progress; "Chờ" = pending/assigned; "Quá hạn" = status overdue, or past the deadline
 //   and neither completed nor cancelled.
-//   POST /tasks/:id/accept moves pending → in_progress (tasks.service.ts:171-191)
+//   POST /tasks/:id/accept moves pending | assigned | overdue → in_progress (tasks.service.ts ACCEPTABLE_STATUSES)
 // Run: flutter test test/widget_tasks_list_screen_test.dart
 
 import 'package:dio/dio.dart';
@@ -28,8 +28,6 @@ List<Map<String, dynamic>> _rows() => [
       backendTaskRow('t-late', 'in_progress', deadline: _past, title: 'Kiểm tra PCCC chợ'),
       backendTaskRow('t-done', 'completed', deadline: _past, title: 'Trực ban đêm'),
       backendTaskRow('t-cancel', 'cancelled', title: 'Huấn luyện dã ngoại'),
-      backendTaskRow('t-other', 'in_progress',
-          deadline: _future, assigneeId: 'u-other', title: 'Việc của người khác'),
     ];
 
 Future<FakeAdapter> _open(WidgetTester tester, ResponseBody Function(RequestOptions) handler) async {
@@ -67,8 +65,6 @@ void main() {
     expect(find.text('Báo cáo'), findsOneWidget);
     expect(find.text('Kiểm tra PCCC chợ'), findsNothing);
     expect(find.text('Tuần tra khu phố 3'), findsNothing);
-    // GET /tasks is not scoped to the caller: someone else's task is not "mine"
-    expect(find.text('Việc của người khác'), findsNothing);
     // The filter icon did nothing
     expect(find.byIcon(Icons.filter_list), findsNothing);
 
@@ -76,8 +72,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Tuần tra khu phố 3'), findsOneWidget);
     expect(find.text('Hỗ trợ điều tiết giao thông'), findsOneWidget);
-    // POST /tasks/:id/accept only moves pending tasks
-    expect(find.text('Tiếp nhận'), findsOneWidget);
+    // POST /tasks/:id/accept takes pending, assigned and overdue tasks (tasks.service.ts ACCEPTABLE_STATUSES)
+    expect(find.text('Tiếp nhận'), findsNWidgets(2));
 
     await tester.tap(find.text('Quá hạn (1)'));
     await tester.pumpAndSettle();
@@ -110,10 +106,12 @@ void main() {
   });
 
   testWidgets('WT-TASKS-03: a refused accept is explained in Vietnamese', (tester) async {
+    // A task the caller is not assigned to is outside their scope: 404 task_not_found
+    // (tasks.service.ts lockAssignedTask)
     await _open(
       tester,
       (o) => o.method == 'POST'
-          ? jsonBody(403, backendError(403, 'not_task_assignee'))
+          ? jsonBody(404, backendError(404, 'task_not_found'))
           : jsonBody(200, backendPage([backendTaskRow('t-wait', 'pending', deadline: _future)])),
     );
 
@@ -122,6 +120,6 @@ void main() {
     await tester.tap(find.text('Tiếp nhận'));
     await tester.pumpAndSettle();
 
-    expect(find.text(viL10n.errorTaskNotAssignee), findsOneWidget);
+    expect(find.text(viL10n.errorTaskNotFound), findsOneWidget);
   });
 }

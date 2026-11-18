@@ -472,18 +472,6 @@ abstract class AppLocalizations {
   /// **'Đang hoạt động'**
   String get profileScreenStatusActive;
 
-  /// Profile quick stat: years of service label.
-  ///
-  /// In vi, this message translates to:
-  /// **'Thâm niên'**
-  String get profileScreenStatSeniorityLabel;
-
-  /// Profile quick stat: years of service value (placeholder figure until the backend provides it).
-  ///
-  /// In vi, this message translates to:
-  /// **'2 năm 3 tháng'**
-  String get profileScreenStatSeniorityValue;
-
   /// Profile quick stat: KPI score label.
   ///
   /// In vi, this message translates to:
@@ -495,6 +483,42 @@ abstract class AppLocalizations {
   /// In vi, this message translates to:
   /// **'Xếp hạng'**
   String get profileScreenStatRankLabel;
+
+  /// Profile quick stat: standing within the unit this month (GET /kpi/current rankInUnit / unitSize).
+  ///
+  /// In vi, this message translates to:
+  /// **'{rank}/{size}'**
+  String profileScreenStatRankValue(int rank, int size);
+
+  /// Profile quick stat: standing within the unit when the unit size is not known.
+  ///
+  /// In vi, this message translates to:
+  /// **'#{rank}'**
+  String profileScreenStatRankOnly(int rank);
+
+  /// Profile quick stat: the month has no KPI evaluation yet.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chưa đánh giá'**
+  String get profileScreenStatNotEvaluated;
+
+  /// Profile quick stat: GET /kpi/current failed.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không tải được'**
+  String get profileScreenStatUnavailable;
+
+  /// Profile quick stat: screen-reader label while GET /kpi/current loads.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đang tải chỉ tiêu'**
+  String get profileScreenStatLoading;
+
+  /// Profile: GET /users/me failed, with why.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không tải được hồ sơ: {reason}'**
+  String profileScreenLoadFailed(String reason);
 
   /// Profile: personal information card title.
   ///
@@ -519,48 +543,6 @@ abstract class AppLocalizations {
   /// In vi, this message translates to:
   /// **'Đơn vị'**
   String get profileScreenUnitLabel;
-
-  /// Profile: work information card title.
-  ///
-  /// In vi, this message translates to:
-  /// **'Thông tin công tác'**
-  String get profileScreenWorkInfoTitle;
-
-  /// Profile: assigned neighbourhood label.
-  ///
-  /// In vi, this message translates to:
-  /// **'Khu phố'**
-  String get profileScreenNeighborhoodLabel;
-
-  /// Profile: assigned neighbourhood value (placeholder until the backend provides it).
-  ///
-  /// In vi, this message translates to:
-  /// **'Khu phố 1'**
-  String get profileScreenNeighborhoodValue;
-
-  /// Profile: area police officer label.
-  ///
-  /// In vi, this message translates to:
-  /// **'Công An KV'**
-  String get profileScreenAreaPoliceLabel;
-
-  /// Profile: area police officer value (placeholder until the backend provides it).
-  ///
-  /// In vi, this message translates to:
-  /// **'Trung úy Võ Văn Tân'**
-  String get profileScreenAreaPoliceValue;
-
-  /// Profile: date joined the militia label.
-  ///
-  /// In vi, this message translates to:
-  /// **'Ngày vào lực lượng'**
-  String get profileScreenJoinedLabel;
-
-  /// Profile: position grade label.
-  ///
-  /// In vi, this message translates to:
-  /// **'Ngạch công tác'**
-  String get profileScreenPositionLabel;
 
   /// Profile quick action: request leave.
   ///
@@ -1096,17 +1078,11 @@ abstract class AppLocalizations {
   /// **'Đơn đã được xử lý, không còn ở trạng thái chờ duyệt.'**
   String get errorLeaveRequestNotPending;
 
-  /// Backend code task_not_found.
+  /// Backend code task_not_found (tasks/tasks.service.ts: a task outside the caller's scope, e.g. one they are not assigned to).
   ///
   /// In vi, this message translates to:
   /// **'Không tìm thấy nhiệm vụ.'**
   String get errorTaskNotFound;
-
-  /// Backend code not_task_assignee.
-  ///
-  /// In vi, this message translates to:
-  /// **'Bạn không được giao nhiệm vụ này.'**
-  String get errorTaskNotAssignee;
 
   /// Backend code password_complexity (users.service.ts).
   ///
@@ -1893,6 +1869,630 @@ abstract class AppLocalizations {
   /// In vi, this message translates to:
   /// **'Một ảnh được đính kèm nhiều lần.'**
   String get incidentReportIssueDuplicateAttachments;
+
+  /// Generic action that loads again what could not be loaded.
+  ///
+  /// In vi, this message translates to:
+  /// **'Thử lại'**
+  String get commonRetryButton;
+
+  /// KPI screen: header title.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chỉ Tiêu'**
+  String get kpiScreenTitle;
+
+  /// KPI screen: title of the overall score card.
+  ///
+  /// In vi, this message translates to:
+  /// **'Điểm chỉ tiêu tổng thể'**
+  String get kpiOverallTitle;
+
+  /// KPI screen: the month the score is for (GET /kpi/current month and year).
+  ///
+  /// In vi, this message translates to:
+  /// **'Tháng {month}/{year}'**
+  String kpiMonthOfYear(int month, int year);
+
+  /// KPI screen: the month has no evaluation yet (score null).
+  ///
+  /// In vi, this message translates to:
+  /// **'Chưa có đánh giá tháng này'**
+  String get kpiNotEvaluated;
+
+  /// KPI screen: the top of the evaluation scale after the big score (GET /kpi/current maxScore).
+  ///
+  /// In vi, this message translates to:
+  /// **'/{max}'**
+  String kpiScoreScale(String max);
+
+  /// KPI screen: the score as a share of the scale, in the ring.
+  ///
+  /// In vi, this message translates to:
+  /// **'{value}%'**
+  String kpiPercent(String value);
+
+  /// KPI screen: change from last month's score, signed.
+  ///
+  /// In vi, this message translates to:
+  /// **'{change} so với tháng trước'**
+  String kpiChangeFromLastMonth(String change);
+
+  /// KPI screen: standing among the members of the caller's unit scored this month (rankInUnit / unitSize).
+  ///
+  /// In vi, this message translates to:
+  /// **'Hạng {rank}/{size} trong đơn vị'**
+  String kpiRankInUnitOf(int rank, int size);
+
+  /// KPI screen: standing within the unit when the unit size is not known.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hạng {rank} trong đơn vị'**
+  String kpiRankInUnit(int rank);
+
+  /// KPI screen: standing among every member scored this month (rank).
+  ///
+  /// In vi, this message translates to:
+  /// **'Hạng chung #{rank}'**
+  String kpiRankOverall(int rank);
+
+  /// KPI screen: title of the component scores card.
+  ///
+  /// In vi, this message translates to:
+  /// **'Điểm thành phần'**
+  String get kpiComponentsTitle;
+
+  /// KPI screen: attendance component (attendanceScore).
+  ///
+  /// In vi, this message translates to:
+  /// **'Chấm công'**
+  String get kpiComponentAttendance;
+
+  /// KPI screen: task component (taskScore).
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm vụ'**
+  String get kpiComponentTask;
+
+  /// KPI screen: a component score on the evaluation scale.
+  ///
+  /// In vi, this message translates to:
+  /// **'{score}/{max}'**
+  String kpiScoreOutOf(String score, String max);
+
+  /// KPI screen: a component score the backend did not compute.
+  ///
+  /// In vi, this message translates to:
+  /// **'—'**
+  String get kpiScoreMissing;
+
+  /// KPI screen: title of the 6-month trend card.
+  ///
+  /// In vi, this message translates to:
+  /// **'Xu hướng 6 tháng'**
+  String get kpiTrendTitle;
+
+  /// KPI screen: no evaluated month in GET /kpi/history.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chưa có dữ liệu'**
+  String get kpiTrendEmpty;
+
+  /// KPI screen: short month label under a trend bar.
+  ///
+  /// In vi, this message translates to:
+  /// **'T{month}'**
+  String kpiTrendMonth(int month);
+
+  /// KPI screen: the backend has no leaderboard or achievements endpoint.
+  ///
+  /// In vi, this message translates to:
+  /// **'Máy chủ chưa hỗ trợ bảng xếp hạng chi tiết và thành tích.'**
+  String get kpiUnsupportedNote;
+
+  /// Training screen: header title.
+  ///
+  /// In vi, this message translates to:
+  /// **'Huấn luyện'**
+  String get trainingScreenTitle;
+
+  /// Training screen: title of the yearly progress bar.
+  ///
+  /// In vi, this message translates to:
+  /// **'Tiến độ huấn luyện năm {year}'**
+  String trainingProgressTitle(int year);
+
+  /// Training screen: training days done this year against the required days.
+  ///
+  /// In vi, this message translates to:
+  /// **'{done}/{required} ngày'**
+  String trainingProgressDays(String done, int required);
+
+  /// Training screen: the legal yearly minimum.
+  ///
+  /// In vi, this message translates to:
+  /// **'Luật DQTV 2019 Điều 26 — yêu cầu tối thiểu {days} ngày/năm'**
+  String trainingRequirementNote(int days);
+
+  /// Training screen: the yearly minimum is reached.
+  ///
+  /// In vi, this message translates to:
+  /// **'✓ Đạt yêu cầu'**
+  String get trainingStatusMet;
+
+  /// Training screen: close to the yearly minimum, with the days still missing.
+  ///
+  /// In vi, this message translates to:
+  /// **'⚠ Cần thêm {days} ngày'**
+  String trainingStatusDaysLeft(String days);
+
+  /// Training screen: far from the yearly minimum.
+  ///
+  /// In vi, this message translates to:
+  /// **'✗ Chưa đạt'**
+  String get trainingStatusNotMet;
+
+  /// Training screen: filter chip showing every record.
+  ///
+  /// In vi, this message translates to:
+  /// **'Tất cả'**
+  String get trainingFilterAll;
+
+  /// training_type military (Web/backend/src/training/training.service.ts).
+  ///
+  /// In vi, this message translates to:
+  /// **'Quân sự'**
+  String get trainingTypeMilitary;
+
+  /// training_type political.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chính trị'**
+  String get trainingTypePolitical;
+
+  /// training_type fire (fire prevention and fighting).
+  ///
+  /// In vi, this message translates to:
+  /// **'PCCC'**
+  String get trainingTypeFire;
+
+  /// training_type first_aid.
+  ///
+  /// In vi, this message translates to:
+  /// **'Sơ cứu'**
+  String get trainingTypeFirstAid;
+
+  /// training_type other.
+  ///
+  /// In vi, this message translates to:
+  /// **'Khác'**
+  String get trainingTypeOther;
+
+  /// Training record result pass.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đạt'**
+  String get trainingOutcomePassed;
+
+  /// Training record result fail.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không đạt'**
+  String get trainingOutcomeFailed;
+
+  /// Training record result not_evaluated, or no result.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chưa đánh giá'**
+  String get trainingOutcomeNotEvaluated;
+
+  /// Training screen: no record of the chosen type.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không có đợt huấn luyện loại này'**
+  String get trainingFilterEmpty;
+
+  /// Training screen: no record this year.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chưa có đợt huấn luyện nào trong năm'**
+  String get trainingEmptyTitle;
+
+  /// Training screen: hint under the empty state.
+  ///
+  /// In vi, this message translates to:
+  /// **'Các đợt huấn luyện sẽ được cập nhật\nkhi có lịch từ đơn vị'**
+  String get trainingEmptyHint;
+
+  /// Training screen: title of a record without a training type.
+  ///
+  /// In vi, this message translates to:
+  /// **'Huấn luyện'**
+  String get trainingRecordUntyped;
+
+  /// Training screen: days of one record.
+  ///
+  /// In vi, this message translates to:
+  /// **'{days} ngày'**
+  String trainingRecordDays(String days);
+
+  /// Task list: header title.
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm Vụ Của Tôi'**
+  String get taskListTitle;
+
+  /// Task list: a tab label followed by how many tasks it lists.
+  ///
+  /// In vi, this message translates to:
+  /// **'{label} ({count})'**
+  String taskListTabWithCount(String label, int count);
+
+  /// Task list: the chosen tab lists no task.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không có nhiệm vụ'**
+  String get taskListEmpty;
+
+  /// Task list tab: in_progress tasks that are not late.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đang làm'**
+  String get taskTabInProgress;
+
+  /// Task list tab: pending or assigned tasks that are not late.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chờ'**
+  String get taskTabWaiting;
+
+  /// Task list tab: completed tasks.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hoàn thành'**
+  String get taskTabCompleted;
+
+  /// Task list tab: late tasks (server overdue flag).
+  ///
+  /// In vi, this message translates to:
+  /// **'Quá hạn'**
+  String get taskTabOverdue;
+
+  /// Task list tab: cancelled tasks.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đã hủy'**
+  String get taskTabCancelled;
+
+  /// tasks.status pending (Web/backend/src/tasks/task-sql.ts TASK_STATUSES).
+  ///
+  /// In vi, this message translates to:
+  /// **'Chờ tiếp nhận'**
+  String get taskStatusPending;
+
+  /// tasks.status assigned.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đã giao'**
+  String get taskStatusAssigned;
+
+  /// tasks.status in_progress.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đang thực hiện'**
+  String get taskStatusInProgress;
+
+  /// tasks.status completed.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hoàn thành'**
+  String get taskStatusCompleted;
+
+  /// tasks.status cancelled.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đã hủy'**
+  String get taskStatusCancelled;
+
+  /// tasks.status overdue, also the badge of a late task.
+  ///
+  /// In vi, this message translates to:
+  /// **'Quá hạn'**
+  String get taskStatusOverdue;
+
+  /// A task row without a status.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không rõ'**
+  String get taskStatusUnknown;
+
+  /// tasks.priority urgent (CreateTaskDto).
+  ///
+  /// In vi, this message translates to:
+  /// **'Khẩn cấp'**
+  String get taskPriorityUrgent;
+
+  /// tasks.priority high.
+  ///
+  /// In vi, this message translates to:
+  /// **'Cao'**
+  String get taskPriorityHigh;
+
+  /// tasks.priority medium.
+  ///
+  /// In vi, this message translates to:
+  /// **'Trung bình'**
+  String get taskPriorityMedium;
+
+  /// tasks.priority low.
+  ///
+  /// In vi, this message translates to:
+  /// **'Thấp'**
+  String get taskPriorityLow;
+
+  /// tasks.type patrol (CreateTaskDto).
+  ///
+  /// In vi, this message translates to:
+  /// **'Tuần tra'**
+  String get taskTypePatrol;
+
+  /// tasks.type guard.
+  ///
+  /// In vi, this message translates to:
+  /// **'Bảo vệ'**
+  String get taskTypeGuard;
+
+  /// tasks.type inspection.
+  ///
+  /// In vi, this message translates to:
+  /// **'Kiểm tra'**
+  String get taskTypeInspection;
+
+  /// tasks.type support.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hỗ trợ'**
+  String get taskTypeSupport;
+
+  /// tasks.type training.
+  ///
+  /// In vi, this message translates to:
+  /// **'Tập huấn'**
+  String get taskTypeTraining;
+
+  /// tasks.type admin.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hành chính'**
+  String get taskTypeAdmin;
+
+  /// tasks.type other.
+  ///
+  /// In vi, this message translates to:
+  /// **'Khác'**
+  String get taskTypeOther;
+
+  /// A task's deadline in local time.
+  ///
+  /// In vi, this message translates to:
+  /// **'Hạn: {deadline}'**
+  String taskDeadline(String deadline);
+
+  /// A task without a deadline.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không có hạn'**
+  String get taskNoDeadline;
+
+  /// Starts a task that is not under way yet (POST /tasks/:id/accept).
+  ///
+  /// In vi, this message translates to:
+  /// **'Tiếp nhận'**
+  String get taskAcceptButton;
+
+  /// The accept request is out.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đang tiếp nhận...'**
+  String get taskAccepting;
+
+  /// The task was accepted and is now under way.
+  ///
+  /// In vi, this message translates to:
+  /// **'Đã tiếp nhận nhiệm vụ'**
+  String get taskAcceptDone;
+
+  /// Opens the completion report of a task.
+  ///
+  /// In vi, this message translates to:
+  /// **'Báo cáo'**
+  String get taskReportButton;
+
+  /// Task detail: header title.
+  ///
+  /// In vi, this message translates to:
+  /// **'Chi tiết nhiệm vụ'**
+  String get taskDetailTitle;
+
+  /// The kind of task.
+  ///
+  /// In vi, this message translates to:
+  /// **'Loại: {type}'**
+  String taskDetailType(String type);
+
+  /// Task detail: the task's priority.
+  ///
+  /// In vi, this message translates to:
+  /// **'Mức ưu tiên: {priority}'**
+  String taskDetailPriority(String priority);
+
+  /// Task detail: title of the description card.
+  ///
+  /// In vi, this message translates to:
+  /// **'Mô tả'**
+  String get taskDetailDescription;
+
+  /// Task detail: the task has no description.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không có mô tả'**
+  String get taskDetailNoDescription;
+
+  /// Task detail: files the task's author attached.
+  ///
+  /// In vi, this message translates to:
+  /// **'Tệp đính kèm'**
+  String get taskDetailAttachments;
+
+  /// Task report: header title.
+  ///
+  /// In vi, this message translates to:
+  /// **'Báo cáo nhiệm vụ'**
+  String get taskReportTitle;
+
+  /// Task report: label of the required description.
+  ///
+  /// In vi, this message translates to:
+  /// **'Mô tả kết quả *'**
+  String get taskReportDescriptionLabel;
+
+  /// Task report: hint of the description field.
+  ///
+  /// In vi, this message translates to:
+  /// **'Mô tả công việc đã thực hiện...'**
+  String get taskReportDescriptionHint;
+
+  /// Task report: when the work was finished (completedAt).
+  ///
+  /// In vi, this message translates to:
+  /// **'Thời điểm hoàn thành'**
+  String get taskReportCompletedAtLabel;
+
+  /// Task report: label of the optional location.
+  ///
+  /// In vi, this message translates to:
+  /// **'Vị trí'**
+  String get taskReportLocationLabel;
+
+  /// Task report: hint of the location field.
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhập địa điểm hoặc lấy vị trí GPS'**
+  String get taskReportLocationHint;
+
+  /// Task report: fills the location from the device position.
+  ///
+  /// In vi, this message translates to:
+  /// **'Lấy vị trí GPS'**
+  String get taskReportGpsButton;
+
+  /// Task report: the location filled in from GPS coordinates.
+  ///
+  /// In vi, this message translates to:
+  /// **'{latitude}, {longitude} (GPS)'**
+  String taskReportGpsValue(String latitude, String longitude);
+
+  /// Task report: the GPS position could not be read, with why.
+  ///
+  /// In vi, this message translates to:
+  /// **'Không lấy được vị trí GPS: {reason}'**
+  String taskReportGpsFailed(String reason);
+
+  /// Task report: title of the photo attachments section.
+  ///
+  /// In vi, this message translates to:
+  /// **'Ảnh đính kèm'**
+  String get taskReportPhotosLabel;
+
+  /// Task report: the report waits for its photos to finish uploading.
+  ///
+  /// In vi, this message translates to:
+  /// **'Ảnh đang được tải lên. Vui lòng đợi rồi gửi báo cáo.'**
+  String get taskReportPhotosUploading;
+
+  /// Task report: a photo failed to upload, so the report is not sent yet.
+  ///
+  /// In vi, this message translates to:
+  /// **'Có ảnh chưa tải lên được. Tải lên lại hoặc bỏ ảnh đó rồi gửi báo cáo.'**
+  String get taskReportPhotosFailed;
+
+  /// Task report: sends the report (POST /tasks/:id/report).
+  ///
+  /// In vi, this message translates to:
+  /// **'GỬI BÁO CÁO'**
+  String get taskReportSubmitButton;
+
+  /// Task report: the report was stored and the task completed.
+  ///
+  /// In vi, this message translates to:
+  /// **'Báo cáo đã được gửi thành công!'**
+  String get taskReportSent;
+
+  /// A task route answered something that is not the task, page or report it returns.
+  ///
+  /// In vi, this message translates to:
+  /// **'Dữ liệu nhiệm vụ không đúng định dạng.'**
+  String get taskIssueMalformedResponse;
+
+  /// Local check: the report has no description.
+  ///
+  /// In vi, this message translates to:
+  /// **'Vui lòng nhập mô tả kết quả.'**
+  String get taskIssueReportDescriptionRequired;
+
+  /// Local check: the description is over SubmitReportDto's limit.
+  ///
+  /// In vi, this message translates to:
+  /// **'{max, plural, other{Mô tả tối đa {max} ký tự.}}'**
+  String taskIssueReportDescriptionTooLong(int max);
+
+  /// Local check: the location is over SubmitReportDto's limit.
+  ///
+  /// In vi, this message translates to:
+  /// **'{max, plural, other{Vị trí tối đa {max} ký tự.}}'**
+  String taskIssueReportLocationTooLong(int max);
+
+  /// Local check: more photos than SubmitReportDto.photoIds accepts.
+  ///
+  /// In vi, this message translates to:
+  /// **'{max, plural, other{Báo cáo đính kèm tối đa {max} ảnh.}}'**
+  String taskIssueReportTooManyPhotos(int max);
+
+  /// Local check: the same upload is attached twice (photoIds @ArrayUnique).
+  ///
+  /// In vi, this message translates to:
+  /// **'Một ảnh được đính kèm nhiều lần.'**
+  String get taskIssueReportDuplicatePhotos;
+
+  /// Backend code task_not_acceptable (tasks/tasks.service.ts acceptTask: only pending, assigned or overdue tasks are accepted).
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm vụ không còn ở trạng thái có thể tiếp nhận.'**
+  String get errorTaskNotAcceptable;
+
+  /// Backend code task_closed (tasks/tasks.service.ts: a completed or cancelled task takes no progress or report).
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm vụ đã hoàn thành hoặc đã bị hủy.'**
+  String get errorTaskClosed;
+
+  /// Backend code invalid_status on a task route (tasks/tasks.service.ts listTasksPaginated).
+  ///
+  /// In vi, this message translates to:
+  /// **'Trạng thái nhiệm vụ không hợp lệ.'**
+  String get errorTaskInvalidStatus;
+
+  /// Backend code task_cannot_be_edited_in_current_status (tasks/tasks.service.ts updateTask).
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm vụ đã bắt đầu nên không thể sửa.'**
+  String get errorTaskCannotBeEdited;
+
+  /// Backend code task_cannot_be_cancelled (tasks/tasks.service.ts cancelTask).
+  ///
+  /// In vi, this message translates to:
+  /// **'Nhiệm vụ này không thể hủy.'**
+  String get errorTaskCannotBeCancelled;
 }
 
 class _AppLocalizationsDelegate

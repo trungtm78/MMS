@@ -24,3 +24,16 @@ String formatDecimal(num value, {int fractionDigits = 2}) {
   if (text == '-0') text = '0';
   return text.replaceAll('.', ',');
 }
+
+/// A count from the backend as a whole number: an int, a double without a fraction or a numeric
+/// string ('18', '3.0'). BIGINT columns (COUNT(*)) may be sent as text; a string of digits is read
+/// exactly, even beyond double precision. Null for fractions and anything that is not a number.
+int? parseWholeNumber(Object? value) {
+  if (value is int) return value;
+  if (value is String) {
+    final exact = int.tryParse(value.trim());
+    if (exact != null) return exact;
+  }
+  final d = parseDecimal(value);
+  return d != null && d == d.roundToDouble() ? d.toInt() : null;
+}
