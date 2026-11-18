@@ -1,0 +1,77 @@
+import { randomUUID } from 'crypto';
+import { TenantContext, TenantScopeError, scopeKey } from './tenant-context';
+
+const A = randomUUID();
+const B = randomUUID();
+
+describe('TenantContext', () => {
+  it('has no scope outside a store', () => {
+    expect(TenantContext.current()).toBeUndefined();
+    expect(scopeKey(undefined)).toBe('none');
+  });
+
+  it('runAs scopes everything reached from the callback, across awaits', async () => {
+    const seen = await TenantContext.runAs({ tenantId: A }, async () => {
+      await new Promise((resolve) => setImmediate(resolve));
+      return TenantContext.current();
+    });
+    expect(seen).toEqual({ tenantId: A });
+    expect(TenantContext.current()).toBeUndefined();
+  });
+
+  it('keeps interleaved scopes apart', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, i) =>
+        TenantContext.runAs({ tenantId: i % 2 ? A : B }, async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+          return TenantContext.requireTenantId();
+        }),
+      ),
+    );
+    results.forEach((id, i) => expect(id).toBe(i % 2 ? A : B));
+  });
+
+  it('adopt sets the scope of the store for code running after it', async () => {
+    await TenantContext.start(async () => {
+      expect(TenantContext.current()).toBeUndefined();
+      TenantContext.adopt({ tenantId: A });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(TenantContext.requireTenantId()).toBe(A);
+    });
+  });
+
+  it('adopt is idempotent for the same tenant and refuses another one', () => {
+    TenantContext.start(() => {
+      TenantContext.adopt({ tenantId: A });
+      expect(() => TenantContext.adopt({ tenantId: A })).not.toThrow();
+      expect(() => TenantContext.adopt({ tenantId: B })).toThrow(
+        expect.objectContaining({ code: 'scope_already_set' }),
+      );
+    });
+  });
+
+  it('adopt needs a store', () => {
+    expect(() => TenantContext.adopt({ tenantId: A })).toThrow(
+      expect.objectContaining({ code: 'no_scope_store' }),
+    );
+  });
+
+  it('refuses a tenant id that is not a UUID', () => {
+    expect(() => TenantContext.runAs({ tenantId: "x'; --" }, () => 1)).toThrow(
+      TenantScopeError,
+    );
+  });
+
+  it('requireTenantId throws without a scope', () => {
+    TenantContext.start(() => {
+      expect(() => TenantContext.requireTenantId()).toThrow(
+        expect.objectContaining({ code: 'no_tenant_scope' }),
+      );
+    });
+  });
+
+  it('scopeKey distinguishes tenants', () => {
+    expect(scopeKey({ tenantId: A })).toBe(`tenant:${A}`);
+    expect(scopeKey({ tenantId: A })).not.toBe(scopeKey({ tenantId: B }));
+  });
+});
