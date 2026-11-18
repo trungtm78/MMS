@@ -1232,9 +1232,11 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Create: `src/database/tenancy/tenant-scope.middleware.ts`, `src/database/tenancy/tenant-scope.middleware.spec.ts`
 - Create: `src/database/tenancy/tenant-job-runner.ts`, `src/database/tenancy/tenant-job-runner.spec.ts`, `src/database/tenancy/tenancy.module.ts`
 - Modify: `src/app.module.ts`, `src/database/typeorm.options.ts`, `src/database/seeder.service.ts`, `src/database/seeder.service.spec.ts`
+- Create: `src/database/tenancy/legacy-default-guard.ts`, `src/database/tenancy/legacy-default-guard.spec.ts`
 - Create: `test/tenancy-binding.e2e-spec.ts`
 
 **Interfaces:**
+- Produces (also): `assertNoLegacyTenantDefault(dataSource: Pick<DataSource, 'query'>): Promise<void>` — throws `Error('legacy_tenant_default_present: …')` when the database or a role carries an `app.tenant_id` default.
 - Consumes: `bindTenantToConnections`, `TenantContext`, `isTenancyEnforced` (Tasks 1–2); SQL `maintenance_tenant_ids()`, `auth_tenant_by_code()` (Task 3).
 - Produces: `TenantScopeMiddleware`, `TenantJobRunner.forEachTenant(job: (tenantId: string) => Promise<void>): Promise<TenantJobOutcome[]>`, `TenancyModule` (global).
 
@@ -1455,6 +1457,56 @@ describe('tenant binding on a real pool (e2e)', () => {
 });
 ```
 
+Enforced mode must not start on a database that still carries the legacy single-tenant default of migration 037 (`ALTER DATABASE … SET app.tenant_id`): a request without a scope would then read and write the first tenant instead of seeing nothing (fail-open). `src/database/tenancy/legacy-default-guard.spec.ts`:
+
+```ts
+import { assertNoLegacyTenantDefault } from './legacy-default-guard';
+
+describe('assertNoLegacyTenantDefault', () => {
+  it('accepts a database with no app.tenant_id default', async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    await expect(assertNoLegacyTenantDefault({ query })).resolves.toBeUndefined();
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a database default and says how to remove it', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValue([{ setting: 'app.tenant_id=a1000000-0000-4000-8000-000000000001' }]);
+    await expect(assertNoLegacyTenantDefault({ query })).rejects.toThrow(
+      /legacy_tenant_default_present.*RESET app\.tenant_id/,
+    );
+  });
+});
+```
+and, appended to `test/tenancy-binding.e2e-spec.ts` (import `tenantAwareDataSource` and `assertNoLegacyTenantDefault`; the default is on only for a database made with `keepLegacyDefault: true`):
+
+```ts
+describe('legacy tenant default guard (e2e)', () => {
+  it('passes on an enforced database and refuses one that kept the legacy default', async () => {
+    const enforced = await createTenantDatabase();
+    const legacy = await createTenantDatabase({ keepLegacyDefault: true });
+    const connect = (url: string) => {
+      const ds = new DataSource({ type: 'postgres', url, installExtensions: false });
+      return ds.initialize();
+    };
+    const good = await connect(enforced.appUrl);
+    const bad = await connect(legacy.appUrl);
+    try {
+      await expect(assertNoLegacyTenantDefault(good)).resolves.toBeUndefined();
+      await expect(assertNoLegacyTenantDefault(bad)).rejects.toThrow(
+        /legacy_tenant_default_present/,
+      );
+    } finally {
+      await good.destroy();
+      await bad.destroy();
+      await enforced.drop();
+      await legacy.drop();
+    }
+  });
+});
+```
+
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `npx jest src/database/tenancy` and `npx jest --config ./test/jest-e2e.json --runInBand test/tenancy-binding`
@@ -1627,6 +1679,55 @@ const FIRST_TENANT_ID = 'a1000000-0000-4000-8000-000000000001';
 and in both inserts: `ON CONFLICT (tenant_id, username) DO NOTHING`.
 
 Update `src/database/seeder.service.spec.ts` for the new conflict target (the spec asserts the SQL text; adjust the expected `ON CONFLICT (username)` to `ON CONFLICT (tenant_id, username)`). Add one test: under `TENANCY_MODE=enforced` the inserts run with `TenantContext.current()?.tenantId === 'a1000000-0000-4000-8000-000000000001'` (capture it inside the mocked `dataSource.query`).
+
+`src/database/tenancy/legacy-default-guard.ts`:
+
+```ts
+import type { DataSource } from 'typeorm';
+
+// The legacy single-tenant default (migration 037) makes every session that writes no
+// tenant inherit the first tenant. Enforced mode relies on "no tenant sees nothing", so it
+// refuses to run while any database-wide or role setting of app.tenant_id exists.
+export async function assertNoLegacyTenantDefault(
+  dataSource: Pick<DataSource, 'query'>,
+): Promise<void> {
+  const rows = await dataSource.query<{ setting: string }[]>(
+    `SELECT c AS setting
+       FROM pg_db_role_setting s
+       CROSS JOIN LATERAL unnest(s.setconfig) AS c
+      WHERE (s.setdatabase = 0
+             OR s.setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database()))
+        AND c LIKE 'app.tenant_id=%'`,
+  );
+  if (rows.length > 0) {
+    throw new Error(
+      `legacy_tenant_default_present: the database sets a default tenant (${rows[0].setting}), ` +
+        `so a request without a tenant would see that tenant. Remove it with ` +
+        `ALTER DATABASE <db> RESET app.tenant_id (and ALTER ROLE ... RESET app.tenant_id) before running TENANCY_MODE=enforced`,
+    );
+  }
+}
+```
+and in `tenantAwareDataSource` (typeorm.options.ts), after `initialize()`, in enforced mode run the guard and destroy the data source when it fails:
+
+```ts
+export async function tenantAwareDataSource(options?: DataSourceOptions): Promise<DataSource> {
+  const dataSource = new DataSource(options as DataSourceOptions);
+  const enforced = isTenancyEnforced();
+  if (enforced) bindTenantToConnections(dataSource);
+  await dataSource.initialize();
+  if (enforced) {
+    try {
+      await assertNoLegacyTenantDefault(dataSource);
+    } catch (error) {
+      await dataSource.destroy();
+      throw error;
+    }
+  }
+  return dataSource;
+}
+```
+(`isTenancyEnforced()` here is also the boot-time call that makes a bad `TENANCY_MODE` value fail startup.)
 
 - [ ] **Step 4: Run to verify**
 
@@ -2915,6 +3016,8 @@ Confirm each M0 exit criterion with the evidence of the run and write the table 
 | Cron writes per tenant | `tenancy-slice` jobs |
 | Audit rows carry the tenant | `tenancy-slice` HTTP |
 | Legacy mode untouched | Step 1 |
+| Enforced boot refuses a database that kept the legacy tenant default | `tenancy-binding` guard test |
+| **Not closed in M0 (recorded, M1 gate):** cross-tenant REFERENCES — single-column foreign keys are checked as the table owner and bypass RLS, so a tenant can point a row at another tenant's row id and that tenant's deletes can cascade or be blocked. Closed in M1 by composite `(tenant_id, id)` foreign keys | `tenancy-rls` has no test for it by design; add the reproduction as a failing test first thing in M1 |
 
 If any row is not green, M0 is not done and M1 does not start.
 
