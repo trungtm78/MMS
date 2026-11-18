@@ -1,0 +1,248 @@
+{
+  "page": {
+    "header": {
+      "title": "Kế hoạch huấn luyện",
+      "subtitle": "UBND Phường Phú Định – Quản lý huấn luyện DQTV"
+    },
+    "tabs": {
+      "label": "Nội dung huấn luyện",
+      "plans": "Kế hoạch năm",
+      "sessions": "Đợt huấn luyện",
+      "stats": "Thống kê"
+    }
+  },
+  "codes": {
+    "types": {
+      "military": "Quân sự",
+      "political": "Chính trị",
+      "fire": "Phòng cháy, chữa cháy",
+      "first_aid": "Sơ cấp cứu",
+      "other": "Khác"
+    },
+    "planStatuses": {
+      "draft": "Nháp",
+      "active": "Đang thực hiện",
+      "completed": "Hoàn thành"
+    },
+    "sessionStatuses": {
+      "upcoming": "Sắp diễn ra",
+      "ongoing": "Đang diễn ra",
+      "completed": "Đã kết thúc"
+    }
+  },
+  "shared": {
+    "unit": {
+      "wardWide": "Toàn phường"
+    },
+    "value": {
+      "percent": "{{percent}}%"
+    }
+  },
+  "plans": {
+    "list": {
+      "create": {
+        "button": "Tạo kế hoạch"
+      },
+      "load": {
+        "loading": "Đang tải danh sách kế hoạch",
+        "empty": "Chưa có kế hoạch nào",
+        "error": "Không thể tải danh sách kế hoạch huấn luyện."
+      },
+      "table": {
+        "year": "Năm",
+        "type": "Loại",
+        "title": "Tên kế hoạch",
+        "unit": "Đơn vị",
+        "days": "Số ngày",
+        "sessions": "Số đợt",
+        "status": "Trạng thái",
+        "actions": "Thao tác"
+      },
+      "row": {
+        "required": "Quy định {{days}} ngày",
+        "progress": "Đã lên lịch {{scheduled}} · Hoàn thành {{completed}} ({{percent}}%)",
+        "progressLabel": "Tỷ lệ ngày huấn luyện đã hoàn thành",
+        "summary": "Kế hoạch {{type}} năm {{year}} – {{unit}}"
+      }
+    },
+    "status": {
+      "activate": {
+        "button": "Triển khai",
+        "title": "Triển khai kế hoạch huấn luyện?",
+        "description": "{{plan}} sẽ chuyển sang Đang thực hiện. Khi đó có thể điểm danh các đợt huấn luyện đã bắt đầu.",
+        "success": "Đã triển khai kế hoạch huấn luyện"
+      },
+      "complete": {
+        "button": "Hoàn thành",
+        "title": "Hoàn thành kế hoạch huấn luyện?",
+        "description": "{{plan}} sẽ chuyển sang Hoàn thành. Sau đó không thể thêm đợt huấn luyện hoặc điểm danh.",
+        "success": "Đã hoàn thành kế hoạch huấn luyện"
+      },
+      "error": "Không thể cập nhật trạng thái kế hoạch"
+    },
+    "create": {
+      "dialog": {
+        "title": "Kế hoạch huấn luyện mới"
+      },
+      "fields": {
+        "type": "Loại huấn luyện",
+        "typePlaceholder": "-- Chọn loại huấn luyện --",
+        "title": "Tên kế hoạch",
+        "titlePlaceholder": "VD: Huấn luyện quân sự năm 2026",
+        "requiredDays": "Số ngày quy định",
+        "requiredDaysPlaceholder": "VD: 15",
+        "requiredDaysHint": "Tính theo ngày hoặc nửa ngày (bước 0,5).",
+        "unitCodePlaceholder": "VD: KP1",
+        "unitCodeHint": "Để trống: kế hoạch của đơn vị bạn, hoặc của toàn phường với tài khoản cấp phường."
+      },
+      "validation": {
+        "yearInvalid": "Năm phải là số nguyên từ 2000 đến 2100",
+        "typeRequired": "Vui lòng chọn loại huấn luyện",
+        "requiredDaysRequired": "Vui lòng nhập số ngày quy định",
+        "requiredDaysInvalid": "Số ngày quy định phải từ 0,5 đến 365 và có tối đa một chữ số thập phân"
+      },
+      "submit": {
+        "idle": "Tạo kế hoạch",
+        "pending": "Đang lưu...",
+        "success": "Đã tạo kế hoạch huấn luyện",
+        "error": "Không thể tạo kế hoạch"
+      }
+    }
+  },
+  "sessions": {
+    "list": {
+      "create": {
+        "button": "Tạo đợt huấn luyện"
+      },
+      "load": {
+        "loading": "Đang tải danh sách đợt huấn luyện",
+        "empty": "Chưa có đợt huấn luyện nào",
+        "error": "Không thể tải danh sách đợt huấn luyện."
+      },
+      "table": {
+        "name": "Đợt",
+        "type": "Loại",
+        "startDate": "Ngày bắt đầu",
+        "endDate": "Ngày kết thúc",
+        "location": "Địa điểm",
+        "days": "Số ngày",
+        "status": "Trạng thái",
+        "attendance": "Tham dự",
+        "actions": "Thao tác"
+      },
+      "row": {
+        "plan": "Kế hoạch {{year}} · {{unit}}",
+        "attendance": "{{attended}}/{{recorded}} có mặt",
+        "attendanceButton": "Điểm danh"
+      }
+    },
+    "create": {
+      "dialog": {
+        "title": "Đợt huấn luyện mới"
+      },
+      "fields": {
+        "plan": "Kế hoạch",
+        "planPlaceholder": "-- Chọn kế hoạch --",
+        "planOption": "{{year}} · {{type}} · {{unit}}",
+        "planOptionWithTitle": "{{year}} · {{type}} · {{unit}} · {{title}}",
+        "noPlans": "Chưa có kế hoạch nháp hoặc đang thực hiện. Hãy tạo kế hoạch trước.",
+        "plansError": "Không thể tải danh sách kế hoạch.",
+        "name": "Tên đợt",
+        "namePlaceholder": "VD: Đợt 1 năm 2026",
+        "startDate": "Ngày bắt đầu",
+        "endDate": "Ngày kết thúc",
+        "datesHint": "Trong năm {{year}} của kế hoạch.",
+        "location": "Địa điểm",
+        "locationPlaceholder": "VD: Thao trường phường",
+        "daysCount": "Số ngày huấn luyện",
+        "daysCountPlaceholder": "VD: 5",
+        "daysCountHint": "Không vượt quá số ngày từ ngày bắt đầu đến ngày kết thúc."
+      },
+      "validation": {
+        "planRequired": "Vui lòng chọn kế hoạch",
+        "nameRequired": "Vui lòng nhập tên đợt huấn luyện",
+        "startDateRequired": "Vui lòng chọn ngày bắt đầu",
+        "endDateRequired": "Vui lòng chọn ngày kết thúc",
+        "locationRequired": "Vui lòng nhập địa điểm",
+        "daysCountRequired": "Vui lòng nhập số ngày huấn luyện",
+        "daysCountInvalid": "Số ngày huấn luyện phải từ 0,5 đến 366 và có tối đa một chữ số thập phân"
+      },
+      "submit": {
+        "idle": "Tạo đợt huấn luyện",
+        "pending": "Đang lưu...",
+        "success": "Đã tạo đợt huấn luyện",
+        "error": "Không thể tạo đợt huấn luyện"
+      }
+    }
+  },
+  "attendance": {
+    "dialog": {
+      "title": "Điểm danh – {{name}}",
+      "description": "{{from}} – {{to}} · {{location}}"
+    },
+    "members": {
+      "loading": "Đang tải danh sách thành viên",
+      "empty": "Không có thành viên",
+      "error": "Không thể tải danh sách thành viên.",
+      "listLabel": "Thành viên của đợt huấn luyện"
+    },
+    "member": {
+      "present": "Có mặt",
+      "absent": "Vắng",
+      "notRecorded": "Chưa điểm danh"
+    },
+    "counter": {
+      "summary": "{{attended}}/{{total}} có mặt",
+      "notRecorded": "{{count}} người chưa điểm danh sẽ được lưu là vắng."
+    },
+    "actions": {
+      "markAll": "Đánh dấu tất cả có mặt",
+      "clearAll": "Bỏ chọn tất cả"
+    },
+    "submit": {
+      "idle": "Lưu điểm danh",
+      "pending": "Đang lưu...",
+      "success": "Đã lưu điểm danh",
+      "error": "Không thể lưu điểm danh"
+    }
+  },
+  "stats": {
+    "rules": {
+      "title": "Quy định huấn luyện (Thông tư 56/2020/TT-BQP)",
+      "firstYearLabel": "Năm đầu (Dân quân mới)",
+      "firstYearDays": "15 ngày",
+      "firstYearNote": "Huấn luyện quân sự cơ bản",
+      "laterYearsLabel": "Năm tiếp theo",
+      "laterYearsDays": "7–12 ngày",
+      "laterYearsNote": "Bổ túc huấn luyện hàng năm"
+    },
+    "year": {
+      "label": "Năm thống kê"
+    },
+    "summary": {
+      "title": "Hoàn thành năm {{year}}",
+      "empty": "Chưa có kế hoạch cho năm {{year}}",
+      "plans": "Số kế hoạch",
+      "required": "Ngày quy định",
+      "scheduled": "Ngày đã lên lịch",
+      "completed": "Ngày đã hoàn thành",
+      "rate": "Tỷ lệ hoàn thành",
+      "progressLabel": "Tỷ lệ hoàn thành năm {{year}}"
+    },
+    "byType": {
+      "title": "Theo loại huấn luyện"
+    },
+    "byUnit": {
+      "title": "Theo đơn vị"
+    },
+    "table": {
+      "type": "Loại huấn luyện",
+      "unit": "Đơn vị",
+      "plans": "Số kế hoạch",
+      "required": "Quy định",
+      "scheduled": "Đã lên lịch",
+      "completed": "Đã hoàn thành",
+      "rate": "% Hoàn thành"
+    }
+  }
+}

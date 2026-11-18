@@ -1,0 +1,186 @@
+{
+  "priority": {
+    "low": "Thấp",
+    "medium": "Trung bình",
+    "high": "Cao",
+    "urgent": "Khẩn cấp"
+  },
+  "type": {
+    "patrol": "Tuần tra",
+    "guard": "Bảo vệ",
+    "inspection": "Kiểm tra",
+    "support": "Hỗ trợ",
+    "training": "Tập huấn",
+    "admin": "Hành chính",
+    "other": "Khác"
+  },
+  "status": {
+    "pending": "Chờ tiếp nhận",
+    "assigned": "Đã giao",
+    "in_progress": "Đang thực hiện",
+    "completed": "Đã hoàn thành",
+    "cancelled": "Đã hủy",
+    "overdue": "Quá hạn"
+  },
+  "create": {
+    "header": {
+      "title": "Tạo nhiệm vụ mới",
+      "subtitle": "Điền đầy đủ thông tin bên dưới"
+    },
+    "info": {
+      "heading": "Thông tin nhiệm vụ"
+    },
+    "title": {
+      "label": "Tiêu đề *",
+      "placeholder": "Nhập tiêu đề nhiệm vụ...",
+      "required": "Tiêu đề là bắt buộc"
+    },
+    "description": {
+      "label": "Mô tả",
+      "placeholder": "Mô tả chi tiết nhiệm vụ..."
+    },
+    "priority": {
+      "label": "Độ ưu tiên"
+    },
+    "type": {
+      "label": "Loại nhiệm vụ"
+    },
+    "deadline": {
+      "label": "Hạn hoàn thành"
+    },
+    "location": {
+      "label": "Địa điểm",
+      "placeholder": "Nhập địa điểm thực hiện...",
+      "tooLong": "Địa điểm tối đa 500 ký tự"
+    },
+    "coordinates": {
+      "legend": "Tọa độ địa điểm (tùy chọn)",
+      "bothRequired": "Nhập cả vĩ độ và kinh độ"
+    },
+    "latitude": {
+      "label": "Vĩ độ",
+      "placeholder": "VD: 10.7512",
+      "outOfRange": "Vĩ độ phải từ -90 đến 90"
+    },
+    "longitude": {
+      "label": "Kinh độ",
+      "placeholder": "VD: 106.6283",
+      "outOfRange": "Kinh độ phải từ -180 đến 180"
+    },
+    "attachments": {
+      "heading": "Tệp đính kèm",
+      "hint": "Tối đa {{max}} tệp: ảnh, PDF, Word hoặc Excel, mỗi tệp không quá 10 MB.",
+      "choose": "Chọn tệp đính kèm",
+      "uploading": "Đang tải tệp lên...",
+      "listLabel": "Tệp đã tải lên",
+      "remove": "Bỏ tệp {{name}}",
+      "fileError": "{{name}}: {{message}}",
+      "uploadError": "Không thể tải lên tệp. Vui lòng thử lại.",
+      "tooMany": "Chỉ đính kèm được tối đa {{max}} tệp. Đã bỏ qua: {{names}}"
+    },
+    "assignee": {
+      "heading": "Người thực hiện",
+      "label": "Người thực hiện *",
+      "placeholder": "Tìm dân quân theo tên, mã hoặc SĐT...",
+      "required": "Vui lòng chọn người thực hiện"
+    },
+    "submit": {
+      "label": "Tạo nhiệm vụ",
+      "success": "Tạo nhiệm vụ thành công",
+      "successNotice": "Nhiệm vụ {{code}} đã được tạo thành công!",
+      "error": "Có lỗi xảy ra. Vui lòng thử lại."
+    },
+    "reset": {
+      "label": "Đặt lại"
+    }
+  },
+  "quickCreate": {
+    "dialog": {
+      "title": "Thêm dân quân mới"
+    },
+    "code": {
+      "label": "Mã dân quân",
+      "placeholder": "VD: HCM-PHD-T12-0004",
+      "required": "Mã dân quân là bắt buộc"
+    },
+    "name": {
+      "label": "Họ và tên",
+      "placeholder": "Nhập họ và tên",
+      "required": "Họ và tên là bắt buộc"
+    },
+    "unit": {
+      "label": "Đơn vị",
+      "placeholder": "Mã đơn vị (VD: PHU_DINH)",
+      "required": "Đơn vị là bắt buộc"
+    },
+    "submit": {
+      "error": "Không thể tạo dân quân. Vui lòng kiểm tra lại thông tin."
+    }
+  },
+  "list": {
+    "header": {
+      "title": "Danh Sách Nhiệm Vụ",
+      "subtitle": "Quản lý và theo dõi tất cả nhiệm vụ đã giao"
+    },
+    "filters": {
+      "status": "Lọc theo trạng thái",
+      "search": {
+        "label": "Lọc trang này",
+        "placeholder": "Lọc trang này theo mã hoặc tiêu đề..."
+      },
+      "unit": {
+        "placeholder": "VD: KP1",
+        "apply": "Lọc"
+      }
+    },
+    "table": {
+      "code": "Mã NV",
+      "title": "Tiêu đề",
+      "assignee": "DQTV",
+      "unit": "Đơn vị",
+      "priority": "Ưu tiên",
+      "deadline": "Hạn",
+      "status": "Trạng thái",
+      "updatedAt": "Cập nhật",
+      "actions": "Thao tác",
+      "empty": "Chưa có nhiệm vụ"
+    },
+    "total": "Tổng {{count}} nhiệm vụ",
+    "load": {
+      "error": "Không thể tải danh sách nhiệm vụ."
+    },
+    "actions": {
+      "edit": "Chỉnh sửa nhiệm vụ {{code}}",
+      "cancel": "Hủy nhiệm vụ {{code}}"
+    },
+    "edit": {
+      "title": "Chỉnh sửa nhiệm vụ",
+      "fields": {
+        "title": "Tiêu đề"
+      },
+      "submit": "Lưu thay đổi",
+      "success": "Đã cập nhật nhiệm vụ",
+      "error": "Không thể lưu thay đổi. Vui lòng thử lại.",
+      "attachments": {
+        "heading": "Tệp đính kèm",
+        "listLabel": "Tệp đính kèm",
+        "empty": "Không có tệp đính kèm",
+        "download": "Tải xuống {{name}}",
+        "loadError": "Không thể tải danh sách tệp đính kèm.",
+        "downloadError": "Không thể tải xuống tệp. Vui lòng thử lại."
+      }
+    },
+    "cancel": {
+      "title": "Hủy nhiệm vụ",
+      "description": "Bạn sắp hủy nhiệm vụ {{title}}. Hành động này không thể hoàn tác.",
+      "reason": {
+        "label": "Lý do hủy",
+        "placeholder": "Nhập lý do hủy nhiệm vụ..."
+      },
+      "submit": "Xác nhận hủy",
+      "pending": "Đang hủy...",
+      "success": "Đã hủy nhiệm vụ",
+      "error": "Không thể hủy nhiệm vụ. Vui lòng thử lại."
+    }
+  }
+}

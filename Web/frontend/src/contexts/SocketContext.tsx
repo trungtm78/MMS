@@ -1,19 +1,12 @@
-// US-W008: WebSocket context for real-time SOS alerts + GPS updates
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
+// US-W008: WebSocket context for real-time SOS alerts
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { getAccessToken } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import type { SosAlert, GpsLog } from '@/types'
-
-interface SocketContextType {
-  isConnected: boolean
-  activeSosAlerts: SosAlert[]
-  liveGpsLogs: Record<string, GpsLog>
-  clearSosAlert: (id: string) => void
-}
-
-const SocketContext = createContext<SocketContextType | undefined>(undefined)
+import type { GpsLiveRow } from '@/api/gps'
+import { SocketContext, type SosLiveAlert } from '@/contexts/socketContextValue'
+import { keepSocketSession } from '@/lib/socketSession'
 
 const SOCKET_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000'
 
@@ -21,30 +14,34 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth()
   const socketRef = useRef<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [activeSosAlerts, setActiveSosAlerts] = useState<SosAlert[]>([])
-  const [liveGpsLogs, setLiveGpsLogs] = useState<Record<string, GpsLog>>({})
+  const [activeSosAlerts, setActiveSosAlerts] = useState<SosLiveAlert[]>([])
+  // Subscribers to live GPS positions (onGpsUpdate); a ref so subscribing never re-renders
+  const gpsListenersRef = useRef(new Set<(row: GpsLiveRow) => void>())
 
   useEffect(() => {
-    const token = getAccessToken()
-    if (!token || !isAuthenticated) return
+    if (!getAccessToken() || !isAuthenticated) return
 
     const socket = io(SOCKET_URL, {
-      auth: { token },
+      // Read the token on every (re)connect so a refreshed access token is used
+      auth: (cb) => cb({ token: getAccessToken() }),
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1_000,
     })
     socketRef.current = socket
+    // Handshake refusals and session_expired: refresh and reconnect, or sign out
+    const stopSessionHandling = keepSocketSession(socket)
 
     socket.on('connect', () => setIsConnected(true))
     socket.on('disconnect', () => setIsConnected(false))
 
-    // US-W008 AC-2: Real-time SOS alert delivery
-    socket.on('sos:new', (alert: SosAlert) => {
+    // US-W008 AC-2: Real-time SOS alert delivery; the payload has no date, so keep when it arrived
+    socket.on('sos:new', (alert: Omit<SosLiveAlert, 'receivedAt'>) => {
+      const receivedAt = new Date().toISOString()
       setActiveSosAlerts((prev) => {
-        // Deduplicate: ignore if same ID within 30s
+        // Deduplicate: ignore an alert already listed
         if (prev.some((a) => a.id === alert.id)) return prev
-        return [alert, ...prev]
+        return [{ ...alert, receivedAt }, ...prev]
       })
     })
 
@@ -53,33 +50,36 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setActiveSosAlerts((prev) => prev.filter((a) => a.id !== id))
     })
 
-    // US-W013 AC-1: Real-time GPS updates
-    socket.on('gps:update', (log: GpsLog) => {
-      setLiveGpsLogs((prev) => ({ ...prev, [log.militiaId]: log }))
-    })
+    // Live positions (gps.service.ts publish): handed to the subscribers, never stored here
+    const dispatchGps = (row: GpsLiveRow) => {
+      for (const listener of [...gpsListenersRef.current]) listener(row)
+    }
+    socket.on('gps:update', dispatchGps)
 
     return () => {
+      socket.off('gps:update', dispatchGps)
+      stopSessionHandling()
       socket.disconnect()
+      socketRef.current = null
     }
   }, [isAuthenticated])
 
-  // F1: socketRef is now used — emit sos:resolve to backend when operator dismisses alert,
-  //     and also update local state. Previously socketRef was assigned but never read back.
+  // Emit sos:resolve to the backend when an operator dismisses an alert, and update local state
   const clearSosAlert = useCallback((id: string) => {
     socketRef.current?.emit('sos:resolve', { id })
     setActiveSosAlerts((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
+  const onGpsUpdate = useCallback((listener: (row: GpsLiveRow) => void) => {
+    gpsListenersRef.current.add(listener)
+    return () => {
+      gpsListenersRef.current.delete(listener)
+    }
+  }, [])
+
   return (
-    <SocketContext.Provider value={{ isConnected, activeSosAlerts, liveGpsLogs, clearSosAlert }}>
+    <SocketContext.Provider value={{ isConnected, activeSosAlerts, clearSosAlert, onGpsUpdate }}>
       {children}
     </SocketContext.Provider>
   )
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function useSocket(): SocketContextType {
-  const ctx = useContext(SocketContext)
-  if (!ctx) throw new Error('useSocket must be used within SocketProvider')
-  return ctx
 }

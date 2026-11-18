@@ -1,0 +1,103 @@
+{
+  "labels": {
+    "status": {
+      "active": "Đang hiệu lực",
+      "expired": "Hết hạn",
+      "revoked": "Đã thu hồi"
+    },
+    "type": {
+      "exemption": "Miễn",
+      "deferral": "Hoãn"
+    },
+    "kind": {
+      "exemption": "miễn",
+      "deferral": "hoãn"
+    }
+  },
+  "requests": {
+    "status": {
+      "badRequest": "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại.",
+      "forbidden": "Bạn không có quyền thực hiện thao tác này"
+    }
+  },
+  "header": {
+    "page": {
+      "title": "Miễn hoãn nghĩa vụ",
+      "subtitle": "UBND Phường Phú Định – Quyết định miễn/hoãn DQTV",
+      "expiringNotice": "{{count}} quyết định sắp hết hạn",
+      "create": "Tạo quyết định"
+    }
+  },
+  "summary": {
+    "cards": {
+      "active": "Đang hiệu lực",
+      "expiring": "Sắp hết hạn (30 ngày)",
+      "inactive": "Hết hạn / Thu hồi"
+    }
+  },
+  "list": {
+    "loadError": {
+      "title": "Không thể tải danh sách quyết định",
+      "forbidden": "Bạn không có quyền xem danh sách này",
+      "fallback": "Vui lòng thử lại sau ít phút."
+    },
+    "empty": {
+      "title": "Chưa có quyết định nào",
+      "hint": "Ban hành quyết định miễn hoặc hoãn nghĩa vụ cho DQTV.",
+      "createFirst": "Tạo quyết định đầu tiên",
+      "readOnlyHint": "Quyết định miễn/hoãn sẽ hiển thị tại đây khi được ban hành."
+    },
+    "item": {
+      "expiringSoon": "Sắp hết hạn ({{days}} ngày)",
+      "legalBasis": "Căn cứ: {{legalBasis}}",
+      "period": "Hiệu lực: {{from}}",
+      "periodRange": "Hiệu lực: {{from}} – {{to}}"
+    }
+  },
+  "create": {
+    "dialog": {
+      "title": "Tạo quyết định miễn/hoãn",
+      "description": "Các trường có dấu * là bắt buộc."
+    },
+    "fields": {
+      "militia": "DQTV",
+      "militiaPlaceholder": "Tìm theo tên, mã hoặc SĐT...",
+      "type": "Loại quyết định",
+      "typeDeferral": "Hoãn nghĩa vụ",
+      "typeExemption": "Miễn nghĩa vụ",
+      "reason": "Lý do",
+      "reasonPlaceholder": "Nêu lý do miễn/hoãn...",
+      "legalBasis": "Căn cứ pháp lý",
+      "legalBasisPlaceholder": "VD: Điều 14 Luật Dân quân tự vệ 2019",
+      "effectiveDate": "Ngày hiệu lực",
+      "expiryDate": "Ngày hết hạn (tùy chọn)"
+    },
+    "validation": {
+      "militiaRequired": "Vui lòng chọn DQTV",
+      "reasonRequired": "Vui lòng nhập lý do",
+      "legalBasisRequired": "Vui lòng nhập căn cứ pháp lý",
+      "effectiveDateRequired": "Vui lòng chọn ngày hiệu lực"
+    },
+    "submit": {
+      "idle": "Tạo quyết định",
+      "success": "Đã tạo quyết định miễn/hoãn",
+      "error": "Không thể tạo quyết định"
+    }
+  },
+  "revoke": {
+    "action": {
+      "idle": "Thu hồi",
+      "pending": "Đang thu hồi…",
+      "label": "Thu hồi quyết định {{kind}} của {{militiaName}} ({{militiaCode}})"
+    },
+    "confirm": {
+      "title": "Thu hồi quyết định?",
+      "description": "Quyết định {{kind}} của {{militiaName}} ({{militiaCode}}) sẽ chuyển sang trạng thái \"Đã thu hồi\" và không thể kích hoạt lại.",
+      "confirmLabel": "Thu hồi"
+    },
+    "request": {
+      "success": "Đã thu hồi quyết định",
+      "error": "Không thể thu hồi quyết định"
+    }
+  }
+}

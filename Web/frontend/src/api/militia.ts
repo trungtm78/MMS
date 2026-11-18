@@ -33,6 +33,7 @@ export interface MilitiaSearchResult {
   unitName: string | null
   status: string
   phone: string | null
+  email: string | null
   rank: string | null
   avatarUrl: string | null
 }

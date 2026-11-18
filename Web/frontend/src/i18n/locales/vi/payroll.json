@@ -1,0 +1,158 @@
+{
+  "page": {
+    "header": {
+      "title": "Bảng Lương & KPI",
+      "subtitle": "Quản lý lương và phụ cấp DQTV"
+    },
+    "periods": {
+      "empty": "Không có dữ liệu kỳ lương"
+    },
+    "tabs": {
+      "kpi": "Bảng Lương & KPI",
+      "allowance": "Phụ cấp & Bảo hiểm",
+      "compliance": "Tuân thủ"
+    }
+  },
+  "format": {
+    "money": {
+      "vnd": "{{amount}}đ"
+    }
+  },
+  "period": {
+    "status": {
+      "draft": "Nháp",
+      "review": "Đang xét duyệt",
+      "locked": "Đã khóa"
+    },
+    "option": {
+      "label": "Tháng {{month}}/{{year}}"
+    },
+    "lock": {
+      "button": "Khóa kỳ lương",
+      "success": "Đã khóa kỳ lương",
+      "error": "Không thể khóa kỳ lương",
+      "lockedAt": "Khóa lúc {{time}}"
+    }
+  },
+  "summary": {
+    "cards": {
+      "averageScore": "Điểm KPI TB",
+      "adjusted": "Đã hiệu chỉnh",
+      "members": "Tổng thành viên",
+      "status": "Trạng thái"
+    }
+  },
+  "kpiFilter": {
+    "header": {
+      "title": "Lọc KPI / Lương"
+    },
+    "fields": {
+      "month": "Tháng",
+      "monthOption": "Tháng {{month}}",
+      "unit": "Đơn vị / Khu phố",
+      "unitPlaceholder": "Tất cả đơn vị...",
+      "militia": "Cán bộ dân quân",
+      "militiaPlaceholder": "Lọc theo dân quân...",
+      "militiaPlaceholderNoUnit": "Chọn đơn vị trước..."
+    },
+    "actions": {
+      "reset": "Xoá lọc",
+      "apply": "Áp dụng"
+    }
+  },
+  "kpi": {
+    "export": {
+      "button": "Xuất CSV"
+    },
+    "columns": {
+      "name": "Họ tên",
+      "attendanceDays": "Ngày công",
+      "tasksCompleted": "NV hoàn thành",
+      "tasksTotal": "Tổng NV",
+      "tasksRatio": "HT/Tổng NV",
+      "score": "Điểm KPI",
+      "adjustedScore": "Điểm hiệu chỉnh",
+      "note": "Ghi chú",
+      "actions": "Hành động"
+    },
+    "table": {
+      "empty": "Không có dữ liệu KPI cho kỳ này"
+    },
+    "adjust": {
+      "button": "Điều chỉnh",
+      "title": "Điều chỉnh KPI",
+      "currentScore": "Điểm KPI hiện tại:",
+      "scoreLabel": "Điểm điều chỉnh (0–100)",
+      "noteLabel": "Lý do điều chỉnh",
+      "save": "Lưu điều chỉnh",
+      "success": "Đã lưu điều chỉnh KPI",
+      "error": "Không thể lưu điều chỉnh"
+    }
+  },
+  "allowance": {
+    "monthly": {
+      "title": "Phụ cấp hàng tháng"
+    },
+    "position": {
+      "title": "Phụ cấp chức vụ",
+      "frequency": "Hàng tháng",
+      "note": "Theo quy định UBND Phường"
+    },
+    "training": {
+      "title": "Trợ cấp huấn luyện",
+      "frequency": "Theo ngày",
+      "note": "Áp dụng cho các ngày huấn luyện"
+    },
+    "insurance": {
+      "title": "Bảo hiểm xã hội (BHXH)",
+      "enrolled": "Đang tham gia"
+    },
+    "insuranceColumns": {
+      "type": "Loại bảo hiểm",
+      "employeeRate": "Tỷ lệ NLĐ",
+      "employerRate": "Tỷ lệ NSDLĐ",
+      "status": "Trạng thái"
+    },
+    "insuranceTypes": {
+      "social": "Bảo hiểm xã hội (BHXH)",
+      "health": "Bảo hiểm y tế (BHYT)",
+      "unemployment": "Bảo hiểm thất nghiệp (BHTN)"
+    },
+    "health": {
+      "title": "Bảo hiểm y tế (BHYT)",
+      "coverageLabel": "Mức hưởng BHYT",
+      "coverageNote": "Chi phí khám chữa bệnh",
+      "clinicLabel": "Cơ sở KCB ban đầu",
+      "clinicValue": "TYT Phường",
+      "clinicNote": "Trạm y tế phường Phú Định",
+      "cardLabel": "Gia hạn thẻ",
+      "cardNote": "Ngày hết hạn thẻ BHYT"
+    },
+    "notice": {
+      "disclaimer": "Thông tin phụ cấp và bảo hiểm mang tính chất tham khảo. Kết nối API đang được triển khai."
+    }
+  },
+  "compliance": {
+    "summary": {
+      "compliantCount": "<compliant>{{compliant}}</compliant>/{{total}} trả đúng lương tối thiểu"
+    },
+    "export": {
+      "error": "Không thể xuất bảng lương"
+    },
+    "columns": {
+      "name": "Họ tên",
+      "baseSalary": "Lương CB",
+      "net": "Thực lĩnh",
+      "minWage": "Lương tối thiểu",
+      "diff": "Chênh lệch",
+      "status": "Trạng thái"
+    },
+    "table": {
+      "empty": "Không có dữ liệu tuân thủ cho kỳ này"
+    },
+    "status": {
+      "compliant": "Đạt",
+      "violation": "Vi phạm"
+    }
+  }
+}

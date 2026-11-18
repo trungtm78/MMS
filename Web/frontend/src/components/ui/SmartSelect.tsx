@@ -5,6 +5,7 @@ import { useState, useCallback, useId } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, ChevronDown, Loader2, Search, PlusCircle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useSmartSelect } from '@/hooks/useSmartSelect'
 import type { SmartSelectOption } from '@/types'
@@ -15,8 +16,10 @@ export interface SmartSelectProps {
   name: string
   /** Label shown above the component */
   label?: string
-  /** Placeholder text for the search input */
+  /** Placeholder text for the search input; defaults to the ui.smartSelect search placeholder */
   placeholder?: string
+  /** Accessible name of the clear button; defaults to the ui.smartSelect clear text */
+  clearLabel?: string
   /** Controlled selected option id */
   value?: string
   /** Callback when selection changes */
@@ -50,7 +53,8 @@ export interface SmartSelectProps {
 export function SmartSelect({
   name,
   label,
-  placeholder = 'Tìm kiếm...',
+  placeholder,
+  clearLabel,
   value,
   onChange,
   onClear,
@@ -64,6 +68,7 @@ export function SmartSelect({
   createModal,
   className,
 }: SmartSelectProps) {
+  const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSubmitting, setModalSubmitting] = useState(false)
   const labelId = useId()
@@ -85,12 +90,10 @@ export function SmartSelect({
     optionRefs,
     filteredOptions,
   } = useSmartSelect({
-    name,
     value,
     onChange,
     onClear,
     options,
-    isLoading,
     disabled,
     onSearch,
   })
@@ -152,7 +155,7 @@ export function SmartSelect({
               type="button"
               data-testid={`smart-select-${name}-clear`}
               onClick={handleClear}
-              aria-label="Xoá lựa chọn"
+              aria-label={clearLabel ?? t('ui.smartSelect.selection.clear')}
               className="text-slate-400 hover:text-slate-600 focus:outline-none flex-shrink-0"
             >
               <X size={14} />
@@ -181,7 +184,7 @@ export function SmartSelect({
             aria-required={required}
             aria-invalid={error}
             disabled={disabled}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t('ui.smartSelect.search.placeholder')}
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
@@ -213,7 +216,7 @@ export function SmartSelect({
           data-testid={`smart-select-${name}-dropdown`}
           ref={listRef}
           role="listbox"
-          aria-label={label ?? 'Tuỳ chọn'}
+          aria-label={label ?? t('ui.smartSelect.dropdown.label')}
           className={cn(
             'absolute z-50 top-full mt-1 w-full rounded-md border border-slate-200',
             'bg-white shadow-lg max-h-60 overflow-y-auto',
@@ -227,14 +230,14 @@ export function SmartSelect({
               className="px-3 py-2 text-sm text-slate-400 flex items-center gap-2"
             >
               <Loader2 size={14} className="animate-spin" />
-              Đang tìm kiếm...
+              {t('ui.smartSelect.search.loading')}
             </li>
           )}
 
           {/* Initial hint */}
           {showInitialHint && (
             <li className="px-3 py-2 text-sm text-slate-400">
-              Nhập để tìm kiếm...
+              {t('ui.smartSelect.search.hint')}
             </li>
           )}
 
@@ -286,7 +289,7 @@ export function SmartSelect({
                 className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium py-1"
               >
                 <PlusCircle size={12} />
-                Tạo mới &quot;{inputValue}&quot;
+                {t('ui.smartSelect.create.action', { query: inputValue })}
               </button>
             </li>
           )}
@@ -297,7 +300,7 @@ export function SmartSelect({
               data-testid={`smart-select-${name}-empty`}
               className="px-3 py-2 text-sm text-slate-500"
             >
-              <span>Không tìm thấy kết quả cho &quot;{inputValue}&quot;</span>
+              <span>{t('ui.smartSelect.search.empty', { query: inputValue })}</span>
               {createModal && (
                 <button
                   type="button"
@@ -306,7 +309,7 @@ export function SmartSelect({
                   className="mt-1 flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
                 >
                   <PlusCircle size={12} />
-                  Tạo mới &quot;{inputValue}&quot;
+                  {t('ui.smartSelect.create.action', { query: inputValue })}
                 </button>
               )}
             </li>
@@ -345,7 +348,7 @@ export function SmartSelect({
                 <Dialog.Close asChild>
                   <button
                     type="button"
-                    aria-label="Đóng"
+                    aria-label={t('common.actions.close')}
                     className="text-slate-400 hover:text-slate-600"
                   >
                     <X size={18} />
@@ -362,7 +365,7 @@ export function SmartSelect({
                   data-testid={`smart-select-${name}-modal-cancel`}
                   onClick={() => setModalOpen(false)}
                 >
-                  Huỷ
+                  {t('ui.smartSelect.modal.cancel')}
                 </Button>
                 <Button
                   type="button"
@@ -371,7 +374,7 @@ export function SmartSelect({
                   data-testid={`smart-select-${name}-modal-submit`}
                   onClick={handleModalSubmit}
                 >
-                  Tạo mới
+                  {t('ui.smartSelect.modal.submit')}
                 </Button>
               </div>
             </Dialog.Content>

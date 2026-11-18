@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AttendanceSummaryReportPage } from './AttendanceSummaryReportPage'
 
@@ -129,5 +130,59 @@ describe('AttendanceSummaryReportPage', () => {
     wrap(<AttendanceSummaryReportPage />)
     expect(screen.getByTestId('date-from')).toBeInTheDocument()
     expect(screen.getByTestId('date-to')).toBeInTheDocument()
+  })
+
+  it('explains a failed load', async () => {
+    vi.mocked(apiClient.default.get).mockRejectedValue(new Error('boom'))
+    wrap(<AttendanceSummaryReportPage />)
+    expect(await screen.findByText('Không thể tải báo cáo điểm danh.')).toBeInTheDocument()
+  })
+
+  it('shows an empty table and nothing to export when nobody has attendance in the range', async () => {
+    vi.mocked(apiClient.default.get).mockResolvedValue({ data: [] })
+    wrap(<AttendanceSummaryReportPage />)
+    expect(await screen.findByText('Không có dữ liệu')).toBeInTheDocument()
+    expect(screen.getByTestId('export-btn')).toHaveTextContent('Xuất báo cáo')
+    expect(screen.getByTestId('export-btn')).toBeDisabled()
+  })
+
+  it('filters by ward', async () => {
+    const user = userEvent.setup()
+    wrap(<AttendanceSummaryReportPage />)
+
+    const select = screen.getByTestId('unit-filter')
+    expect(within(select).getByRole('option', { name: 'Tất cả' })).toHaveValue('')
+    expect(within(select).getByRole('option', { name: 'Khu phố 6' })).toHaveValue('KP6')
+    await user.selectOptions(select, 'KP2')
+
+    await waitFor(() =>
+      expect(apiClient.default.get).toHaveBeenCalledWith('/attendance/summary', {
+        params: expect.objectContaining({ unitCode: 'KP2' }),
+      }),
+    )
+  })
+
+  describe('default range', () => {
+    const tz = process.env.TZ
+    afterEach(() => {
+      vi.useRealTimers()
+      process.env.TZ = tz
+    })
+
+    // A browser in Vietnam at 01:30 on 1 September (18:30 UTC on 31 August)
+    it('covers the current Vietnamese month', async () => {
+      process.env.TZ = 'Asia/Ho_Chi_Minh'
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-08-31T18:30:00.000Z'))
+      wrap(<AttendanceSummaryReportPage />)
+
+      expect(screen.getByTestId('date-from')).toHaveValue('2026-09-01')
+      expect(screen.getByTestId('date-to')).toHaveValue('2026-09-30')
+      await waitFor(() =>
+        expect(apiClient.default.get).toHaveBeenCalledWith('/attendance/summary', {
+          params: { from: '2026-09-01', to: '2026-09-30', unitCode: undefined },
+        }),
+      )
+    })
   })
 })

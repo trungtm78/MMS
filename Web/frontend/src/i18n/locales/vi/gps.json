@@ -1,0 +1,45 @@
+{
+  "page": {
+    "header": {
+      "title": "Theo dõi GPS",
+      "subtitle": "UBND Phường Phú Định – Giám sát vị trí DQTV",
+      "lastRefresh": "Cập nhật lúc {{time}}"
+    },
+    "stats": {
+      "total": "Tổng",
+      "online": "Trực tuyến",
+      "offline": "Ngoại tuyến"
+    }
+  },
+  "map": {
+    "view": {
+      "label": "Bản đồ vị trí DQTV",
+      "attribution": "&copy; Những người đóng góp <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a>"
+    }
+  },
+  "members": {
+    "list": {
+      "title": "Danh sách thành viên"
+    },
+    "load": {
+      "loading": "Đang tải vị trí DQTV",
+      "error": "Không thể tải vị trí DQTV.",
+      "empty": "Không có dữ liệu GPS"
+    },
+    "row": {
+      "unit": "Đơn vị {{unit}}",
+      "accuracy": "Sai số ±{{meters}} m",
+      "coordinates": "{{lat}}, {{lng}}"
+    }
+  },
+  "presence": {
+    "online": "Trực tuyến",
+    "offline": "Ngoại tuyến",
+    "unknown": "Không rõ"
+  },
+  "time": {
+    "justNow": "Vừa xong",
+    "minutesAgo": "{{count}} phút trước",
+    "hoursAgo": "{{count}} giờ trước"
+  }
+}

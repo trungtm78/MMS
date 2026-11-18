@@ -1,27 +1,27 @@
-// US-W001: Auth context — JWT-based (replaces mock from Refs)
+// US-W001: Auth state — JWT-based (replaces mock from Refs)
 // AC-1: login → redirect by role; AC-3: silent refresh; AC-5: logout
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { authApi } from '@/api/auth'
-import { TOKEN_KEYS, clearTokens, getAccessToken } from '@/api/client'
+import { authApi, type LoginResult, type SignedInSession } from '@/api/auth'
+import { TOKEN_KEYS, clearTokens, getAccessToken, storeTokens, type SessionEndReason } from '@/api/client'
+import { AuthContext, type AuthNotice } from '@/contexts/AuthContext'
+import i18n from '@/i18n'
+import { errorCodeText } from '@/lib/api-error'
 import type { User, LoginRequest } from '@/types'
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const IDLE_EVENTS = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'] as const
 
-interface AuthContextType {
-  user: User | null
-  isAuthenticated: boolean
-  isLoading: boolean
-  login: (payload: LoginRequest) => Promise<void>
-  logout: () => Promise<void>
+// Why the sign-in screen is shown again after the server ended a session (api/client.ts):
+// errors.auth.session.<reason>, a plain "session ended" for any other reason
+function sessionEndText(reason: unknown): string {
+  return (typeof reason === 'string' ? errorCodeText('auth.session', reason) : null) ?? i18n.t('errors.auth.session.session_ended')
 }
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [notice, setNotice] = useState<AuthNotice | null>(null)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Restore session on mount if access token exists
@@ -40,10 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // US-W001 AC-3: listen for session-expired event (from axios interceptor)
+  // US-W001 AC-3: the refresh token was refused (api/client.ts): sign out and say why
   useEffect(() => {
-    const handleExpired = () => {
+    const handleExpired = (event: Event) => {
+      const reason = (event as CustomEvent<{ reason?: SessionEndReason } | null>).detail?.reason
       setUser(null)
+      setNotice({ tone: 'info', message: sessionEndText(reason) })
     }
     window.addEventListener('auth:session-expired', handleExpired)
     return () => window.removeEventListener('auth:session-expired', handleExpired)
@@ -58,11 +60,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user])
 
-  // US-W001 AC-1
-  const login = useCallback(async (payload: LoginRequest) => {
-    const { user: loggedInUser } = await authApi.login(payload)
-    setUser(loggedInUser)
+  const clearNotice = useCallback(() => setNotice(null), [])
+
+  const completeSignIn = useCallback((session: SignedInSession, rememberMe: boolean) => {
+    storeTokens(session.tokens.accessToken, session.tokens.refreshToken, rememberMe)
+    setNotice(null)
+    setUser(session.user)
   }, [])
+
+  const endSession = useCallback((next: AuthNotice) => {
+    clearTokens()
+    setUser(null)
+    setNotice(next)
+  }, [])
+
+  // US-W001 AC-1
+  const login = useCallback(
+    async (payload: LoginRequest): Promise<LoginResult> => {
+      const result = await authApi.login(payload)
+      if (result.status === 'SUCCESS') completeSignIn(result.session, payload.rememberMe ?? false)
+      return result
+    },
+    [completeSignIn],
+  )
 
   // US-W001 AC-5
   const logout = useCallback(async () => {
@@ -90,15 +110,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, logout])
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, isAuthenticated: !!user, isLoading, notice, clearNotice, login, completeSignIn, endSession, logout }}
+    >
       {children}
     </AuthContext.Provider>
   )
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function useAuth(): AuthContextType {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
 }

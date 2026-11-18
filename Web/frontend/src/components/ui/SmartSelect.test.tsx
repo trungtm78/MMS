@@ -1,7 +1,8 @@
 // US-SS-01..05: SmartSelect component tests
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { i18n } from '@/test/i18n'
 import { SmartSelect } from './SmartSelect'
 import type { SmartSelectOption } from '@/types'
 
@@ -350,6 +351,166 @@ describe('SmartSelect — Disabled state', () => {
     renderSmartSelect({ disabled: true })
     const input = screen.getByRole('combobox')
     await act(async () => { fireEvent.keyDown(input, { key: 'ArrowDown' }) })
+    expect(screen.queryByTestId('smart-select-test-dropdown')).not.toBeInTheDocument()
+  })
+})
+
+// Replaces texts of the locale files for one test, to prove the component reads them from there
+const restoreTexts: (() => void)[] = []
+function overrideText(key: string, value: string) {
+  const previous: unknown = i18n.getResource('vi', 'translation', key)
+  i18n.addResource('vi', 'translation', key, value)
+  restoreTexts.push(() => {
+    if (typeof previous === 'string') i18n.addResource('vi', 'translation', key, previous)
+  })
+}
+
+describe('SmartSelect — texts', () => {
+  afterEach(() => {
+    for (const restore of restoreTexts.splice(0).reverse()) restore()
+  })
+
+  const createModal = () => ({
+    title: 'Tạo dân quân',
+    content: <div>form</div>,
+    onSubmit: vi.fn().mockResolvedValue(null),
+  })
+
+  it('shows the default search placeholder, which a caller placeholder replaces', () => {
+    const { unmount } = renderSmartSelect()
+    expect(screen.getByPlaceholderText('Tìm kiếm...')).toBeInTheDocument()
+    unmount()
+
+    renderSmartSelect({ placeholder: 'Tìm dân quân...' })
+    expect(screen.getByPlaceholderText('Tìm dân quân...')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Tìm kiếm...')).not.toBeInTheDocument()
+  })
+
+  it('names the clear button, and a caller clearLabel replaces the name', () => {
+    const { unmount } = renderSmartSelect({ value: '1' })
+    expect(screen.getByRole('button', { name: 'Xoá lựa chọn' })).toBeInTheDocument()
+    unmount()
+
+    renderSmartSelect({ value: '1', clearLabel: 'Bỏ chọn dân quân' })
+    expect(screen.getByRole('button', { name: 'Bỏ chọn dân quân' })).toBeInTheDocument()
+  })
+
+  it('names the option list after the label, or with a default name without one', async () => {
+    const user = userEvent.setup()
+    const { unmount } = renderSmartSelect()
+    await user.click(screen.getByRole('combobox'))
+    expect(screen.getByRole('listbox', { name: 'Tuỳ chọn' })).toBeInTheDocument()
+    unmount()
+
+    renderSmartSelect({ label: 'Người thực hiện' })
+    await user.click(screen.getByRole('combobox'))
+    expect(screen.getByRole('listbox', { name: 'Người thực hiện' })).toBeInTheDocument()
+  })
+
+  it('shows the typing hint, the searching state and the no-result text with a create action', async () => {
+    const user = userEvent.setup()
+    const first = renderSmartSelect({ options: [], createModal: createModal() })
+    await user.click(screen.getByRole('combobox'))
+    expect(screen.getByRole('listbox')).toHaveTextContent('Nhập để tìm kiếm...')
+
+    await user.type(screen.getByRole('combobox'), 'xyz')
+    expect(screen.getByTestId('smart-select-test-empty')).toHaveTextContent('Không tìm thấy kết quả cho "xyz"')
+    expect(screen.getByTestId('smart-select-test-create-btn')).toHaveTextContent('Tạo mới "xyz"')
+    first.unmount()
+
+    renderSmartSelect({ isLoading: true })
+    await user.click(screen.getByRole('combobox'))
+    expect(screen.getByTestId('smart-select-test-loading')).toHaveTextContent('Đang tìm kiếm...')
+  })
+
+  it('offers to create the typed text next to a few results', async () => {
+    const user = userEvent.setup()
+    renderSmartSelect({ createModal: createModal() })
+
+    await user.type(screen.getByRole('combobox'), 'HCM')
+
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(screen.getByTestId('smart-select-test-create-btn')).toHaveTextContent('Tạo mới "HCM"')
+  })
+
+  it('names the actions of the quick-create dialog and selects the created option', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const created: SmartSelectOption = { id: '9', label: 'HCM-009 — Phạm Văn Dũng' }
+    const modal = { ...createModal(), onSubmit: vi.fn().mockResolvedValue(created) }
+    renderSmartSelect({ options: [], createModal: modal, onChange })
+    await user.type(screen.getByRole('combobox'), 'Dũng')
+    await user.click(screen.getByTestId('smart-select-test-create-btn'))
+
+    const dialog = await screen.findByTestId('smart-select-test-modal')
+    expect(within(dialog).getByRole('button', { name: 'Đóng' })).toBeInTheDocument()
+    expect(screen.getByTestId('smart-select-test-modal-cancel')).toHaveTextContent('Huỷ')
+    expect(screen.getByTestId('smart-select-test-modal-submit')).toHaveTextContent('Tạo mới')
+
+    await user.click(screen.getByTestId('smart-select-test-modal-submit'))
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('9', created))
+    await waitFor(() => expect(screen.queryByTestId('smart-select-test-modal')).not.toBeInTheDocument())
+  })
+
+  it('reads its search texts from the locale file', async () => {
+    const user = userEvent.setup()
+    overrideText('ui.smartSelect.search.placeholder', 'PLACEHOLDER')
+    overrideText('ui.smartSelect.search.hint', 'HINT')
+    overrideText('ui.smartSelect.search.empty', 'EMPTY {{query}}')
+    overrideText('ui.smartSelect.search.loading', 'LOADING')
+    overrideText('ui.smartSelect.dropdown.label', 'OPTIONS')
+    overrideText('ui.smartSelect.create.action', 'CREATE {{query}}')
+    const first = renderSmartSelect({ options: [], createModal: createModal() })
+
+    const input = screen.getByPlaceholderText('PLACEHOLDER')
+    await user.click(input)
+    expect(screen.getByRole('listbox', { name: 'OPTIONS' })).toHaveTextContent('HINT')
+    await user.type(input, 'xyz')
+    expect(screen.getByTestId('smart-select-test-empty')).toHaveTextContent('EMPTY xyz')
+    expect(screen.getByTestId('smart-select-test-create-btn')).toHaveTextContent('CREATE xyz')
+    first.unmount()
+
+    renderSmartSelect({ isLoading: true })
+    await user.click(screen.getByRole('combobox'))
+    expect(screen.getByTestId('smart-select-test-loading')).toHaveTextContent('LOADING')
+  })
+
+  it('reads its selection and dialog texts from the locale file', async () => {
+    const user = userEvent.setup()
+    overrideText('ui.smartSelect.selection.clear', 'CLEAR')
+    overrideText('ui.smartSelect.modal.cancel', 'CANCEL')
+    overrideText('ui.smartSelect.modal.submit', 'SUBMIT')
+    overrideText('common.actions.close', 'CLOSE')
+    const first = renderSmartSelect({ value: '1' })
+    expect(screen.getByRole('button', { name: 'CLEAR' })).toBeInTheDocument()
+    first.unmount()
+
+    renderSmartSelect({ options: [], createModal: createModal() })
+    await user.type(screen.getByRole('combobox'), 'xyz')
+    await user.click(screen.getByTestId('smart-select-test-create-btn'))
+    const dialog = await screen.findByTestId('smart-select-test-modal')
+    expect(within(dialog).getByRole('button', { name: 'CLOSE' })).toBeInTheDocument()
+    expect(screen.getByTestId('smart-select-test-modal-cancel')).toHaveTextContent('CANCEL')
+    expect(screen.getByTestId('smart-select-test-modal-submit')).toHaveTextContent('SUBMIT')
+  })
+})
+
+describe('SmartSelect — US-SS-04: Click outside', () => {
+  it('closes the list on a click outside and keeps it open on a click inside', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <p>Vùng ngoài</p>
+        <SmartSelect name="test" options={OPTIONS} label="Người thực hiện" />
+      </>,
+    )
+    await user.click(screen.getByRole('combobox'))
+
+    await user.click(screen.getByText('Người thực hiện'))
+    expect(screen.getByTestId('smart-select-test-dropdown')).toBeInTheDocument()
+
+    await user.click(screen.getByText('Vùng ngoài'))
     expect(screen.queryByTestId('smart-select-test-dropdown')).not.toBeInTheDocument()
   })
 })

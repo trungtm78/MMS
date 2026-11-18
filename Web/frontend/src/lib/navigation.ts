@@ -1,0 +1,40 @@
+// The permission each sidebar screen needs: that of the endpoint the screen loads (see
+// PERMISSION_ROLES in hooks/useRbac.ts); null for screens every signed-in user may open
+import type { Permission } from '@/hooks/useRbac'
+import type { AppRoute } from '@/types/routes'
+
+export const ROUTE_PERMISSIONS: Readonly<Record<AppRoute, Permission | null>> = {
+  dashboard: null,
+  'militia-list': 'manageMilitia',
+  'militia-search': 'manageMilitia',
+  'user-management': 'manageUsers',
+  tasks: 'viewTasks',
+  attendance: 'manageAttendance',
+  leave: null,
+  sos: 'viewSos',
+  'gps-tracking': 'viewGps',
+  payroll: 'viewPayroll',
+  'audit-log': 'viewAuditLog',
+  notifications: null,
+  'device-sessions': null,
+  reports: 'manageAttendance',
+  approvals: 'approveLeave',
+  timesheet: 'viewTimesheet',
+  'kpi-dashboard': 'viewKpiReport',
+  assignments: 'viewAssignments',
+  'official-documents': 'viewOfficialDocuments',
+  chat: null,
+  settings: null,
+  help: null,
+  organization: 'viewOrganization',
+  weapons: 'manageWeapons',
+  recruitment: 'viewRecruitment',
+  exemptions: 'viewExemptions',
+  training: 'manageTraining',
+  rewards: 'viewRewards',
+  'compliance-dashboard': 'viewComplianceReports',
+  'report-training-compliance': 'viewComplianceReports',
+  'report-roster': 'manageMilitia',
+  'report-attendance-summary': 'viewAttendanceSummary',
+  'report-rewards-discipline': 'manageRewards',
+}

@@ -1,0 +1,102 @@
+{
+  "page": {
+    "header": {
+      "title": "Cảnh báo SOS",
+      "subtitle": "UBND Phường Phú Định – Hệ thống cảnh báo khẩn cấp",
+      "activeBadge": "{{count}} cảnh báo đang hoạt động"
+    },
+    "stats": {
+      "active": "Đang hoạt động",
+      "resolved": "Đã xử lý",
+      "total": "Tổng"
+    },
+    "tabs": {
+      "label": "Trạng thái cảnh báo",
+      "all": "Tất cả",
+      "active": "Đang hoạt động",
+      "resolved": "Đã xử lý",
+      "withCount": "{{label}} ({{count}})"
+    },
+    "filters": {
+      "severity": "Mức độ",
+      "severityAll": "Tất cả mức độ",
+      "unitPlaceholder": "Tất cả đơn vị",
+      "apply": "Lọc"
+    }
+  },
+  "list": {
+    "load": {
+      "loading": "Đang tải cảnh báo SOS",
+      "error": "Không thể tải danh sách cảnh báo SOS."
+    },
+    "empty": {
+      "title": "Không có cảnh báo nào",
+      "normal": "Hệ thống đang hoạt động bình thường",
+      "filtered": "Không có cảnh báo phù hợp với bộ lọc"
+    },
+    "pagination": {
+      "label": "Phân trang cảnh báo SOS",
+      "summary": "Trang {{page}}/{{pages}} · {{total}} cảnh báo"
+    },
+    "row": {
+      "unit": "Đơn vị {{unit}}",
+      "coordinates": "{{lat}}, {{lng}}",
+      "unknownLocation": "Không rõ vị trí",
+      "assignedTo": "Phụ trách: {{name}}",
+      "resolvedAt": "Xử lý ngày {{date}}",
+      "resolutionNote": "Kết quả: {{note}}"
+    },
+    "time": {
+      "justNow": "Vừa xong",
+      "minutesAgo": "{{count}} phút trước",
+      "hoursAgo": "{{count}} giờ trước"
+    }
+  },
+  "codes": {
+    "severities": {
+      "urgent": "Khẩn cấp",
+      "high": "Cao",
+      "medium": "Trung bình",
+      "low": "Thấp"
+    },
+    "statuses": {
+      "open": "Mới",
+      "acknowledged": "Đã tiếp nhận",
+      "responding": "Đang ứng cứu",
+      "resolved": "Đã xử lý",
+      "closed": "Đã đóng"
+    }
+  },
+  "status": {
+    "actions": {
+      "acknowledged": {
+        "button": "Tiếp nhận",
+        "title": "Xác nhận tiếp nhận cảnh báo",
+        "description": "Cảnh báo \"{{title}}\" của {{name}} sẽ được chuyển sang trạng thái đã tiếp nhận.",
+        "success": "Đã tiếp nhận cảnh báo SOS",
+        "error": "Không thể tiếp nhận cảnh báo"
+      },
+      "responding": {
+        "button": "Chuyển sang đang ứng cứu",
+        "title": "Xác nhận chuyển sang đang ứng cứu",
+        "description": "Cảnh báo \"{{title}}\" của {{name}} sẽ được chuyển sang trạng thái đang ứng cứu.",
+        "success": "Đã chuyển cảnh báo sang đang ứng cứu",
+        "error": "Không thể chuyển cảnh báo sang đang ứng cứu"
+      },
+      "resolved": {
+        "button": "Đánh dấu đã xử lý",
+        "title": "Xác nhận đã xử lý cảnh báo",
+        "description": "Cảnh báo \"{{title}}\" của {{name}} sẽ được chuyển sang trạng thái đã xử lý.",
+        "success": "Đã xử lý cảnh báo SOS",
+        "error": "Không thể xử lý cảnh báo"
+      },
+      "closed": {
+        "button": "Đóng cảnh báo",
+        "title": "Xác nhận đóng cảnh báo",
+        "description": "Cảnh báo \"{{title}}\" của {{name}} sẽ được đóng và không thể mở lại.",
+        "success": "Đã đóng cảnh báo SOS",
+        "error": "Không thể đóng cảnh báo"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "labels": {
+    "system_admin": "Quản trị hệ thống",
+    "ubnd_leader": "Lãnh đạo UBND",
+    "police_ward": "Công an phường",
+    "police_area": "Công an khu vực",
+    "office_staff": "Nhân viên văn phòng",
+    "dqtv": "Dân quân tự vệ",
+    "ca_officer": "Cán bộ công an",
+    "ca_ward": "Công an phường (CA)",
+    "ca_area": "Công an khu vực (CA)",
+    "dqtv_member": "Thành viên DQTV"
+  }
+}

@@ -2,41 +2,65 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useTranslation } from 'react-i18next'
 import { Search, FileDown, Eye, Edit, Filter, ChevronDown, Users, Plus } from 'lucide-react'
 import { searchMilitia, getMilitiaById, type MilitiaSearchResult, type MilitiaListItem } from '@/api/militia'
 import { exportCsv } from '@/utils/csv-export'
+import { todayInVietnam } from '@/lib/dates'
+import i18n from '@/i18n'
+import type { TranslationKey } from '@/i18n/types'
+import { describeApiError } from '@/lib/api-error'
 import { MilitiaEditModal } from '@/components/militia/MilitiaEditModal'
 
 // ─── Filter options ───────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'Tất cả trạng thái' },
-  { value: 'active', label: 'Đang hoạt động' },
-  { value: 'reserve', label: 'Dự bị' },
-  { value: 'inactive', label: 'Đã xuất ngũ' },
-  { value: 'leave', label: 'Nghỉ phép' },
-]
-
-const UNIT_OPTIONS = [
-  { value: '', label: 'Tất cả đơn vị' },
-  { value: 'KP1', label: 'Khu phố 1' },
-  { value: 'KP2', label: 'Khu phố 2' },
-  { value: 'KP3', label: 'Khu phố 3' },
-  { value: 'KP4', label: 'Khu phố 4' },
-  { value: 'KP5', label: 'Khu phố 5' },
-  { value: 'KP6', label: 'Khu phố 6' },
-]
-
-const STATUS_DISPLAY: Record<string, { label: string; className: string }> = {
-  active:   { label: 'Đang hoạt động', className: 'bg-green-100 text-green-700' },
-  reserve:  { label: 'Dự bị',          className: 'bg-yellow-100 text-yellow-700' },
-  inactive: { label: 'Đã xuất ngũ',    className: 'bg-gray-100 text-gray-600' },
-  leave:    { label: 'Nghỉ phép',       className: 'bg-blue-100 text-blue-700' },
+interface FilterOption {
+  value: string
+  label: TranslationKey
 }
 
-function getStatusDisplay(status: string) {
-  return STATUS_DISPLAY[status] ?? { label: status, className: 'bg-gray-100 text-gray-600' }
+const STATUS_OPTIONS: readonly FilterOption[] = [
+  { value: '', label: 'militia.list.filters.allStatuses' },
+  { value: 'active', label: 'militia.status.active' },
+  { value: 'reserve', label: 'militia.status.reserve' },
+  { value: 'inactive', label: 'militia.status.inactive' },
+  { value: 'leave', label: 'militia.status.leave' },
+]
+
+const UNIT_OPTIONS: readonly FilterOption[] = [
+  { value: '', label: 'militia.list.filters.allUnits' },
+  { value: 'KP1', label: 'militia.list.units.kp1' },
+  { value: 'KP2', label: 'militia.list.units.kp2' },
+  { value: 'KP3', label: 'militia.list.units.kp3' },
+  { value: 'KP4', label: 'militia.list.units.kp4' },
+  { value: 'KP5', label: 'militia.list.units.kp5' },
+  { value: 'KP6', label: 'militia.list.units.kp6' },
+]
+
+const STATUS_DISPLAY: Readonly<Record<string, { label: TranslationKey; className: string }>> = {
+  active:   { label: 'militia.status.active',   className: 'bg-green-100 text-green-700' },
+  reserve:  { label: 'militia.status.reserve',  className: 'bg-yellow-100 text-yellow-700' },
+  inactive: { label: 'militia.status.inactive', className: 'bg-gray-100 text-gray-600' },
+  leave:    { label: 'militia.status.leave',    className: 'bg-blue-100 text-blue-700' },
 }
+
+const UNKNOWN_STATUS_CLASS = 'bg-gray-100 text-gray-600'
+
+/** The status text: its label, or the raw value for a status this screen does not know */
+function statusText(status: string): string {
+  const display = STATUS_DISPLAY[status]
+  return display ? i18n.t(display.label) : status
+}
+
+const TABLE_COLUMNS: readonly TranslationKey[] = [
+  'militia.list.columns.index',
+  'militia.list.columns.code',
+  'militia.list.columns.fullName',
+  'militia.list.columns.unit',
+  'militia.list.columns.phone',
+  'militia.list.columns.email',
+  'militia.list.columns.status',
+]
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -63,23 +87,27 @@ function TableSkeleton() {
 }
 
 function FilterSelect({
+  id,
   value,
   onChange,
   options,
 }: {
+  id: string
   value: string
   onChange: (v: string) => void
-  options: { value: string; label: string }[]
+  options: readonly FilterOption[]
 }) {
+  const { t } = useTranslation()
   return (
     <div className="relative">
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="appearance-none w-full pl-3 pr-8 py-2.5 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] bg-white cursor-pointer text-[#0F172A]"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
+          <option key={o.value} value={o.value}>{t(o.label)}</option>
         ))}
       </select>
       <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748B] pointer-events-none" />
@@ -90,16 +118,23 @@ function FilterSelect({
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
 function exportMilitiaCsv(items: MilitiaSearchResult[]) {
-  const headers = ['Mã DQTV', 'Họ và tên', 'Đơn vị', 'Cấp bậc', 'Điện thoại', 'Trạng thái']
+  const headers = [
+    i18n.t('militia.list.columns.code'),
+    i18n.t('militia.list.columns.fullName'),
+    i18n.t('militia.list.columns.unit'),
+    i18n.t('militia.list.columns.rank'),
+    i18n.t('militia.list.columns.phone'),
+    i18n.t('militia.list.columns.status'),
+  ]
   const rows = items.map((m) => [
     m.militiaCode ?? m.id,
     m.fullName,
     m.unitCode,
     m.rank ?? '',
     m.phone ?? '',
-    getStatusDisplay(m.status).label,
+    statusText(m.status),
   ])
-  exportCsv(headers, rows, `danh-sach-dqtv-${new Date().toISOString().slice(0, 10)}.csv`)
+  exportCsv(headers, rows, `danh-sach-dqtv-${todayInVietnam()}.csv`)
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -111,6 +146,7 @@ interface MilitiaListProps {
 const LIMIT = 10
 
 export function MilitiaList({ onViewProfile }: MilitiaListProps) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [page, setPage]               = useState(1)
   const [searchInput, setSearchInput] = useState('')
@@ -166,6 +202,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
   const total      = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / LIMIT))
   const startIndex = (page - 1) * LIMIT
+  const isFiltered = Boolean(debouncedQ || statusFilter || unitFilter)
 
   const pageButtons = (() => {
     const pages: number[] = []
@@ -189,8 +226,8 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Danh sách Dân Quân Tự Vệ</h1>
-          <p className="text-sm text-[#64748B] mt-1">Quản lý thông tin toàn bộ dân quân tự vệ</p>
+          <h1 className="text-2xl font-bold text-[#0F172A]">{t('militia.list.header.title')}</h1>
+          <p className="text-sm text-[#64748B] mt-1">{t('militia.list.header.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -199,7 +236,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             className="px-4 py-2 bg-white border border-[#E2E8F0] text-[#64748B] rounded-lg hover:bg-[#F8FAFC] flex items-center gap-2 text-sm font-medium transition-colors shadow-sm disabled:opacity-50"
           >
             <FileDown size={16} />
-            {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
+            {t(isExporting ? 'common.actions.exporting' : 'common.actions.export')}
           </button>
           <button
             onClick={() => navigate('/militia/new')}
@@ -207,7 +244,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             data-testid="add-militia-btn"
           >
             <Plus size={16} />
-            Thêm DQTV
+            {t('militia.list.header.add')}
           </button>
         </div>
       </div>
@@ -216,17 +253,20 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
           <Filter size={16} className="text-[#C62828]" />
-          <h3 className="text-sm font-semibold text-[#0F172A]">Bộ lọc tìm kiếm</h3>
+          <h3 className="text-sm font-semibold text-[#0F172A]">{t('militia.list.filters.title')}</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">Tìm kiếm</label>
+            <label htmlFor="militia-search" className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
+              {t('common.actions.search')}
+            </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" size={16} />
               <input
+                id="militia-search"
                 type="text"
                 data-testid="militia-search-input"
-                placeholder="Tên hoặc mã DQTV..."
+                placeholder={t('militia.list.filters.searchPlaceholder')}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full pl-9 pr-4 py-2.5 border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-[#C62828] text-sm text-[#0F172A] placeholder-[#64748B]"
@@ -234,20 +274,24 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">Đơn vị</label>
-            <FilterSelect value={unitFilter} onChange={setUnitFilter} options={UNIT_OPTIONS} />
+            <label htmlFor="militia-unit-filter" className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
+              {t('militia.list.filters.unit')}
+            </label>
+            <FilterSelect id="militia-unit-filter" value={unitFilter} onChange={setUnitFilter} options={UNIT_OPTIONS} />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">Trạng thái</label>
-            <FilterSelect value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} />
+            <label htmlFor="militia-status-filter" className="block text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1.5">
+              {t('militia.list.filters.status')}
+            </label>
+            <FilterSelect id="militia-status-filter" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} />
           </div>
         </div>
       </div>
 
       {/* Error state */}
       {isError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
-          Không thể tải danh sách. {(error as Error)?.message ?? 'Vui lòng thử lại.'}
+        <div role="alert" className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
+          {describeApiError(error, { fallback: 'militia.list.load.error' })}
         </div>
       )}
 
@@ -257,14 +301,14 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
           <table className="w-full">
             <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">STT</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Mã DQTV</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Họ và tên</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Đơn vị</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Điện thoại</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">Trạng thái</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-[#64748B] uppercase tracking-wide">Thao tác</th>
+                {TABLE_COLUMNS.map((column) => (
+                  <th key={column} className="px-6 py-3 text-left text-xs font-medium text-[#64748B] uppercase tracking-wide">
+                    {t(column)}
+                  </th>
+                ))}
+                <th className="px-6 py-3 text-center text-xs font-medium text-[#64748B] uppercase tracking-wide">
+                  {t('militia.list.columns.actions')}
+                </th>
               </tr>
             </thead>
 
@@ -279,14 +323,10 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                         <Users size={28} className="text-[#64748B]" />
                       </div>
                       <p className="text-sm font-medium text-[#0F172A] mb-1">
-                        {debouncedQ || statusFilter || unitFilter
-                          ? 'Không tìm thấy kết quả phù hợp'
-                          : 'Chưa có dữ liệu dân quân'}
+                        {t(isFiltered ? 'militia.list.empty.noMatch' : 'militia.list.empty.noData')}
                       </p>
                       <p className="text-xs text-[#64748B]">
-                        {debouncedQ || statusFilter || unitFilter
-                          ? 'Thử thay đổi bộ lọc tìm kiếm'
-                          : 'Nhấn "Thêm DQTV" để bắt đầu'}
+                        {t(isFiltered ? 'militia.list.empty.noMatchHint' : 'militia.list.empty.noDataHint')}
                       </p>
                     </div>
                   </td>
@@ -295,7 +335,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
             ) : (
               <tbody className="divide-y divide-[#E2E8F0]">
                 {items.map((militia, index) => {
-                  const statusInfo = getStatusDisplay(militia.status)
+                  const display = STATUS_DISPLAY[militia.status]
                   return (
                     <tr key={militia.id} className="hover:bg-[#F8FAFC] transition-colors">
                       <td className="px-6 py-4 text-sm text-[#64748B]">{startIndex + index + 1}</td>
@@ -303,10 +343,10 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                       <td className="px-6 py-4 text-sm font-medium text-[#0F172A]">{militia.fullName}</td>
                       <td className="px-6 py-4 text-sm text-[#64748B]">{militia.unitCode}</td>
                       <td className="px-6 py-4 text-sm text-[#64748B]">{militia.phone ?? '—'}</td>
-                      <td className="px-6 py-4 text-sm text-[#64748B]">{militia.phone ?? '—'}</td>
+                      <td className="px-6 py-4 text-sm text-[#64748B]">{militia.email ?? '—'}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.className}`}>
-                          {statusInfo.label}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${display?.className ?? UNKNOWN_STATUS_CLASS}`}>
+                          {display ? t(display.label) : militia.status}
                         </span>
                       </td>
                       <td className="px-6 py-4">
@@ -314,14 +354,14 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
                           <button
                             onClick={() => handleViewProfile(militia.id)}
                             className="p-2 hover:bg-red-50 text-[#64748B] hover:text-[#C62828] rounded-lg transition-colors"
-                            title="Xem chi tiết"
+                            title={t('common.actions.view')}
                           >
                             <Eye size={16} />
                           </button>
                           <button
                             onClick={() => getMilitiaById(militia.id).then(setEditTarget)}
                             className="p-2 hover:bg-red-50 text-[#64748B] hover:text-[#C62828] rounded-lg transition-colors"
-                            title="Chỉnh sửa"
+                            title={t('common.actions.edit')}
                           >
                             <Edit size={16} />
                           </button>
@@ -337,16 +377,15 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
 
         {/* Pagination */}
         <div className="px-6 py-4 border-t border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
-          <div className="text-sm text-[#64748B]">
+          <div className="text-sm text-[#64748B]" data-testid="militia-page-summary">
             {total > 0 ? (
-              <>
-                Hiển thị{' '}
-                <span className="font-semibold text-[#0F172A]">{startIndex + 1}</span> đến{' '}
-                <span className="font-semibold text-[#0F172A]">{Math.min(startIndex + LIMIT, total)}</span> trong tổng số{' '}
-                <span className="font-semibold text-[#0F172A]">{total}</span> bản ghi
-              </>
+              <Trans
+                i18nKey="militia.list.pagination.range"
+                values={{ from: startIndex + 1, to: Math.min(startIndex + LIMIT, total), total }}
+                components={{ strong: <span className="font-semibold text-[#0F172A]" /> }}
+              />
             ) : (
-              'Không có bản ghi'
+              t('militia.list.pagination.none')
             )}
           </div>
           <div className="flex gap-2">
@@ -356,7 +395,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
               disabled={page === 1}
               className="px-4 py-2 border border-[#E2E8F0] rounded-lg bg-white text-sm font-medium text-[#64748B] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors"
             >
-              Trước
+              {t('militia.list.pagination.previous')}
             </button>
             {pageButtons.map((p) => (
               <button
@@ -377,7 +416,7 @@ export function MilitiaList({ onViewProfile }: MilitiaListProps) {
               disabled={page === totalPages}
               className="px-4 py-2 border border-[#E2E8F0] rounded-lg bg-white text-sm font-medium text-[#64748B] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F8FAFC] transition-colors"
             >
-              Sau
+              {t('militia.list.pagination.next')}
             </button>
           </div>
         </div>

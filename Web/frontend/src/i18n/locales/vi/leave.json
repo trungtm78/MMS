@@ -1,0 +1,133 @@
+{
+  "status": {
+    "pending": "Chờ duyệt",
+    "approved": "Đã duyệt",
+    "rejected": "Từ chối",
+    "cancelled": "Đã hủy"
+  },
+  "dates": {
+    "halfDay": {
+      "morning": "Buổi sáng",
+      "afternoon": "Buổi chiều",
+      "unspecified": "Nửa ngày",
+      "label": "{{date}} · {{period}}"
+    },
+    "range": {
+      "label": "{{from}} – {{to}}"
+    }
+  },
+  "page": {
+    "header": {
+      "title": "Quản lý nghỉ phép",
+      "subtitle": "UBND Phường Phú Định – Ban chỉ huy ANTT"
+    },
+    "tabs": {
+      "mine": "Đơn của tôi",
+      "approve": "Duyệt đơn"
+    }
+  },
+  "myRequests": {
+    "create": {
+      "button": "Tạo đơn"
+    },
+    "list": {
+      "loadError": "Không thể tải danh sách đơn nghỉ phép.",
+      "empty": "Bạn chưa có đơn nghỉ phép nào"
+    },
+    "cancel": {
+      "button": "Hủy đơn",
+      "success": "Đã hủy đơn xin nghỉ",
+      "error": "Không thể hủy đơn nghỉ phép"
+    },
+    "decision": {
+      "approved": "Đã duyệt bởi {{name}}",
+      "approvedOn": "Đã duyệt bởi {{name}} ngày {{date}}",
+      "rejected": "Bị từ chối bởi {{name}}",
+      "rejectedOn": "Bị từ chối bởi {{name}} ngày {{date}}",
+      "note": "Ý kiến người duyệt: {{note}}"
+    }
+  },
+  "createForm": {
+    "dialog": {
+      "title": "Tạo đơn nghỉ phép",
+      "description": "Các trường có dấu * là bắt buộc."
+    },
+    "fields": {
+      "type": "Loại nghỉ",
+      "typePlaceholder": "-- Chọn loại nghỉ --",
+      "typeOption": "{{name}} (còn {{remaining}} ngày, năm {{year}})",
+      "typeOptionUnlimited": "{{name}} (Không giới hạn)",
+      "halfDay": "Nghỉ nửa ngày",
+      "day": "Ngày nghỉ",
+      "fromDate": "Ngày bắt đầu",
+      "toDate": "Ngày kết thúc",
+      "halfDayPeriod": "Buổi nghỉ",
+      "halfDayPeriodPlaceholder": "-- Chọn buổi --",
+      "reason": "Lý do",
+      "reasonPlaceholder": "Nêu lý do nghỉ phép...",
+      "replacement": "Người thay thế (tùy chọn)",
+      "replacementPlaceholder": "Tìm theo họ tên hoặc tài khoản...",
+      "replacementHint": "Nhập ít nhất 2 ký tự để tìm",
+      "noTypes": "Chưa có loại nghỉ phép nào được áp dụng. Vui lòng liên hệ cán bộ phụ trách."
+    },
+    "typeHint": {
+      "requiresDocument": "Loại nghỉ này cần có giấy tờ kèm theo.",
+      "remaining": "Còn {{remaining}}/{{total}} ngày trong năm {{year}}.",
+      "unlimited": "Không giới hạn số ngày nghỉ trong năm."
+    },
+    "validation": {
+      "typeRequired": "Vui lòng chọn loại nghỉ",
+      "datesRequired": "Vui lòng chọn ngày",
+      "dateOrder": "Ngày bắt đầu phải trước hoặc trùng ngày kết thúc",
+      "halfDayPeriodRequired": "Vui lòng chọn buổi nghỉ",
+      "reasonRequired": "Vui lòng nhập lý do"
+    },
+    "submit": {
+      "button": "Gửi đơn",
+      "pending": "Đang gửi...",
+      "success": "Tạo đơn nghỉ phép thành công",
+      "invalid": "Thông tin đơn nghỉ phép không hợp lệ. Vui lòng kiểm tra lại.",
+      "error": "Không thể tạo đơn nghỉ phép"
+    }
+  },
+  "review": {
+    "list": {
+      "loadError": "Không thể tải danh sách đơn chờ duyệt.",
+      "empty": "Không có đơn nào chờ duyệt"
+    },
+    "row": {
+      "unknownRequester": "Không rõ",
+      "summary": "{{type}} · {{dates}} · {{days}} ngày",
+      "ownRequest": "Đơn của bạn"
+    },
+    "actions": {
+      "approve": "Duyệt",
+      "reject": "Từ chối"
+    },
+    "decide": {
+      "approved": "Đã duyệt đơn",
+      "rejected": "Đã từ chối đơn",
+      "error": "Không thể cập nhật trạng thái"
+    }
+  },
+  "approvals": {
+    "header": {
+      "title": "Phê Duyệt",
+      "subtitle": "Xét duyệt đơn nghỉ phép và nhiệm vụ",
+      "pendingCount": "{{pending}} đơn chờ duyệt"
+    },
+    "list": {
+      "loadError": "Không thể tải danh sách phê duyệt.",
+      "empty": "Không có yêu cầu nào"
+    },
+    "type": {
+      "leave": "Nghỉ phép",
+      "task": "Nhiệm vụ"
+    },
+    "decide": {
+      "approved": "Đã phê duyệt",
+      "rejected": "Đã từ chối",
+      "error": "Thao tác thất bại"
+    }
+  }
+}

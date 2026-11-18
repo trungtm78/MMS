@@ -1,0 +1,118 @@
+{
+  "page": {
+    "header": {
+      "title": "Bảng Chỉ Tiêu KPI",
+      "subtitle": "Theo dõi hiệu suất so với chỉ tiêu",
+      "subtitleWithPeriod": "Theo dõi hiệu suất so với chỉ tiêu — kỳ {{period}}"
+    },
+    "tabs": {
+      "label": "Nội dung bảng chỉ tiêu",
+      "dashboard": "Chỉ tiêu",
+      "report": "Báo cáo KPI"
+    },
+    "unitFilter": {
+      "placeholder": "Tất cả đơn vị",
+      "apply": "Lọc"
+    }
+  },
+  "dashboard": {
+    "filters": {
+      "month": "Tháng",
+      "monthOption": "Tháng {{month}}"
+    },
+    "load": {
+      "loading": "Đang tải dữ liệu KPI...",
+      "error": "Không thể tải dữ liệu KPI."
+    },
+    "noData": "Chưa có dữ liệu",
+    "summary": {
+      "members": "Thành viên",
+      "notEvaluated": "{{count}} chưa được đánh giá",
+      "coverage": "Tỷ lệ đánh giá",
+      "coverageRate": "{{rate}}%",
+      "coverageDetail": "{{evaluated}}/{{members}} thành viên đã được đánh giá",
+      "average": "Điểm trung bình",
+      "averageScale": "Thang điểm 100"
+    },
+    "targets": {
+      "title": "Chỉ tiêu áp dụng",
+      "evaluationPeriod": "Kỳ đánh giá: {{period}}",
+      "effectiveFrom": "Áp dụng từ {{date}}",
+      "default": "Chỉ tiêu mặc định",
+      "periods": {
+        "monthly": "Tháng",
+        "quarterly": "Quý",
+        "yearly": "Năm"
+      }
+    },
+    "metric": {
+      "minTarget": "/ {{target}} {{unit}}",
+      "maxTarget": "/ tối đa {{target}} {{unit}}",
+      "lowerIsBetter": "Càng thấp càng tốt",
+      "progress": "{{pct}}% chỉ tiêu",
+      "met": "✓ Đạt",
+      "notMet": "— Chưa đạt",
+      "membersMeeting": "{{meeting}}/{{members}} thành viên đạt"
+    },
+    "trend": {
+      "title": "Xu hướng điểm KPI",
+      "series": "Điểm KPI",
+      "empty": "Chưa có điểm KPI trong giai đoạn này",
+      "month": "Tháng",
+      "score": "Điểm trung bình",
+      "evaluated": "Số người được đánh giá"
+    },
+    "units": {
+      "title": "Xếp hạng đơn vị",
+      "empty": "Chưa có dữ liệu đơn vị",
+      "evaluated": "{{evaluated}}/{{members}} đã đánh giá"
+    },
+    "members": {
+      "top": "Thành viên dẫn đầu",
+      "bottom": "Thành viên cần cải thiện",
+      "empty": "Chưa có thành viên được đánh giá",
+      "identity": "{{code}} · {{unit}}"
+    },
+    "distribution": {
+      "title": "Phân bố xếp loại",
+      "minScore": "Từ {{min}} điểm",
+      "count": "{{count}} người · {{pct}}%"
+    },
+    "recommendations": {
+      "title": "Đề xuất sau đánh giá"
+    }
+  },
+  "report": {
+    "filters": {
+      "period": "Kỳ lương",
+      "periodPlaceholder": "-- Chọn kỳ lương --",
+      "periodOption": "Tháng {{label}}",
+      "periodsLoading": "Đang tải danh sách kỳ lương...",
+      "periodsError": "Không thể tải danh sách kỳ lương.",
+      "periodsEmpty": "Chưa có kỳ lương nào."
+    },
+    "load": {
+      "loading": "Đang tải báo cáo KPI...",
+      "error": "Không thể tải báo cáo KPI.",
+      "empty": "Không có dữ liệu KPI",
+      "choosePeriod": "Chọn kỳ lương để xem báo cáo"
+    },
+    "table": {
+      "name": "Họ tên",
+      "code": "Mã",
+      "unit": "Đơn vị",
+      "attendance": "Chuyên cần",
+      "task": "Nhiệm vụ",
+      "discipline": "Kỷ luật",
+      "attitude": "Thái độ",
+      "supervisor": "Chỉ huy",
+      "total": "Tổng",
+      "grade": "Xếp loại",
+      "notEvaluated": "Chưa đánh giá"
+    },
+    "export": {
+      "success": "Đã xuất báo cáo KPI",
+      "error": "Không thể xuất báo cáo KPI"
+    }
+  }
+}

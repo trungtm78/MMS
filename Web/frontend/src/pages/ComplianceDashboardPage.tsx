@@ -1,43 +1,45 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Download, Clock, AlertCircle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Clock } from 'lucide-react'
 import client from '@/api/client'
-import { downloadExcelReport } from '@/utils/export-utils'
+import { describeApiError } from '@/lib/api-error'
+import { formatVietnamDateTime } from '@/lib/vietnamDateTime'
+import type { TranslationKey } from '@/i18n/types'
 
-interface ComplianceDashboardData {
-  unitCode: string
+/**
+ * GET /dashboard/compliance (dashboard.service.ts getComplianceStats): the caller's scope in the
+ * current Vietnamese month. totalActive, trainingCompliant and expiringExemptions are COUNTs the
+ * service parses to integers; attendancePct and avgKpiScore are ROUND over NUMERIC and arrive as
+ * JSON numbers (src/database/pg-types.ts); trainingCompliancePct is worked out by the service.
+ */
+interface ComplianceStats {
+  totalActive: number
+  /** Active members with at least 15 training days this year */
+  trainingCompliant: number
+  trainingCompliancePct: number
+  attendancePct: number
+  /** Average kpi_scores.total_score (DECIMAL(5,2)) of kpiPeriod; null before any period is scored */
+  avgKpiScore: number | null
+  /** The latest KPI period up to this month that has scores in scope */
+  kpiPeriod: { year: number; month: number } | null
+  /** Active exemptions that expire within the next 30 days */
+  expiringExemptions: number
   lastUpdated: string
-  stats: {
-    activePersonnel: { value: number; total: number; criticalThreshold: number }
-    trainingCompliance: { value: number; total: number; criticalThreshold: number }
-    attendanceThisMonth: { value: number; total: number; criticalThreshold: number }
-    avgKpiScore: { value: number; total: number; criticalThreshold: number }
-    exemptionsExpiringSoon: { value: number; total: number; criticalThreshold: number }
-  }
 }
 
-async function fetchComplianceDashboard(unitCode: string): Promise<ComplianceDashboardData> {
-  const res = await client.get('/dashboard/compliance', { params: { unitCode: unitCode || undefined } })
+// Area units KP1…KP6 (Khu phố 1…6)
+const AREA_NUMBERS = [1, 2, 3, 4, 5, 6] as const
+
+// A 403 (insufficient_role, no_unit_scope) is a missing permission; other failures read as the fallback
+const FORBIDDEN_STATUS = { 403: 'errors.common.forbidden' } as const satisfies Partial<Record<number, TranslationKey>>
+
+async function fetchComplianceStats(unitCode: string): Promise<ComplianceStats> {
+  const res = await client.get<ComplianceStats>('/dashboard/compliance', { params: { unitCode: unitCode || undefined } })
   return res.data
 }
 
-async function exportComplianceDashboard(unitCode: string): Promise<Blob> {
-  const res = await client.get('/dashboard/compliance/export', {
-    params: { format: 'xlsx', unitCode: unitCode || undefined },
-    responseType: 'blob',
-  })
-  return res.data
-}
-
-function safePercent(value: number, total: number): string {
-  if (!total || isNaN(value / total)) return '—'
-  return `${Math.round((value / total) * 100)}%`
-}
-
-function safePercentNum(value: number, total: number): number | null {
-  if (!total || isNaN(value / total)) return null
-  return Math.round((value / total) * 100)
-}
+const formatNumber = (value: number) => value.toLocaleString('vi-VN')
 
 function StatCardSkeleton() {
   return (
@@ -51,120 +53,82 @@ function StatCardSkeleton() {
 }
 
 interface StatCardProps {
+  id: string
   label: string
-  value: number
-  total: number
-  criticalThreshold: number
-  higherIsBetter: boolean
-  suffix?: string
+  /** The figure as shown */
+  value: string
+  unit?: string
+  detail?: string
+  /** A percentage drawn as a bar */
+  progress?: number
 }
 
-function StatCard({ label, value, total, criticalThreshold, higherIsBetter, suffix }: StatCardProps) {
-  const pct = safePercentNum(value, total)
-  const displayPct = safePercent(value, total)
-  const isCritical = pct !== null
-    ? (higherIsBetter ? pct <= criticalThreshold : pct >= criticalThreshold)
-    : false
-  const color = isCritical ? '#C62828' : '#2E7D32'
-
+function StatCard({ id, label, value, unit, detail, progress }: StatCardProps) {
   return (
-    <div className={`bg-white rounded-xl border p-5 ${isCritical ? 'border-red-300' : 'border-[#E2E8F0]'}`}>
+    <div data-testid={`compliance-stat-${id}`} className="bg-white rounded-xl border border-[#E2E8F0] p-5">
       <p className="text-sm text-[#64748B] mb-2">{label}</p>
       <div className="flex items-end gap-1.5 mb-3">
-        <span className="text-3xl font-bold" style={{ color }}>{displayPct}</span>
-        {suffix && <span className="text-sm text-[#64748B] pb-0.5">{suffix}</span>}
+        <span className="text-3xl font-bold text-[#1F3A5F]">{value}</span>
+        {unit && <span className="text-sm text-[#64748B] pb-0.5">{unit}</span>}
       </div>
-      <div className="w-full h-2 bg-[#E2E8F0] rounded-full overflow-hidden mb-1.5">
-        <div
-          className="h-2 rounded-full transition-all"
-          style={{
-            width: pct !== null ? `${Math.min(100, pct)}%` : '0%',
-            backgroundColor: color,
-          }}
-        />
-      </div>
-      <p className="text-xs text-[#64748B]">
-        {value.toLocaleString('vi-VN')} / {total.toLocaleString('vi-VN')}
-      </p>
-      {isCritical && (
-        <div className="flex items-center gap-1 mt-1.5">
-          <AlertCircle size={12} className="text-[#C62828]" />
-          <span className="text-xs text-[#C62828] font-medium">Cần chú ý</span>
+      {progress !== undefined && (
+        <div className="w-full h-2 bg-[#E2E8F0] rounded-full overflow-hidden mb-1.5">
+          <div
+            data-testid={`compliance-progress-${id}`}
+            className="h-2 rounded-full bg-[#2E7D32] transition-all"
+            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+          />
         </div>
       )}
+      {detail && <p className="text-xs text-[#64748B]">{detail}</p>}
     </div>
   )
 }
 
 export function ComplianceDashboardPage() {
+  const { t } = useTranslation()
   const [unitCode, setUnitCode] = useState('')
-  const [isExporting, setIsExporting] = useState(false)
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['compliance-dashboard', unitCode],
-    queryFn: () => fetchComplianceDashboard(unitCode),
+    queryFn: () => fetchComplianceStats(unitCode),
     staleTime: 2 * 60_000,
   })
 
-  async function handleExport() {
-    await downloadExcelReport(
-      () => exportComplianceDashboard(unitCode),
-      `tong-quan-tuan-thu-${new Date().toISOString().slice(0, 10)}.xlsx`,
-      () => setIsExporting(true),
-      () => setIsExporting(false),
-    )
-  }
-
-  const lastUpdatedDisplay = data?.lastUpdated
-    ? new Date(data.lastUpdated).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-    : null
+  const percent = (value: number) => t('dashboard.compliance.stats.percent', { value: formatNumber(value) })
 
   return (
     <div className="p-6 space-y-6 bg-[#F8FAFC] min-h-full" data-testid="compliance-dashboard-page">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0F172A]">Bảng Tuân Thủ Pháp Định</h1>
+          <h1 className="text-2xl font-bold text-[#0F172A]">{t('dashboard.compliance.header.title')}</h1>
           <p className="text-sm text-[#64748B] mt-1 flex items-center gap-1.5">
-            Tổng quan tình trạng tuân thủ toàn đơn vị
-            {lastUpdatedDisplay && (
+            {t('dashboard.compliance.header.subtitle')}
+            {data && (
               <>
                 <span className="text-[#E2E8F0]">·</span>
                 <Clock size={12} className="text-[#64748B]" />
-                Cập nhật lúc: {lastUpdatedDisplay}
+                {t('dashboard.compliance.header.lastUpdated', { time: formatVietnamDateTime(data.lastUpdated) })}
               </>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={unitCode}
-            onChange={e => setUnitCode(e.target.value)}
-            className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
-          >
-            <option value="">Toàn đơn vị</option>
-            <option value="KP1">Khu phố 1</option>
-            <option value="KP2">Khu phố 2</option>
-            <option value="KP3">Khu phố 3</option>
-            <option value="KP4">Khu phố 4</option>
-            <option value="KP5">Khu phố 5</option>
-            <option value="KP6">Khu phố 6</option>
-          </select>
-          <button
-            onClick={handleExport}
-            disabled={isExporting || isLoading}
-            data-testid="export-btn"
-            className="bg-[#1F3A5F] text-white hover:bg-[#162d4a] rounded-lg px-4 py-2 flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
-          >
-            <Download size={16} />
-            {isExporting ? 'Đang xuất...' : 'Xuất tổng quan'}
-          </button>
-        </div>
+        <select
+          value={unitCode}
+          onChange={e => setUnitCode(e.target.value)}
+          className="px-3 py-2 border border-[#E2E8F0] rounded-lg text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#1F3A5F]"
+        >
+          <option value="">{t('dashboard.compliance.filters.allUnits')}</option>
+          {AREA_NUMBERS.map((number) => (
+            <option key={number} value={`KP${number}`}>{t('dashboard.compliance.filters.area', { number })}</option>
+          ))}
+        </select>
       </div>
 
-      {isError && (
+      {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-[#C62828]">
-          Không thể tải dữ liệu tuân thủ.
+          {describeApiError(error, { scope: 'dashboard.compliance', statuses: FORBIDDEN_STATUS, fallback: 'dashboard.compliance.load.error' })}
         </div>
       )}
 
@@ -175,40 +139,42 @@ export function ComplianceDashboardPage() {
         ) : data ? (
           <>
             <StatCard
-              label="Quân số hoạt động"
-              value={data.stats.activePersonnel.value}
-              total={data.stats.activePersonnel.total}
-              criticalThreshold={data.stats.activePersonnel.criticalThreshold}
-              higherIsBetter={true}
+              id="activePersonnel"
+              label={t('dashboard.compliance.stats.activePersonnel')}
+              value={formatNumber(data.totalActive)}
             />
             <StatCard
-              label="Tuân thủ huấn luyện"
-              value={data.stats.trainingCompliance.value}
-              total={data.stats.trainingCompliance.total}
-              criticalThreshold={data.stats.trainingCompliance.criticalThreshold}
-              higherIsBetter={true}
+              id="trainingCompliance"
+              label={t('dashboard.compliance.stats.trainingCompliance')}
+              value={percent(data.trainingCompliancePct)}
+              progress={data.trainingCompliancePct}
+              detail={t('dashboard.compliance.stats.trainingCompliantOf', {
+                compliant: formatNumber(data.trainingCompliant),
+                total: formatNumber(data.totalActive),
+              })}
             />
             <StatCard
-              label="Có mặt tháng này"
-              value={data.stats.attendanceThisMonth.value}
-              total={data.stats.attendanceThisMonth.total}
-              criticalThreshold={data.stats.attendanceThisMonth.criticalThreshold}
-              higherIsBetter={true}
+              id="attendanceThisMonth"
+              label={t('dashboard.compliance.stats.attendanceThisMonth')}
+              value={percent(data.attendancePct)}
+              progress={data.attendancePct}
             />
             <StatCard
-              label="Điểm KPI TB"
-              value={data.stats.avgKpiScore.value}
-              total={data.stats.avgKpiScore.total}
-              criticalThreshold={data.stats.avgKpiScore.criticalThreshold}
-              higherIsBetter={true}
-              suffix="điểm"
+              id="avgKpiScore"
+              label={t('dashboard.compliance.stats.avgKpiScore')}
+              value={data.avgKpiScore === null ? t('dashboard.compliance.stats.noScore') : formatNumber(data.avgKpiScore)}
+              unit={data.avgKpiScore === null ? undefined : t('dashboard.compliance.stats.avgKpiScoreUnit')}
+              detail={
+                data.kpiPeriod
+                  ? t('dashboard.compliance.stats.kpiPeriod', { month: data.kpiPeriod.month, year: data.kpiPeriod.year })
+                  : t('dashboard.compliance.stats.kpiPeriodNone')
+              }
             />
             <StatCard
-              label="Miễn giảm sắp hết hạn"
-              value={data.stats.exemptionsExpiringSoon.value}
-              total={data.stats.exemptionsExpiringSoon.total}
-              criticalThreshold={data.stats.exemptionsExpiringSoon.criticalThreshold}
-              higherIsBetter={false}
+              id="exemptionsExpiringSoon"
+              label={t('dashboard.compliance.stats.exemptionsExpiringSoon')}
+              value={formatNumber(data.expiringExemptions)}
+              detail={t('dashboard.compliance.stats.expiringWindow')}
             />
           </>
         ) : null}

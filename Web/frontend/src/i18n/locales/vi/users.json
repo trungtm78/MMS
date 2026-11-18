@@ -1,0 +1,195 @@
+{
+  "management": {
+    "header": {
+      "title": "Quản lý người dùng & phân quyền",
+      "subtitle": "Quản lý tài khoản và phân quyền truy cập hệ thống",
+      "addUser": "Thêm người dùng"
+    },
+    "search": {
+      "placeholder": "Nhập tên hoặc tài khoản..."
+    },
+    "table": {
+      "index": "STT",
+      "username": "Tài khoản",
+      "fullName": "Họ và tên",
+      "roles": "Vai trò",
+      "unit": "Đơn vị",
+      "status": "Trạng thái",
+      "actions": "Thao tác",
+      "rolesOf": "Vai trò của {{fullName}}"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "inactive": "Không hoạt động",
+      "suspended": "Tạm khóa"
+    },
+    "pagination": {
+      "summary": "Hiển thị <strong>{{shown}}</strong> / tổng <strong>{{total}}</strong> tài khoản"
+    }
+  },
+  "status": {
+    "lock": {
+      "title": "Khóa tài khoản",
+      "label": "Khóa tài khoản {{username}}"
+    },
+    "unlock": {
+      "title": "Mở khóa tài khoản",
+      "label": "Mở khóa tài khoản {{username}}"
+    },
+    "update": {
+      "success": "Cập nhật trạng thái thành công",
+      "error": "Cập nhật thất bại"
+    }
+  },
+  "resetPassword": {
+    "action": {
+      "title": "Đặt lại mật khẩu",
+      "label": "Đặt lại mật khẩu cho {{username}}"
+    },
+    "request": {
+      "error": "Đặt lại mật khẩu thất bại"
+    }
+  },
+  "temporaryPassword": {
+    "title": "Mật khẩu tạm thời",
+    "description": "Hãy thông báo mật khẩu này cho người dùng và yêu cầu đổi ngay sau khi đăng nhập.",
+    "copy": "Sao chép mật khẩu",
+    "copied": "Đã sao chép mật khẩu",
+    "copyFailed": "Không thể sao chép. Hãy ghi lại mật khẩu thủ công.",
+    "acknowledge": "Đã ghi nhận"
+  },
+  "resetMfa": {
+    "action": {
+      "title": "Đặt lại xác thực hai lớp",
+      "label": "Đặt lại xác thực hai lớp cho {{username}}"
+    },
+    "confirm": {
+      "title": "Đặt lại xác thực hai lớp?",
+      "description": "Ứng dụng xác thực và toàn bộ mã khôi phục của tài khoản {{username}} ({{fullName}}) sẽ bị xóa. Mọi phiên đăng nhập của tài khoản này sẽ kết thúc ngay; ở lần đăng nhập sau, người dùng phải thiết lập lại xác thực hai lớp nếu vai trò yêu cầu.",
+      "confirmLabel": "Đặt lại"
+    },
+    "request": {
+      "success": "Đã đặt lại xác thực hai lớp cho {{username}}",
+      "error": "Không thể đặt lại xác thực hai lớp"
+    }
+  },
+  "create": {
+    "dialog": {
+      "title": "Thêm người dùng mới",
+      "description": "Các trường có dấu * là bắt buộc. Mật khẩu tạm thời do hệ thống tạo."
+    },
+    "fields": {
+      "username": "Tài khoản",
+      "fullName": "Họ và tên",
+      "role": "Vai trò",
+      "unitCode": "Mã đơn vị",
+      "unitCodePlaceholder": "VD: KP1",
+      "email": "Email",
+      "phone": "Số điện thoại"
+    },
+    "validation": {
+      "username": "Tên đăng nhập gồm 3–50 ký tự: chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang",
+      "fullNameRequired": "Vui lòng nhập họ và tên",
+      "emailInvalid": "Email không hợp lệ",
+      "phoneInvalid": "Số điện thoại không hợp lệ"
+    },
+    "submit": {
+      "idle": "Tạo tài khoản",
+      "pending": "Đang tạo...",
+      "success": "Tạo tài khoản thành công",
+      "invalid": "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại thông tin.",
+      "error": "Tạo tài khoản thất bại"
+    }
+  },
+  "form": {
+    "page": {
+      "title": "Tạo tài khoản mới",
+      "description": "Mật khẩu tạm thời do hệ thống tạo và chỉ hiển thị một lần sau khi tạo."
+    },
+    "fields": {
+      "username": "Tên đăng nhập *",
+      "usernamePlaceholder": "Nhập tên đăng nhập...",
+      "fullName": "Họ và tên *",
+      "fullNamePlaceholder": "Nhập họ tên đầy đủ...",
+      "role": "Vai trò *",
+      "rolePlaceholder": "-- Chọn vai trò --",
+      "unit": "Đơn vị / Khu phố",
+      "unitPlaceholder": "Tìm đơn vị theo tên hoặc mã...",
+      "email": "Email",
+      "emailPlaceholder": "email@example.com",
+      "phone": "Số điện thoại",
+      "phonePlaceholder": "0909xxxxxx"
+    },
+    "validation": {
+      "roleRequired": "Vai trò là bắt buộc"
+    },
+    "actions": {
+      "reset": "Đặt lại",
+      "submit": "Tạo tài khoản",
+      "backToList": "Quay lại danh sách người dùng"
+    },
+    "created": {
+      "title": "Đã tạo tài khoản {{username}}"
+    },
+    "submit": {
+      "success": "Tạo tài khoản thành công",
+      "error": "Có lỗi xảy ra. Vui lòng thử lại."
+    }
+  },
+  "assignments": {
+    "page": {
+      "breadcrumb": "Trang chủ › Phân Công",
+      "title": "Phân Công",
+      "desktopOnly": "Vui lòng sử dụng trên máy tính để quản lý phân công.",
+      "retryLater": "Vui lòng thử lại sau ít phút."
+    },
+    "officers": {
+      "heading": "Cán bộ CA",
+      "searchLabel": "Tìm cán bộ CA",
+      "searchPlaceholder": "Tìm theo tên...",
+      "pickPrompt": "← Chọn một cán bộ CA để xem phân công",
+      "empty": "Không có cán bộ CA",
+      "loadError": "Không thể tải danh sách cán bộ CA."
+    },
+    "self": {
+      "notice": "Bạn chỉ xem được các DQTV được phân công cho chính mình."
+    },
+    "roleBadge": {
+      "ward": "CA Phường",
+      "area": "CA Khu Vực",
+      "other": "CA"
+    },
+    "list": {
+      "count": "DQTV phân công ({{count}})",
+      "addButton": "Thêm DQTV",
+      "loadError": "Không thể tải danh sách phân công.",
+      "empty": "Chưa có DQTV nào được phân công",
+      "addNow": "Thêm ngay",
+      "columns": {
+        "name": "Tên DQTV",
+        "unit": "Đơn vị",
+        "assignedAt": "Ngày phân công"
+      }
+    },
+    "add": {
+      "title": "Thêm DQTV vào danh sách",
+      "assignee": "Phân công cho: <strong>{{name}}</strong>",
+      "searchPlaceholder": "Tìm dân quân tự vệ...",
+      "allAssigned": "Tất cả DQTV đã được phân công",
+      "noResults": "Không tìm thấy kết quả",
+      "noAccount": "Chưa có tài khoản hệ thống — không thể phân công",
+      "submit": "Thêm DQTV",
+      "submitCount": "Thêm {{count}} DQTV",
+      "pending": "Đang thêm...",
+      "success": "Đã thêm {{count}} DQTV",
+      "partialError": "{{count}} DQTV không thể thêm: {{reason}}",
+      "reasonFallback": "Vui lòng thử lại."
+    },
+    "remove": {
+      "label": "Xóa phân công {{name}}",
+      "confirm": "Xác nhận xóa",
+      "success": "Đã xóa phân công",
+      "error": "Không thể xóa phân công"
+    }
+  }
+}

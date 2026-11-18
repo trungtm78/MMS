@@ -33,22 +33,66 @@ export function clearTokens(): void {
   localStorage.removeItem(TOKEN_KEYS.user)
 }
 
-let isRefreshing = false
-type Subscriber = { resolve: (token: string) => void; reject: (err: unknown) => void }
-let refreshSubscribers: Subscriber[] = []
+/** Why the session ended, carried by the auth:session-expired event (AuthContext explains it on the sign-in screen) */
+export type SessionEndReason = 'session_ended' | 'mfa_reauthentication_required'
 
-function subscribeTokenRefresh(resolve: (token: string) => void, reject: (err: unknown) => void) {
-  refreshSubscribers.push({ resolve, reject })
+class MissingRefreshTokenError extends Error {}
+
+// The refresh token was refused (refresh_token_reused/revoked, invalid_refresh_token,
+// mfa_reauthentication_required, account_disabled, no_role_assigned — auth.service.ts
+// refreshTokens): the session is over. A network failure, a server error or throttling says
+// nothing about the session, so the tokens are kept for the next request to try again.
+function refreshWasRefused(err: unknown): boolean {
+  if (err instanceof MissingRefreshTokenError) return true
+  const status = (err as { response?: { status?: unknown } } | null)?.response?.status
+  return typeof status === 'number' && status >= 400 && status < 500 && status !== 429
 }
 
-function onRefreshed(token: string) {
-  refreshSubscribers.forEach(({ resolve }) => resolve(token))
-  refreshSubscribers = []
+/**
+ * Ends the session in this browser: clears the tokens and tells AuthContext why through the
+ * auth:session-expired event, which signs out with the matching notice. Used for a refused
+ * refresh, a socket handshake without a token and a revoked current device session.
+ */
+export function signOutSession(reason: SessionEndReason = 'session_ended'): void {
+  clearTokens()
+  window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { reason } }))
 }
 
-function onRefreshFailed(err: unknown) {
-  refreshSubscribers.forEach(({ reject }) => reject(err))
-  refreshSubscribers = []
+function endSession(err: unknown): void {
+  const code = (err as { response?: { data?: { message?: unknown } } } | null)?.response?.data?.message
+  signOutSession(code === 'mfa_reauthentication_required' ? 'mfa_reauthentication_required' : 'session_ended')
+}
+
+let refreshInFlight: Promise<string> | null = null
+
+async function requestNewAccessToken(): Promise<string> {
+  try {
+    const refreshToken = getRefreshToken()
+    if (!refreshToken) throw new MissingRefreshTokenError('No refresh token')
+    const response = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken }, { withCredentials: false })
+    const { accessToken, refreshToken: newRefresh } = response.data as { accessToken: string; refreshToken: string }
+    // Only persist new refresh token if user previously chose rememberMe (had one stored)
+    storeTokens(accessToken, newRefresh, !!localStorage.getItem(TOKEN_KEYS.refresh))
+    return accessToken
+  } catch (err) {
+    // No retry: a refused refresh token will not be accepted a second time
+    if (refreshWasRefused(err)) endSession(err)
+    throw err
+  }
+}
+
+/**
+ * Exchanges the refresh token for a new access token. Every caller that needs one at the same
+ * time — expired API requests, the chat socket closed by the gateway — shares a single request.
+ * A refused refresh clears the tokens and ends the session.
+ */
+export function refreshAccessToken(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = requestNewAccessToken().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
 }
 
 const client: AxiosInstance = axios.create({
@@ -70,6 +114,38 @@ client.interceptors.request.use(
   (error) => Promise.reject(error),
 )
 
+// Public routes: they carry a password, a refresh token or an mfaToken — never a bearer token —
+// so a 401 is wrong credentials or a closed challenge and always belongs to the caller
+const PUBLIC_AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/mfa/login',
+  '/auth/mfa/verify',
+  '/auth/mfa/enroll',
+  '/auth/mfa/enroll/confirm',
+]
+
+// Signed-in second-factor routes (/auth/mfa/status, setup, confirm, recovery-codes/regenerate,
+// disable) refresh like any bearer route, except when the 401 is about the code itself: a wrong
+// code or an expired set-up challenge. An expired session answers invalid_token / missing_token.
+const MFA_ROUTE_PREFIX = '/auth/mfa/'
+const MFA_CODE_REJECTIONS: ReadonlySet<string> = new Set(['invalid_code', 'mfa_token_invalid'])
+
+function pathOf(url: string): string {
+  return url.split('?')[0]
+}
+
+function shouldRefreshOn401(url: string | undefined, body: unknown): boolean {
+  if (!url) return true
+  const path = pathOf(url)
+  if (PUBLIC_AUTH_ENDPOINTS.some((endpoint) => path === endpoint || path.endsWith(endpoint))) return false
+  if (path.includes(MFA_ROUTE_PREFIX)) {
+    const message = typeof body === 'object' && body !== null ? (body as { message?: unknown }).message : undefined
+    if (typeof message === 'string' && MFA_CODE_REJECTIONS.has(message)) return false
+  }
+  return true
+}
+
 // Response interceptor: silent refresh on 401
 // US-W001 AC-3: token hết hạn → silent refresh → thao tác tiếp tục
 client.interceptors.response.use(
@@ -77,48 +153,32 @@ client.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        // Queue request until refresh completes; reject on failure so callers don't hang
-        return new Promise((resolve, reject) => {
-          subscribeTokenRefresh(
-            (token) => {
-              originalRequest.headers.Authorization = `Bearer ${token}`
-              resolve(client(originalRequest))
-            },
-            reject,
-          )
-        })
-      }
-
+    if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      shouldRefreshOn401(originalRequest.url, error.response?.data)
+    ) {
       originalRequest._retry = true
-      isRefreshing = true
 
-      try {
-        const refreshToken = getRefreshToken()
-        if (!refreshToken) throw new Error('No refresh token')
-
-        const response = await axios.post(
-          `${BASE_URL}/auth/refresh`,
-          { refreshToken },
-          { withCredentials: false },
-        )
-
-        const { accessToken, refreshToken: newRefresh } = response.data
-        // Only persist new refresh token if user previously chose rememberMe (had one stored)
-        storeTokens(accessToken, newRefresh, !!localStorage.getItem(TOKEN_KEYS.refresh))
-        onRefreshed(accessToken)
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`
+      // Refused with an access token that a refresh (in this tab or another) has replaced since
+      // the request left: retry with the current one. Refreshing again would present the rotated
+      // refresh token a second time, which the server treats as theft (refresh_token_reused).
+      const currentToken = getAccessToken()
+      const sentAuthorization = originalRequest.headers?.Authorization
+      if (currentToken && sentAuthorization !== `Bearer ${currentToken}`) {
+        originalRequest.headers.Authorization = `Bearer ${currentToken}`
         return client(originalRequest)
-      } catch (refreshError) {
-        onRefreshFailed(refreshError)
-        clearTokens()
-        // Dispatch event so AuthContext can redirect to login
-        window.dispatchEvent(new CustomEvent('auth:session-expired'))
-        return Promise.reject(error)
-      } finally {
-        isRefreshing = false
       }
+
+      let accessToken: string
+      try {
+        accessToken = await refreshAccessToken()
+      } catch {
+        return Promise.reject(error)
+      }
+      originalRequest.headers.Authorization = `Bearer ${accessToken}`
+      return client(originalRequest)
     }
 
     return Promise.reject(error)

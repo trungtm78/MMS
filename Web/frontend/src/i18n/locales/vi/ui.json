@@ -1,0 +1,28 @@
+{
+  "smartSelect": {
+    "search": {
+      "placeholder": "Tìm kiếm...",
+      "hint": "Nhập để tìm kiếm...",
+      "loading": "Đang tìm kiếm...",
+      "empty": "Không tìm thấy kết quả cho \"{{query}}\""
+    },
+    "selection": {
+      "clear": "Xoá lựa chọn"
+    },
+    "dropdown": {
+      "label": "Tuỳ chọn"
+    },
+    "create": {
+      "action": "Tạo mới \"{{query}}\""
+    },
+    "modal": {
+      "cancel": "Huỷ",
+      "submit": "Tạo mới"
+    }
+  },
+  "dates": {
+    "month": {
+      "label": "Tháng {{month}}/{{year}}"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 // Phase 2: Unit tests for utility functions
 import { describe, test, expect } from 'vitest'
+import { i18n } from '@/test/i18n'
 import { cn, formatDate, formatDateTime, formatMonth } from './utils'
 
 describe('cn (className utility)', () => {
@@ -57,5 +58,16 @@ describe('formatMonth', () => {
 
   test('test_utility_boundary_month_12', () => {
     expect(formatMonth(12, 2026)).toBe('Tháng 12/2026')
+  })
+
+  test('test_utility_i18n_reads_the_month_label_from_the_locale_file', () => {
+    const key = 'ui.dates.month.label'
+    const previous: unknown = i18n.getResource('vi', 'translation', key)
+    i18n.addResource('vi', 'translation', key, 'M{{month}}-{{year}}')
+    try {
+      expect(formatMonth(3, 2026)).toBe('M3-2026')
+    } finally {
+      if (typeof previous === 'string') i18n.addResource('vi', 'translation', key, previous)
+    }
   })
 })

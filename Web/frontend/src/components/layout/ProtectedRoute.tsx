@@ -2,6 +2,7 @@
 // US-W001 NP-06: Forbidden page if role insufficient
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRbac } from '@/hooks/useRbac'
 import type { UserRole } from '@/types'
@@ -12,13 +13,14 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps) {
+  const { t } = useTranslation()
   const { isAuthenticated, isLoading } = useAuth()
   const { hasRole } = useRbac()
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <span className="text-slate-500">Đang tải...</span>
+        <span className="text-slate-500">{t('common.states.loading')}</span>
       </div>
     )
   }
@@ -36,6 +38,7 @@ export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps)
 
 // US-W001 NP-06: ForbiddenPage — shown when role insufficient or scope violation
 export function ForbiddenPage() {
+  const { t } = useTranslation()
   return (
     <div
       data-testid="forbidden-page"
@@ -44,9 +47,9 @@ export function ForbiddenPage() {
       <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center">
         <span className="text-red-500 text-4xl">🚫</span>
       </div>
-      <h2 className="text-2xl font-bold text-slate-800">Không có quyền truy cập</h2>
+      <h2 className="text-2xl font-bold text-slate-800">{t('layout.forbidden.page.title')}</h2>
       <p className="text-slate-500 max-w-sm">
-        Bạn không có quyền xem trang này. Vui lòng liên hệ quản trị viên nếu cần hỗ trợ.
+        {t('layout.forbidden.page.description')}
       </p>
     </div>
   )

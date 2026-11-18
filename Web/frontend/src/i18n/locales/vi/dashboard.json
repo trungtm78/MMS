@@ -1,0 +1,106 @@
+{
+  "overview": {
+    "greeting": "Xin chào, {{name}}",
+    "roleSubtitle": {
+      "policeWard": "Tổng quan toàn phường",
+      "policeArea": "Khu vực: {{unit}}",
+      "officeStaff": "Quản lý hành chính",
+      "dqtv": "Nhiệm vụ và lịch làm việc của bạn",
+      "systemAdmin": "Bảng điều khiển hệ thống",
+      "ubndLeader": "Báo cáo tổng hợp"
+    },
+    "period": {
+      "option": "Năm {{year}}"
+    },
+    "actions": {
+      "refresh": "Làm mới"
+    },
+    "today": {
+      "title": "Hôm nay — {{date}}",
+      "liveBadge": "Cập nhật thực tế",
+      "tasksInProgress": "Nhiệm vụ đang thực hiện",
+      "nextShift": "Ca trực tiếp theo"
+    },
+    "attendance": {
+      "label": "Điểm danh",
+      "present": "Có mặt",
+      "late": "Đi muộn",
+      "earlyLeave": "Về sớm",
+      "absent": "Vắng mặt",
+      "leave": "Nghỉ phép",
+      "notRecorded": "Chưa chấm",
+      "times": "Vào ca {{checkIn}} · Ra ca {{checkOut}}"
+    },
+    "sos": {
+      "bannerTitle": "{{count}} cảnh báo SOS chưa xử lý",
+      "cardTitle": "Cảnh báo SOS",
+      "newCount": "{{count}} mới",
+      "empty": "Không có cảnh báo SOS nào",
+      "alertMeta": "{{code}} · {{type}}",
+      "types": {
+        "sos": "SOS",
+        "security": "An ninh trật tự",
+        "fire": "Cháy nổ",
+        "medical": "Y tế",
+        "accident": "Tai nạn",
+        "utility": "Sự cố hạ tầng",
+        "other": "Khác"
+      }
+    },
+    "stats": {
+      "totalMilitia": "Tổng DQTV đang hoạt động",
+      "pendingTasks": "Nhiệm vụ đang chờ",
+      "attendanceToday": "Chấm công hôm nay",
+      "sosActive": "SOS chưa xử lý"
+    },
+    "taskChart": {
+      "title": "Tỷ lệ hoàn thành công việc",
+      "subtitle": "Theo tháng — năm {{year}}",
+      "month": "T{{month}}",
+      "assigned": "Giao",
+      "completed": "Hoàn thành",
+      "overdue": "Trễ hạn"
+    },
+    "areaChart": {
+      "title": "Phân bố DQTV theo Khu phố",
+      "subtitle": "Tổng quân số hiện tại",
+      "headcount": "Quân số"
+    },
+    "quickActions": {
+      "title": "Thao tác nhanh",
+      "subtitle": "Truy cập nhanh các chức năng",
+      "assignTask": "Giao việc mới",
+      "addMilitia": "Thêm DQTV",
+      "createReport": "Tạo báo cáo",
+      "viewGps": "Xem GPS"
+    }
+  },
+  "compliance": {
+    "header": {
+      "title": "Bảng Tuân Thủ Pháp Định",
+      "subtitle": "Tổng quan tình trạng tuân thủ toàn đơn vị",
+      "lastUpdated": "Cập nhật lúc: {{time}}"
+    },
+    "filters": {
+      "allUnits": "Toàn đơn vị",
+      "area": "Khu phố {{number}}"
+    },
+    "load": {
+      "error": "Không thể tải dữ liệu tuân thủ."
+    },
+    "stats": {
+      "activePersonnel": "Quân số hoạt động",
+      "trainingCompliance": "Tuân thủ huấn luyện",
+      "trainingCompliantOf": "{{compliant}} / {{total}} DQTV đạt tối thiểu 15 ngày huấn luyện",
+      "attendanceThisMonth": "Có mặt tháng này",
+      "avgKpiScore": "Điểm KPI TB",
+      "avgKpiScoreUnit": "điểm",
+      "noScore": "—",
+      "kpiPeriod": "Kỳ tháng {{month}}/{{year}}",
+      "kpiPeriodNone": "Chưa có kỳ đánh giá",
+      "exemptionsExpiringSoon": "Miễn giảm sắp hết hạn",
+      "expiringWindow": "Trong 30 ngày tới",
+      "percent": "{{value}}%"
+    }
+  }
+}

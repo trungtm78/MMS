@@ -1,0 +1,83 @@
+{
+  "status": {
+    "new": "Mới",
+    "reviewing": "Đang xét duyệt",
+    "approved": "Đã duyệt",
+    "rejected": "Từ chối"
+  },
+  "fields": {
+    "index": "STT",
+    "name": "Họ tên",
+    "age": "Tuổi",
+    "phone": "Số điện thoại",
+    "phoneShort": "Điện thoại",
+    "address": "Địa chỉ",
+    "ward": "Khu phố",
+    "district": "Quận/Huyện",
+    "idNumber": "CCCD/CMND",
+    "email": "Email",
+    "applyDate": "Ngày nộp",
+    "status": "Trạng thái",
+    "actions": "Thao tác"
+  },
+  "page": {
+    "header": {
+      "title": "Tuyển dụng DQTV",
+      "subtitle": "UBND Phường Phú Định – Tuyển chọn dân quân tự vệ mới"
+    },
+    "summary": {
+      "total": "Tổng đơn",
+      "pending": "Chờ duyệt"
+    }
+  },
+  "list": {
+    "load": {
+      "error": "Không thể tải danh sách đơn đăng ký."
+    },
+    "empty": {
+      "title": "Không có đơn đăng ký nào"
+    },
+    "pagination": {
+      "total": "Tổng <strong>{{count}}</strong> đơn"
+    },
+    "actions": {
+      "review": "Chuyển xét duyệt",
+      "approve": "Duyệt",
+      "reject": "Từ chối"
+    }
+  },
+  "statusChange": {
+    "success": {
+      "approved": "Đã duyệt đơn",
+      "rejected": "Đã từ chối",
+      "reviewing": "Đã chuyển sang xét duyệt"
+    },
+    "error": {
+      "generic": "Không thể cập nhật trạng thái"
+    }
+  },
+  "create": {
+    "form": {
+      "title": "Tạo đơn đăng ký",
+      "submit": "Tạo đơn"
+    },
+    "placeholders": {
+      "name": "Nguyễn Văn A",
+      "district": "KP 1",
+      "address": "123 Đường ABC, KP1"
+    },
+    "validation": {
+      "nameRequired": "Vui lòng nhập họ tên",
+      "phoneRequired": "Vui lòng nhập số điện thoại"
+    },
+    "submit": {
+      "success": "Đã tạo đơn đăng ký",
+      "error": "Không thể tạo đơn đăng ký"
+    }
+  },
+  "detail": {
+    "modal": {
+      "title": "Chi tiết đơn đăng ký"
+    }
+  }
+}

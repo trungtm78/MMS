@@ -1,62 +1,23 @@
 // Main application router
 // US-W001: Route-level auth guard + role-based redirects
-// US-SS-06..09: Routes for SmartSelect demo screens
+// Pages are code-split (routes/pageRoutes.ts) and guarded by the permission of the endpoint they load
 import { memo, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { AuthProvider } from '@/contexts/AuthProvider'
 import { SocketProvider } from '@/contexts/SocketContext'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { ProtectedRoute, ForbiddenPage } from '@/components/layout/ProtectedRoute'
+import { RequirePermission } from '@/components/layout/RequirePermission'
+import { RouteBoundary } from '@/components/layout/RouteBoundary'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { GlobalFooter } from '@/components/layout/GlobalFooter'
-import { DashboardPage } from '@/pages/DashboardPage'
-import { TaskCreateForm } from '@/components/tasks/TaskCreateForm'
-import { AttendanceForm } from '@/components/attendance/AttendanceForm'
-import { PayrollPage } from '@/pages/PayrollPage'
-import { UserManagementPage } from '@/pages/UserManagementPage'
-import { UserForm } from '@/components/users/UserForm'
-import { TaskListPage } from '@/pages/TaskListPage'
-import { MilitiaSearchPage } from '@/pages/MilitiaSearchPage'
-import { MilitiaList } from '@/components/militia/MilitiaList'
-import { MilitiaCreateForm } from '@/components/militia/MilitiaCreateForm'
-import { SettingsProfilePage } from '@/pages/SettingsProfilePage'
-import { SettingsPasswordPage } from '@/pages/SettingsPasswordPage'
-import { AttendanceReportPage } from '@/pages/AttendanceReportPage'
-import { MilitiaProfilePage } from '@/pages/MilitiaProfilePage'
-import { SettingsNotificationsPage } from '@/pages/SettingsNotificationsPage'
-import { SettingsChiTieuPage } from '@/pages/SettingsChiTieuPage'
-import { SettingsSystemPage } from '@/pages/SettingsSystemPage'
-import { TaskReportPage } from '@/pages/TaskReportPage'
-import { CustomReportPage } from '@/pages/CustomReportPage'
-import { ChiTieuDashboardPage } from '@/pages/ChiTieuDashboardPage'
-import { ActivityLogPage } from '@/pages/ActivityLogPage'
-import { ApprovalsPage } from '@/pages/ApprovalsPage'
-import { TimesheetPage } from '@/pages/TimesheetPage'
-import { DocumentationPage } from '@/pages/DocumentationPage'
-import { AssignmentManagePage } from '@/pages/AssignmentManagePage'
-import { OfficialDocumentsPage } from '@/pages/OfficialDocumentsPage'
-import { ChatPage } from '@/pages/ChatPage'
-import { GPSTrackingPage } from '@/pages/GPSTrackingPage'
-import { LeavePage } from '@/pages/LeavePage'
-import { SOSPage } from '@/pages/SOSPage'
-import { NotificationsPage } from '@/pages/NotificationsPage'
-import { DeviceSessionsPage } from '@/pages/DeviceSessionsPage'
-import { OrganizationPage } from '@/pages/OrganizationPage'
-import { WeaponsPage } from '@/pages/WeaponsPage'
-import { RecruitmentPage } from '@/pages/RecruitmentPage'
-import { ExemptionPage } from '@/pages/ExemptionPage'
-import { TrainingPlanPage } from '@/pages/TrainingPlanPage'
-import { RewardsManagePage } from '@/pages/RewardsManagePage'
-import { ComplianceDashboardPage } from '@/pages/ComplianceDashboardPage'
-import { TrainingComplianceReportPage } from '@/pages/TrainingComplianceReportPage'
-import { RosterReportPage } from '@/pages/RosterReportPage'
-import { AttendanceSummaryReportPage } from '@/pages/AttendanceSummaryReportPage'
-import { RewardsDisciplineReportPage } from '@/pages/RewardsDisciplineReportPage'
 import type { AppRoute } from '@/components/layout/Sidebar'
 import { QuickActionsWidget } from '@/components/layout/QuickActionsWidget'
+import { PAGE_ROUTES, type PageRoute } from '@/routes/pageRoutes'
 
 // F8: memoize layout shell components so they don't re-render on route changes
 const MemoSidebar = memo(Sidebar)
@@ -70,6 +31,11 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+const LAYOUT_CLASS: Record<NonNullable<PageRoute['layout']>, string> = {
+  padded: 'p-6',
+  panel: 'p-6 space-y-6 bg-[#F8FAFC]',
+}
 
 /** Map URL pathname to the AppRoute enum used by Sidebar for active highlight */
 function pathToAppRoute(pathname: string): AppRoute {
@@ -172,62 +138,26 @@ function AppShell() {
         <main className="flex-1 overflow-y-auto pt-20 flex flex-col">
           <div className="flex-1 flex flex-col">
           <Routes>
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/tasks/list" element={<TaskListPage />} />
-            <Route path="/tasks/*" element={<div className="p-6"><TaskCreateForm /></div>} />
-            <Route path="/attendance/*" element={<div className="p-6"><AttendanceForm /></div>} />
-            <Route path="/users/new" element={<div className="p-6"><UserForm /></div>} />
-            <Route path="/users/*" element={<UserManagementPage />} />
-            <Route path="/payroll/*" element={<PayrollPage />} />
-            <Route path="/militia/search" element={<MilitiaSearchPage />} />
-            {/* /militia/new MUST precede /militia/:id — React Router matches top-to-bottom */}
-            <Route path="/militia/new" element={
-              <ProtectedRoute requiredRoles={['system_admin', 'office_staff', 'ca_officer'] as import('@/types').UserRole[]}>
-                <div className="p-6 space-y-6 bg-[#F8FAFC]"><MilitiaCreateForm /></div>
-              </ProtectedRoute>
-            } />
-            <Route path="/militia/:id" element={<MilitiaProfilePage />} />
-            <Route path="/militia" element={<MilitiaList />} />
-            <Route path="/settings/profile" element={<SettingsProfilePage />} />
-            <Route path="/settings/password" element={<SettingsPasswordPage />} />
-            <Route path="/settings/notifications" element={<SettingsNotificationsPage />} />
-            <Route path="/settings/chitieu" element={<SettingsChiTieuPage />} />
-            <Route path="/settings/system" element={<SettingsSystemPage />} />
-            <Route path="/compliance" element={<ComplianceDashboardPage />} />
-            <Route path="/reports/training-compliance" element={<TrainingComplianceReportPage />} />
-            <Route path="/reports/roster" element={<RosterReportPage />} />
-            <Route path="/reports/attendance-summary" element={<AttendanceSummaryReportPage />} />
-            <Route path="/reports/rewards-discipline" element={<RewardsDisciplineReportPage />} />
-            <Route path="/reports/attendance" element={<AttendanceReportPage />} />
-            <Route path="/reports/tasks" element={<TaskReportPage />} />
-            <Route path="/reports/custom" element={<CustomReportPage />} />
-            <Route path="/kpi/dashboard" element={<ChiTieuDashboardPage />} />
-            <Route path="/audit" element={<ActivityLogPage />} />
-            <Route path="/approvals" element={<ApprovalsPage />} />
-            <Route path="/timesheet" element={<TimesheetPage />} />
-            <Route path="/docs" element={<DocumentationPage />} />
-            <Route path="/assignments" element={<AssignmentManagePage />} />
-            <Route path="/documents" element={<OfficialDocumentsPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/gps" element={<GPSTrackingPage />} />
-            <Route path="/leave" element={<LeavePage />} />
-            <Route path="/sos" element={<SOSPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/devices" element={<DeviceSessionsPage />} />
-            <Route path="/organization" element={<OrganizationPage />} />
-            <Route path="/weapons" element={<WeaponsPage />} />
-            <Route path="/recruitment" element={<RecruitmentPage />} />
-            <Route path="/exemptions" element={<ExemptionPage />} />
-            <Route path="/training" element={<TrainingPlanPage />} />
-            <Route path="/rewards" element={<RewardsManagePage />} />
-            <Route
-              path="/admin/*"
-              element={
-                <ProtectedRoute requiredRoles={['system_admin']}>
-                  <DashboardPage />
-                </ProtectedRoute>
-              }
-            />
+            {PAGE_ROUTES.map(({ path, permission, Page, layout }) => (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <RequirePermission permission={permission}>
+                    {/* Keyed by route so an error on one page is cleared by opening another */}
+                    <RouteBoundary key={path}>
+                      {layout ? (
+                        <div className={LAYOUT_CLASS[layout]}>
+                          <Page />
+                        </div>
+                      ) : (
+                        <Page />
+                      )}
+                    </RouteBoundary>
+                  </RequirePermission>
+                }
+              />
+            ))}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

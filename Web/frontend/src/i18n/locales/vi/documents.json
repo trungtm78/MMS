@@ -1,0 +1,112 @@
+{
+  "types": {
+    "cong_van": "Công văn",
+    "quyet_dinh": "Quyết định",
+    "thong_bao": "Thông báo",
+    "bao_cao": "Báo cáo",
+    "bien_ban": "Biên bản",
+    "other": "Khác"
+  },
+  "status": {
+    "draft": "Nháp",
+    "active": "Hiệu lực",
+    "expired": "Hết hạn",
+    "revoked": "Thu hồi"
+  },
+  "fields": {
+    "title": "Tiêu đề",
+    "docType": "Loại văn bản",
+    "docNumber": "Số hiệu",
+    "issuedBy": "Cơ quan ban hành",
+    "issuedDate": "Ngày ban hành",
+    "effectiveDate": "Ngày hiệu lực",
+    "expiryDate": "Ngày hết hạn",
+    "status": "Trạng thái",
+    "subject": "Tóm tắt nội dung",
+    "file": "Tệp đính kèm"
+  },
+  "page": {
+    "header": {
+      "breadcrumb": "Trang chủ › Văn bản pháp lý",
+      "title": "Văn bản pháp lý",
+      "subtitle": "Quản lý văn bản hành chính — NĐ 30/2020",
+      "create": "Tạo văn bản"
+    }
+  },
+  "list": {
+    "filters": {
+      "allTypes": "Tất cả loại",
+      "allStatuses": "Tất cả trạng thái",
+      "searchPlaceholder": "Tìm theo tiêu đề, số hiệu..."
+    },
+    "columns": {
+      "docNumber": "Số hiệu",
+      "title": "Tiêu đề",
+      "type": "Loại",
+      "issued": "Ban hành",
+      "effective": "Hiệu lực",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    },
+    "load": {
+      "error": "Không thể tải danh sách văn bản."
+    },
+    "empty": {
+      "title": "Chưa có văn bản nào",
+      "action": "Tạo văn bản đầu tiên"
+    },
+    "pagination": {
+      "summary": "{{total}} văn bản · Trang {{page}}/{{totalPages}}"
+    },
+    "revoke": {
+      "action": "Thu hồi văn bản",
+      "success": "Đã thu hồi văn bản",
+      "error": "Không thể thu hồi văn bản"
+    }
+  },
+  "create": {
+    "form": {
+      "title": "Tạo văn bản mới",
+      "submit": "Tạo văn bản"
+    },
+    "placeholders": {
+      "title": "Nhập tiêu đề văn bản...",
+      "docNumber": "VD: 123/CV-BCA",
+      "issuedBy": "BCA, UBND...",
+      "subject": "Mô tả nội dung văn bản..."
+    },
+    "validation": {
+      "titleRequired": "Vui lòng nhập tiêu đề"
+    },
+    "file": {
+      "hint": "Ảnh, PDF, Word hoặc Excel, tối đa 10 MB.",
+      "uploading": "Đang tải tệp lên...",
+      "remove": "Bỏ tệp",
+      "uploadError": "Không thể tải tệp lên. Vui lòng thử lại."
+    },
+    "submit": {
+      "success": "Đã tạo văn bản",
+      "error": "Không thể tạo văn bản"
+    }
+  },
+  "detail": {
+    "dialog": {
+      "title": "Chi tiết văn bản"
+    },
+    "load": {
+      "error": "Không thể tải thông tin văn bản. Vui lòng thử lại.",
+      "notFound": "Không tìm thấy văn bản."
+    },
+    "file": {
+      "size": {
+        "bytes": "{{value}} B",
+        "kilobytes": "{{value}} KB",
+        "megabytes": "{{value}} MB"
+      },
+      "none": "Không có tệp đính kèm",
+      "download": "Tải tệp đính kèm",
+      "downloading": "Đang tải xuống...",
+      "error": "Không thể tải tệp. Vui lòng thử lại."
+    }
+  }
+}

@@ -1,21 +1,20 @@
 // US-W001: Auth & RBAC types
-export type UserRole =
-  | 'system_admin'
-  | 'ubnd_leader'
-  | 'police_ward'
-  | 'police_area'
-  | 'office_staff'
-  | 'dqtv'
+import type { RoleCode } from '@/lib/roles'
 
+/** One of the 10 backend role codes (Web/backend/src/common/constants/roles.ts) */
+export type UserRole = RoleCode
+
+// Shape of POST /auth/login `user` and GET /auth/me (Web/backend/src/auth/auth.service.ts)
 export interface User {
-  id: number
+  id: string // user UUID
   username: string
   fullName: string
-  role: UserRole
+  role: UserRole | null // primary role (highest ROLE_PRIORITY); null only when none is assigned
+  roles?: UserRole[] // every assigned role, primary first; absent on sessions issued before the claim
   unitScope: string | null // null = full ward access; 'KP1'...'KP6' = area scope
-  email: string
-  phone: string
-  isActive: boolean
+  email: string | null
+  phone: string | null
+  status?: string
   createdAt: string
   updatedAt: string
 }
@@ -106,22 +105,35 @@ export interface AttendancePeriod {
   createdAt: string
 }
 
-// US-W007: Leave request types
-export type LeaveStatus = 'pending' | 'approved' | 'rejected'
+// US-W007: Leave request types (Web/backend/src/leave/leave.service.ts)
+export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
 
 export interface LeaveRequest {
   id: string
-  militiaId: string
-  militiaName: string
-  startDate: string
-  endDate: string
+  code: string
+  requesterId: string
+  requesterName: string
+  leaveTypeId: string
+  leaveTypeName: string
+  fromDate: string // calendar day; DATE column serialised by the API
+  toDate: string
+  isHalfDay: boolean
+  halfDayPeriod: 'morning' | 'afternoon' | null
   reason: string
+  replacementId: string | null
   status: LeaveStatus
-  reviewedBy: number | null
-  reviewedByName: string | null
-  reviewNote: string | null
-  reviewedAt: string | null
+  totalDays: number
   createdAt: string
+  updatedAt: string
+}
+
+export interface LeaveBalance {
+  leaveTypeId: string
+  leaveTypeName: string
+  totalDays: number
+  usedDays: number
+  remainingDays: number
+  year: number
 }
 
 // US-W008: SOS alert types
@@ -129,6 +141,8 @@ export type SosStatus = 'active' | 'acknowledged' | 'resolved'
 
 export interface SosAlert {
   id: string
+  /** SOS-YYYYMMDD-XXXXXX, sent with the alert and its sos:new event (sos.service.ts) */
+  code: string
   militiaId: string
   militiaName: string
   unitScope: string
@@ -177,46 +191,35 @@ export interface KpiScore {
   attendanceDays: number
   taskCompleted: number
   taskTotal: number
-  score: number
+  score: number | null // null when the month has no KPI evaluation
   adjustedScore: number | null
   adjustmentNote: string | null
-  adjustedBy: number | null
+  adjustedBy: string | null // user id
 }
 
+// GET /payroll/periods row (Web/backend/src/payroll/payroll.service.ts PayrollPeriod)
 export interface PayrollPeriod {
   id: string
   month: number
   year: number
   status: PayrollPeriodStatus
-  lockedBy: number | null
-  lockedAt: string | null
+  lockedBy: string | null // id of the user who locked the period
+  lockedAt: string | null // ISO timestamp
   createdAt: string
 }
 
-// US-W012: Audit log types
+// US-W012: Audit log types — one row of GET /audit (Web/backend/src/audit/audit.controller.ts)
 export interface AuditLog {
   id: string
-  actor: string // username
-  actorId: number
+  actorId: string | null
+  actorName: string | null
+  /** `${METHOD}:${entityType}` from the audit interceptor (e.g. 'PATCH:militia') or a named action */
   action: string
-  resource: string
-  resourceId: string | null
-  before: Record<string, unknown> | null
-  after: Record<string, unknown> | null
-  ipAddress: string
-  userAgent: string
-  createdAt: string
-}
-
-// US-W013: GPS types
-export interface GpsLog {
-  id: string
-  militiaId: string
-  militiaName: string
-  latitude: number
-  longitude: number
-  accuracy: number
-  battery: number | null
+  entityType: string | null
+  entityId: string | null
+  beforeJson: unknown
+  afterJson: unknown
+  ipAddress: string | null
   createdAt: string
 }
 
@@ -251,6 +254,8 @@ export interface UserSearchItem {
   username: string
   fullName: string
   role: string | null
+  // Every role the account holds, primary first (users.service.ts UserSearchItem)
+  roles: string[]
   status: string
 }
 
@@ -270,7 +275,8 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   limit: number
-  totalPages: number
+  // The NestJS API envelopes are { data, total, page, limit }; compute pages from total/limit
+  totalPages?: number
 }
 
 // API error
