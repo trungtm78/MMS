@@ -8,6 +8,7 @@
 // Requires MIGRATION_TEST_ADMIN_URL, e.g. postgres://mms:mms_secret@localhost:5440/postgres
 import * as fs from 'fs';
 import type { Server } from 'http';
+import * as os from 'os';
 import * as path from 'path';
 import { Client } from 'pg';
 import request from 'supertest';
@@ -1252,11 +1253,49 @@ describe('Frontend routes T23 (e2e)', () => {
 
   // ── Migration 029 ─────────────────────────────────────────────────────────────
 
+  // 029 re-checks the tables it finds against its own declarations, among them that a
+  // foreign key is a single column key (users(id)). From 039 on, every foreign key between
+  // two tenant tables is a composite (tenant_id, ...) key, so the guard can only be
+  // exercised on a database as it was before 039. The migration runner never applies a file
+  // twice: this re-run is the adoption path of a database that already has the tables.
   describe('migration 029', () => {
     const sql = fs.readFileSync(MIGRATION_029, 'utf8');
+    const earlierName = `${dbName}_029`;
+    const earlierUrl = databaseUrl(earlierName);
+    let earlierDirectory: string;
+    const earlier = <T>(fn: (client: Client) => Promise<T>) =>
+      withClient(earlierUrl, fn);
+
+    beforeAll(async () => {
+      earlierDirectory = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'mms-migrations-029-'),
+      );
+      for (const file of fs
+        .readdirSync(MIGRATIONS_DIR)
+        .filter((f) => f.endsWith('.sql') && f <= '037_tenant_slice_rls.sql')) {
+        fs.copyFileSync(
+          path.join(MIGRATIONS_DIR, file),
+          path.join(earlierDirectory, file),
+        );
+      }
+      await withClient(adminUrl, (c) =>
+        c.query(`CREATE DATABASE ${earlierName}`),
+      );
+      await migrateDatabase({
+        connectionString: earlierUrl,
+        directory: earlierDirectory,
+      });
+    });
+
+    afterAll(async () => {
+      await withClient(adminUrl, (c) =>
+        c.query(`DROP DATABASE IF EXISTS ${earlierName} WITH (FORCE)`),
+      );
+      fs.rmSync(earlierDirectory, { recursive: true, force: true });
+    });
 
     it('runs again over its own tables without complaint', async () => {
-      await expect(db((c) => c.query(sql))).resolves.toBeDefined();
+      await expect(earlier((c) => c.query(sql))).resolves.toBeDefined();
     });
 
     it.each<[string, string, RegExp]>([
@@ -1278,7 +1317,7 @@ describe('Frontend routes T23 (e2e)', () => {
       ],
     ])('refuses to adopt tables with %s', async (_label, change, problem) => {
       await expect(
-        db(async (c) => {
+        earlier(async (c) => {
           await c.query('BEGIN');
           try {
             await c.query(change);

@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import type { Client } from 'pg';
 import * as path from 'path';
 import request from 'supertest';
 import {
@@ -42,6 +43,11 @@ interface SignedIn {
 
 const withoutClaim = (claims: Record<string, unknown>, claim: string) =>
   Object.fromEntries(Object.entries(claims).filter(([name]) => name !== claim));
+
+// Turns the foreign-key triggers off for the rest of this (superuser) session, so a row can be
+// forged that the composite keys of migration 039 would refuse
+const forgeReferences = (client: Client) =>
+  client.query(`SET session_replication_role = replica`);
 
 const claimsOf = (token: string) =>
   JSON.parse(
@@ -533,25 +539,29 @@ describe('tenant slice (e2e)', () => {
       });
     });
 
-    // Rows that tie one tenant to the records of another: until composite foreign keys
-    // exist (M1) the database accepts them, so row-level security of EACH table has to hold
-    // them back. Every table a route reads is exercised on its own: a row of tenant B
-    // that points at a record of A must not change what A sees, and a receipt of A that
-    // points at a notification of B must not show it.
+    // Rows that tie one tenant to the records of another. The composite foreign keys of
+    // migration 039 refuse them (tenancy-references proves it), so they are forged here with
+    // foreign-key triggers off: row-level security of EACH table must hold them back all the
+    // same, as defence in depth against a key that is dropped or never validated. Every
+    // table a route reads is exercised on its own: a row of tenant B that points at a record
+    // of A must not change what A sees, and a receipt of A that points at a notification of
+    // B must not show it.
     it('is not changed by rows of another tenant that reference its records, nor by its rows that reference another tenant', async () => {
       // A receipt of A for a notification of B: its own row, the notification is not its
-      await db.admin((c) =>
-        c.query(
+      await db.admin(async (c) => {
+        await forgeReferences(c);
+        await c.query(
           `INSERT INTO notification_receipts (tenant_id, notification_id, user_id)
            VALUES ($1, $2, $3)`,
           [a.id, b.notificationId, a.adminId],
-        ),
-      );
+        );
+      });
       const before = await snapshot('a');
       expect(JSON.stringify(before)).toContain('CANARY-A');
       expect(JSON.stringify(before)).not.toContain('CANARY-B');
 
       await db.admin(async (c) => {
+        await forgeReferences(c);
         // A militia profile of B in a unit of A (seen by /militia and its export)
         await c.query(
           `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date)
