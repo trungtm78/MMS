@@ -65,6 +65,25 @@ describe('ContentCheckingStorage', () => {
     expect(fs.readFileSync(info.path).equals(PNG)).toBe(true);
   });
 
+  it('stores the upload under the directory the request names', async () => {
+    const perRequest = new ContentCheckingStorage(
+      (req) => (req as unknown as { dir: string }).dir,
+    );
+    const target = path.join(dir, 'tenants', 'one');
+
+    const info = await new Promise<StoredFileInfo>((resolve, reject) =>
+      perRequest._handleFile(
+        { dir: target } as unknown as Request,
+        part([PNG], 'image/png'),
+        (error, stored) =>
+          error ? reject(error as Error) : resolve(stored as StoredFileInfo),
+      ),
+    );
+
+    expect(path.dirname(info.path)).toBe(target);
+    expect(fs.readFileSync(info.path).equals(PNG)).toBe(true);
+  });
+
   it('recognises a signature split across chunks', async () => {
     const info = await handle(
       part(

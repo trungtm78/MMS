@@ -92,19 +92,19 @@ const closed = (stream: WriteStream) =>
     : new Promise<void>((resolve) => stream.once('close', () => resolve()));
 
 /**
- * Multer storage for POST /files/upload: stores each file under a new UUID in the upload
- * directory (never under a name the client chose), and refuses empty files and content
+ * Multer storage for POST /files/upload: stores each file under a new UUID in the directory
+ * the request names (never under a name the client chose), and refuses empty files and content
  * that is not the allowed type it claims to be, leaving nothing behind.
  */
 export class ContentCheckingStorage implements StorageEngine {
-  constructor(private readonly directory: () => string) {}
+  constructor(private readonly directory: (req: Request) => string) {}
 
   _handleFile(
-    _req: Request,
+    req: Request,
     file: Express.Multer.File,
     callback: (error?: unknown, info?: Partial<Express.Multer.File>) => void,
   ): void {
-    this.store(file).then(
+    this.store(req, file).then(
       (info) => callback(null, info),
       (error: unknown) => callback(error),
     );
@@ -122,8 +122,11 @@ export class ContentCheckingStorage implements StorageEngine {
     );
   }
 
-  private async store(file: Express.Multer.File): Promise<StoredFileInfo> {
-    const directory = this.directory();
+  private async store(
+    req: Request,
+    file: Express.Multer.File,
+  ): Promise<StoredFileInfo> {
+    const directory = this.directory(req);
     await fsp.mkdir(directory, { recursive: true });
     const filename = randomUUID();
     const path = join(directory, filename);

@@ -11,9 +11,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { thrownBy } from '../../test/support/thrown-by';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { ROLES_KEY } from '../common/guards/roles.guard';
 import { DQTV_ROLES } from '../common/constants/roles';
+import { TenantContext } from '../database/tenancy/tenant-context';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { OfficialDocumentsController } from '../official-documents/official-documents.controller';
 import { WorkReportsController } from '../work-reports/work-reports.controller';
 import {
@@ -30,6 +34,7 @@ const mockRunner = { query: jest.fn() };
 const mockAssignments = { getAssignedDqtvIds: jest.fn() };
 const settings: Record<string, string | undefined> = {};
 const mockConfig = { get: jest.fn((key: string) => settings[key]) };
+const mockJobs = { forEachTenant: jest.fn() };
 
 const callsOf = (mock: jest.Mock) => mock.mock.calls as unknown[][];
 const sqlOf = (mock: jest.Mock, call: number) => String(callsOf(mock)[call][0]);
@@ -55,10 +60,12 @@ describe('FilesService', () => {
         { provide: getDataSourceToken(), useValue: mockDs },
         { provide: AssignmentsService, useValue: mockAssignments },
         { provide: ConfigService, useValue: mockConfig },
+        { provide: TenantJobRunner, useValue: mockJobs },
       ],
     }).compile();
     service = mod.get(FilesService);
     mockDs.query.mockReset();
+    mockJobs.forEachTenant.mockReset();
     mockRunner.query.mockReset();
     mockAssignments.getAssignedDqtvIds.mockReset();
   });
@@ -129,6 +136,163 @@ describe('FilesService', () => {
       expect(service.uploadDir()).toBe(uploadDir);
       settings.UPLOAD_DIR = undefined;
       expect(service.uploadDir()).toBe(path.join(process.cwd(), 'uploads'));
+    });
+  });
+
+  describe('upload directory per tenant', () => {
+    const TID = '11111111-1111-4111-8111-111111111111';
+    const OTHER = '22222222-2222-4222-8222-222222222222';
+    const enforce = () => (process.env.TENANCY_MODE = 'enforced');
+    afterEach(() => {
+      delete process.env.TENANCY_MODE;
+      jest.restoreAllMocks();
+    });
+
+    const buildService = (
+      config: Record<string, string>,
+      runner: { forEachTenant: jest.Mock } = { forEachTenant: jest.fn() },
+    ) =>
+      new FilesService(
+        mockDs as unknown as DataSource,
+        mockAssignments as unknown as AssignmentsService,
+        { get: (key: string) => config[key] } as unknown as ConfigService,
+        runner as unknown as TenantJobRunner,
+      );
+
+    it('keeps one flat directory in legacy mode', () => {
+      const flat = buildService({ UPLOAD_DIR: '/data/uploads' });
+      expect(flat.tenantUploadDir()).toBe('/data/uploads');
+      expect(flat.contentPath('abc')).toBe(path.join('/data/uploads', 'abc'));
+    });
+
+    it('keeps each tenant in its own directory in enforced mode', () => {
+      enforce();
+      const tenants = buildService({ UPLOAD_DIR: '/data/uploads' });
+      TenantContext.runAs({ tenantId: TID }, () => {
+        expect(tenants.tenantUploadDir()).toBe(path.join('/data/uploads', TID));
+        expect(tenants.contentPath('abc')).toBe(
+          path.join('/data/uploads', TID, 'abc'),
+        );
+      });
+    });
+
+    it('names the directory of another tenant when asked to, without any scope', () => {
+      enforce();
+      const tenants = buildService({ UPLOAD_DIR: '/data/uploads' });
+      expect(tenants.contentPath('abc', OTHER)).toBe(
+        path.join('/data/uploads', OTHER, 'abc'),
+      );
+    });
+
+    it('refuses to name a directory without a tenant in enforced mode', () => {
+      enforce();
+      const tenants = buildService({ UPLOAD_DIR: '/d' });
+      expect(thrownBy(() => tenants.tenantUploadDir())).toMatchObject({
+        code: 'no_tenant_scope',
+      });
+      expect(thrownBy(() => tenants.contentPath('abc'))).toMatchObject({
+        code: 'no_tenant_scope',
+      });
+    });
+
+    it('serves content from the directory of the tenant, never from the flat one', async () => {
+      enforce();
+      const row = {
+        id: 'f-1',
+        storageKey: KEY,
+        name: 'a.jpg',
+        mimeType: 'image/jpeg',
+        size: '3',
+        uploadedBy: 'author-1',
+        relatedType: null,
+        relatedId: null,
+        createdTask: false,
+      };
+      const owner = { sub: 'author-1', role: 'dqtv', unitScope: null };
+      mockDs.query.mockResolvedValue([row]);
+      fs.writeFileSync(path.join(uploadDir, KEY), 'flat');
+
+      await TenantContext.runAs({ tenantId: TID }, async () => {
+        await expect(service.openForDownload(owner, 'f-1')).rejects.toThrow(
+          new NotFoundException('file_not_found'),
+        );
+        fs.mkdirSync(path.join(uploadDir, TID));
+        fs.writeFileSync(path.join(uploadDir, TID, KEY), 'own');
+        await expect(
+          service.openForDownload(owner, 'f-1'),
+        ).resolves.toMatchObject({ path: path.join(uploadDir, TID, KEY) });
+      });
+    });
+
+    it('purges once per tenant in enforced mode', async () => {
+      enforce();
+      const forEachTenant = jest.fn().mockResolvedValue([]);
+      const tenants = buildService({ UPLOAD_DIR: '/d' }, { forEachTenant });
+      await tenants.purgeAbandonedUploadsOnSchedule();
+      expect(forEachTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('purges the rows and the content of every tenant under its own scope', async () => {
+      enforce();
+      const keyOfA = KEY;
+      const keyOfB = randomUUID();
+      fs.mkdirSync(path.join(uploadDir, TID));
+      fs.mkdirSync(path.join(uploadDir, OTHER));
+      fs.writeFileSync(path.join(uploadDir, TID, keyOfA), 'a');
+      fs.writeFileSync(path.join(uploadDir, OTHER, keyOfB), 'b');
+      // The same key in the other tenant's directory must survive a purge of this tenant
+      fs.writeFileSync(path.join(uploadDir, OTHER, keyOfA), 'kept');
+      const scopes: (string | undefined)[] = [];
+      mockDs.query.mockImplementation(() => {
+        scopes.push(TenantContext.current()?.tenantId);
+        const key = scopes.length === 1 ? keyOfA : keyOfB;
+        return Promise.resolve([[{ storageKey: key }], 1]);
+      });
+      mockJobs.forEachTenant.mockImplementation(
+        async (job: (tenantId: string) => Promise<void>) => {
+          for (const tenantId of [TID, OTHER]) {
+            await TenantContext.runAs({ tenantId }, () => job(tenantId));
+          }
+          return [];
+        },
+      );
+      const log = jest
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => undefined);
+
+      await service.purgeAbandonedUploadsOnSchedule();
+
+      expect(scopes).toEqual([TID, OTHER]);
+      expect(fs.existsSync(path.join(uploadDir, TID, keyOfA))).toBe(false);
+      expect(fs.existsSync(path.join(uploadDir, OTHER, keyOfB))).toBe(false);
+      expect(fs.existsSync(path.join(uploadDir, OTHER, keyOfA))).toBe(true);
+      expect(log).toHaveBeenCalledWith('Purged 2 abandoned uploads');
+    });
+
+    it('reports a failed per-tenant run to the log instead of failing the scheduler', async () => {
+      enforce();
+      mockJobs.forEachTenant.mockRejectedValueOnce(new Error('no tenants'));
+      const error = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.purgeAbandonedUploadsOnSchedule(),
+      ).resolves.toBeUndefined();
+
+      expect(error).toHaveBeenCalledWith(
+        'Purging abandoned uploads failed: no tenants',
+        expect.stringContaining('no tenants'),
+      );
+    });
+
+    it('purges once, without a tenant scope, in legacy mode', async () => {
+      mockDs.query.mockResolvedValueOnce([[], 0]);
+
+      await service.purgeAbandonedUploadsOnSchedule();
+
+      expect(mockJobs.forEachTenant).not.toHaveBeenCalled();
+      expect(mockDs.query).toHaveBeenCalledTimes(1);
     });
   });
 

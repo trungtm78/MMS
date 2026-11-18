@@ -23,6 +23,9 @@ import {
 } from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { queryRows } from '../database/query-rows';
+import { TenantContext } from '../database/tenancy/tenant-context';
+import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { MILITIA_STAFF_ROLE_SET } from '../militia/militia-roles';
 import { TASK_STAFF_ROLES } from '../tasks/task-roles';
 import { TASK_UNIT_JOIN, taskScopeSql } from '../tasks/task-sql';
@@ -158,6 +161,7 @@ export class FilesService {
     private readonly ds: DataSource,
     private readonly assignments: AssignmentsService,
     private readonly config: ConfigService,
+    private readonly tenantJobs: TenantJobRunner,
   ) {}
 
   /** Where uploads are stored: UPLOAD_DIR, else ./uploads. */
@@ -165,6 +169,24 @@ export class FilesService {
     return (
       this.config.get<string>('UPLOAD_DIR') || join(process.cwd(), 'uploads')
     );
+  }
+
+  /** Directory new uploads go to: one per tenant in enforced mode, so no path is shared. */
+  tenantUploadDir(): string {
+    return isTenancyEnforced()
+      ? join(this.uploadDir(), TenantContext.requireTenantId())
+      : this.uploadDir();
+  }
+
+  /** Where the content of a stored file lives; the tenant defaults to the current scope. */
+  contentPath(storageKey: string, tenantId?: string): string {
+    return isTenancyEnforced()
+      ? join(
+          this.uploadDir(),
+          tenantId ?? TenantContext.requireTenantId(),
+          storageKey,
+        )
+      : join(this.uploadDir(), storageKey);
   }
 
   /** The path a client GETs a file's content from, under the global API prefix. */
@@ -232,7 +254,7 @@ export class FilesService {
     if (!row || !(await this.canRead(actor, row))) throw notFound;
     if (!STORAGE_KEY.test(row.storageKey)) throw notFound;
 
-    const path = join(this.uploadDir(), row.storageKey);
+    const path = this.contentPath(row.storageKey);
     const stat = await fsp.stat(path).catch(() => null);
     if (!stat?.isFile()) throw notFound;
     return { file: this.view(row), path };
@@ -443,7 +465,9 @@ export class FilesService {
   @Cron(CronExpression.EVERY_HOUR)
   async purgeAbandonedUploadsOnSchedule(): Promise<void> {
     try {
-      const purged = await this.purgeAbandonedUploads();
+      const purged = isTenancyEnforced()
+        ? await this.purgeEveryTenant()
+        : await this.purgeAbandonedUploads();
       if (purged > 0) {
         this.logger.log(`Purged ${purged} abandoned uploads`);
       }
@@ -455,6 +479,16 @@ export class FilesService {
     }
   }
 
+  // One purge per tenant, each under that tenant's scope: Row-Level Security limits the
+  // rows to the tenant and contentPath names the tenant's directory
+  private async purgeEveryTenant(): Promise<number> {
+    let purged = 0;
+    await this.tenantJobs.forEachTenant(async () => {
+      purged += await this.purgeAbandonedUploads();
+    });
+    return purged;
+  }
+
   private async removeContent(storageKey: string): Promise<void> {
     if (!STORAGE_KEY.test(storageKey)) {
       this.logger.warn(
@@ -463,7 +497,7 @@ export class FilesService {
       return;
     }
     try {
-      await fsp.unlink(join(this.uploadDir(), storageKey));
+      await fsp.unlink(this.contentPath(storageKey));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       this.logger.warn(

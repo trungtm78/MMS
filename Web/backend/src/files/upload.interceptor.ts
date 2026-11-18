@@ -23,6 +23,13 @@ const FIELD_LIMIT_MESSAGES = [
   'Unexpected field',
 ];
 
+// The request as this interceptor and the storage engine see it
+interface UploadRequest {
+  // Chosen on entry, while the request still runs under its tenant (see intercept)
+  uploadDirectory?: string;
+  file?: { path?: string };
+}
+
 /** Multer and busboy errors as the snake_case codes every other endpoint answers with. */
 export function uploadError(error: Error): Error {
   if (error instanceof PayloadTooLargeException) {
@@ -69,11 +76,17 @@ export function withStoredFileCleanup(
 export class UploadInterceptor implements NestInterceptor {
   private readonly multer: NestInterceptor;
 
-  constructor(files: FilesService) {
+  constructor(private readonly files: FilesService) {
     // multer's own Options: Nest's MulterOptions type omits defParamCharset, which multer
     // passes on to busboy
     const options: MulterConfig = {
-      storage: new ContentCheckingStorage(() => files.uploadDir()),
+      // The directory was fixed in intercept(): multer's stream callbacks do not reliably
+      // keep the request's tenant context
+      storage: new ContentCheckingStorage(
+        (req) =>
+          (req as unknown as UploadRequest).uploadDirectory ??
+          files.uploadDir(),
+      ),
       // Browsers and Dio send the part's filename as raw UTF-8 (RFC 7578); busboy would
       // read it as latin1 and turn "ảnh.png" into "áº£nh.png"
       defParamCharset: 'utf8',
@@ -101,9 +114,8 @@ export class UploadInterceptor implements NestInterceptor {
     context: ExecutionContext,
     next: CallHandler,
   ): Promise<Observable<unknown>> {
-    const request = context
-      .switchToHttp()
-      .getRequest<{ file?: { path?: string } }>();
+    const request = context.switchToHttp().getRequest<UploadRequest>();
+    request.uploadDirectory = this.files.tenantUploadDir();
     try {
       return (await this.multer.intercept(
         context,

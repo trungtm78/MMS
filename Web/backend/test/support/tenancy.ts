@@ -268,9 +268,11 @@ export async function seedTenant(
 /**
  * Puts the content of the seeded file where the backend looks for it, so that a download
  * answers with the content instead of "file not found". This is the one place that knows
- * the storage layout: today a flat directory, upload dir / storage key.
+ * the storage layout of enforced mode: one directory per tenant, upload dir / tenant id /
+ * storage key.
  */
 export function writeSeededFile(uploadDir: string, seeded: SeededTenant): void {
-  fs.mkdirSync(uploadDir, { recursive: true });
-  fs.writeFileSync(path.join(uploadDir, seeded.storageKey), seeded.fileBody);
+  const directory = path.join(uploadDir, seeded.id);
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, seeded.storageKey), seeded.fileBody);
 }

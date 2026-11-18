@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import * as path from 'path';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -14,6 +15,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/app.setup';
 import { LOGIN_FAILURE_LIMIT } from '../src/auth/login-attempts.service';
+import { FilesService } from '../src/files/files.service';
 import {
   ADMIN_PASSWORD,
   createTenantDatabase,
@@ -39,6 +41,8 @@ const claimsOf = (token: string) =>
   ) as Record<string, unknown>;
 
 describe('tenant slice (e2e)', () => {
+  // Created and exported to UPLOAD_DIR by enforced-env.ts
+  const uploadDir = E2E_UPLOAD_DIR;
   let db: TenantDatabase;
   let app: INestApplication;
   let baseUrl: string;
@@ -92,8 +96,8 @@ describe('tenant slice (e2e)', () => {
     a = await seedTenant(db, 'phu-dinh', 'CANARY-A');
     b = await seedTenant(db, 'tenant-b', 'CANARY-B');
     // A download needs its content on disk, or every answer is 404 for any caller
-    writeSeededFile(E2E_UPLOAD_DIR, a);
-    writeSeededFile(E2E_UPLOAD_DIR, b);
+    writeSeededFile(uploadDir, a);
+    writeSeededFile(uploadDir, b);
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -115,7 +119,7 @@ describe('tenant slice (e2e)', () => {
       try {
         await db?.drop();
       } finally {
-        fs.rmSync(E2E_UPLOAD_DIR, { recursive: true, force: true });
+        fs.rmSync(uploadDir, { recursive: true, force: true });
       }
     }
   });
@@ -570,6 +574,97 @@ describe('tenant slice (e2e)', () => {
       const text = await cellTexts(res.body as Buffer);
       expect(text).toContain('Member CANARY-B');
       expect(text).not.toContain('CANARY-A');
+    });
+  });
+
+  describe('files', () => {
+    // Uploads take images, PDF and Office files only, so the canary rides in a PDF
+    const pdf = (text: string) => `%PDF-1.4 ${text}`;
+    const upload = (who: string, text: string) =>
+      api()
+        .post(url('/files/upload'))
+        .set(auth(who))
+        .attach('file', Buffer.from(pdf(text)), {
+          filename: 'note.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+
+    it('stores each tenant upload in the directory of its tenant', async () => {
+      const fa = (await upload('a', 'canary A')).body as { id: string };
+      const fb = (await upload('b', 'canary B')).body as { id: string };
+      const keys = await db.admin(
+        async (c) =>
+          (
+            await c.query<{
+              id: string;
+              tenant_id: string;
+              storage_key: string;
+            }>(
+              `SELECT id, tenant_id, storage_key FROM files WHERE id = ANY($1::uuid[])`,
+              [[fa.id, fb.id]],
+            )
+          ).rows,
+      );
+      for (const row of keys) {
+        expect(
+          fs.existsSync(path.join(uploadDir, row.tenant_id, row.storage_key)),
+        ).toBe(true);
+        expect(fs.existsSync(path.join(uploadDir, row.storage_key))).toBe(
+          false,
+        );
+      }
+      expect(new Set(keys.map((r) => r.tenant_id))).toEqual(
+        new Set([a.id, b.id]),
+      );
+    });
+
+    it('serves a file to its own tenant and hides it from another', async () => {
+      const fa = (await upload('a', 'for A only')).body as { id: string };
+      const own = await api()
+        .get(url(`/files/${fa.id}`))
+        .set(auth('a'))
+        .buffer(true)
+        .parse(binary)
+        .expect(200);
+      expect((own.body as Buffer).toString()).toBe(pdf('for A only'));
+      await api()
+        .get(url(`/files/${fa.id}`))
+        .set(auth('b'))
+        .expect(404);
+    });
+
+    it('purges abandoned uploads of every tenant with their content', async () => {
+      const fa = (await upload('a', 'abandoned A')).body as { id: string };
+      const fb = (await upload('b', 'abandoned B')).body as { id: string };
+      const rows = await db.admin(async (c) => {
+        await c.query(
+          `UPDATE files SET created_at = now() - interval '48 hours' WHERE id = ANY($1::uuid[])`,
+          [[fa.id, fb.id]],
+        );
+        return (
+          await c.query<{ tenant_id: string; storage_key: string }>(
+            `SELECT tenant_id, storage_key FROM files WHERE id = ANY($1::uuid[])`,
+            [[fa.id, fb.id]],
+          )
+        ).rows;
+      });
+      await app.get(FilesService).purgeAbandonedUploadsOnSchedule();
+      const left = await db.admin(
+        async (c) =>
+          (
+            await c.query<{ id: string }>(
+              `SELECT id FROM files WHERE id = ANY($1::uuid[])`,
+              [[fa.id, fb.id]],
+            )
+          ).rows,
+      );
+      expect(left).toEqual([]);
+      rows.forEach((row) =>
+        expect(
+          fs.existsSync(path.join(uploadDir, row.tenant_id, row.storage_key)),
+        ).toBe(false),
+      );
     });
   });
 });
