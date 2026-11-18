@@ -4,6 +4,7 @@ import { PostgresMigrationStore } from './postgres-migration-store';
 
 function fakeClient(
   failOn: (sql: string) => Error | undefined = () => undefined,
+  rowsFor: (sql: string) => unknown[] = () => [],
 ) {
   const statements: string[] = [];
   return {
@@ -12,7 +13,9 @@ function fakeClient(
       const statement = sql.trim();
       statements.push(statement);
       const error = failOn(statement);
-      return error ? Promise.reject(error) : Promise.resolve({ rows: [] });
+      return error
+        ? Promise.reject(error)
+        : Promise.resolve({ rows: rowsFor(statement) });
     }),
   };
 }
@@ -141,5 +144,90 @@ describe('PostgresMigrationStore', () => {
       ]),
     ).rejects.toThrow('duplicate key value');
     expect(last(client.statements)).toBe('ROLLBACK');
+  });
+});
+
+describe('PostgresMigrationStore without a transaction', () => {
+  const online = {
+    name: '038_online.sql',
+    sql: '-- mms:migration no-transaction',
+  };
+  const statements = [
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_a ON a (v)',
+    'ALTER TABLE a VALIDATE CONSTRAINT a_fkey',
+  ];
+
+  it('runs each statement on its own, bounded by the lock timeout, and records the file after the last', async () => {
+    const client = fakeClient();
+
+    await new PostgresMigrationStore(client as never).applyWithoutTransaction(
+      online,
+      'x'.repeat(64),
+      statements,
+    );
+
+    expect(client.statements).not.toContain('BEGIN');
+    expect(client.statements[0]).toBe("SET lock_timeout = '10s'");
+    expect(client.statements[1]).toMatch(/NOT x\.indisvalid/);
+    expect(client.statements.slice(2, 4)).toEqual(statements);
+    expect(client.statements[4]).toMatch(/^INSERT INTO schema_migrations/);
+    expect(last(client.statements)).toBe('RESET lock_timeout');
+  });
+
+  it('drops an index an interrupted build left INVALID before building it again', async () => {
+    const client = fakeClient(undefined, (sql) =>
+      /NOT x\.indisvalid/.test(sql) ? [{ name: 'ix_a' }] : [],
+    );
+
+    await new PostgresMigrationStore(client as never).applyWithoutTransaction(
+      online,
+      'x'.repeat(64),
+      statements,
+    );
+
+    expect(client.statements[2]).toBe(
+      'DROP INDEX CONCURRENTLY IF EXISTS "ix_a"',
+    );
+    expect(client.statements[3]).toBe(statements[0]);
+  });
+
+  it('records nothing when a statement fails, reports that failure, and still resets the lock timeout', async () => {
+    const failure = new Error('could not validate');
+    const client = fakeClient((sql) =>
+      sql === statements[1] ? failure : undefined,
+    );
+
+    await expect(
+      new PostgresMigrationStore(client as never).applyWithoutTransaction(
+        online,
+        'x'.repeat(64),
+        statements,
+      ),
+    ).rejects.toBe(failure);
+    expect(
+      client.statements.some((s) =>
+        s.startsWith('INSERT INTO schema_migrations'),
+      ),
+    ).toBe(false);
+    expect(last(client.statements)).toBe('RESET lock_timeout');
+  });
+
+  it('reports the statement failure even when the reset fails too', async () => {
+    const failure = new Error('could not validate');
+    const client = fakeClient((sql) =>
+      sql === statements[1]
+        ? failure
+        : sql === 'RESET lock_timeout'
+          ? new Error('gone')
+          : undefined,
+    );
+
+    await expect(
+      new PostgresMigrationStore(client as never).applyWithoutTransaction(
+        online,
+        'x'.repeat(64),
+        statements,
+      ),
+    ).rejects.toBe(failure);
   });
 });

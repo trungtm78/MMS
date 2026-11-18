@@ -4,6 +4,7 @@ import {
   expectedSchemaObjects,
   type ExpectedSchemaObject,
 } from './schema-objects';
+import { splitSqlStatements } from './sql-statements';
 
 export interface MigrationFile {
   name: string;
@@ -29,6 +30,15 @@ export interface MigrationStore {
   ensureTable(): Promise<void>;
   appliedChecksums(): Promise<Map<string, string>>;
   applyInTransaction(file: MigrationFile, checksum: string): Promise<void>;
+  /**
+   * Runs the statements one by one, each committing on its own (CREATE INDEX CONCURRENTLY
+   * cannot run in a transaction), and records the file only after the last one succeeded.
+   */
+  applyWithoutTransaction(
+    file: MigrationFile,
+    checksum: string,
+    statements: string[],
+  ): Promise<void>;
   /** Records every entry as applied, all or nothing, without running the SQL. */
   baseline(entries: BaselineEntry[]): Promise<void>;
   /**
@@ -42,6 +52,8 @@ export interface MigrationReport {
   applied: string[];
   skipped: string[];
   baselined: string[];
+  /** Files after `through`, left for a later run */
+  pending: string[];
 }
 
 export interface RunOptions {
@@ -51,6 +63,11 @@ export interface RunOptions {
    * unless every table, column and index those files create exists.
    */
   baselineThrough?: string;
+  /**
+   * Exact file name: applies the pending files up to and including it and leaves the later
+   * ones pending. Runs the online preparation (038) ahead of the drained window (039).
+   */
+  through?: string;
 }
 
 export class MigrationChecksumError extends Error {
@@ -144,6 +161,108 @@ function baselineSchemaMessage(
   return `Cannot baseline through ${through}: the database lacks ${count} that the migrations up to it create, so they were not all applied. Missing objects by file: ${groups}. Nothing was recorded. Set MIGRATION_BASELINE_THROUGH to the last migration file this database has completely; the first file with missing objects is ${missing[0].file}`;
 }
 
+export class MigrationThroughError extends Error {
+  constructor(readonly through: string) {
+    super(
+      `Through ${JSON.stringify(through)} is not the exact name of a migration file; nothing was run`,
+    );
+    this.name = 'MigrationThroughError';
+  }
+}
+
+export class MigrationInvalidError extends Error {
+  constructor(
+    readonly fileName: string,
+    readonly problems: string[],
+  ) {
+    super(
+      `Migration ${fileName} cannot run outside a transaction: ${problems.join('; ')}. Nothing was run`,
+    );
+    this.name = 'MigrationInvalidError';
+  }
+}
+
+/**
+ * The header line that makes the runner execute a file statement by statement, outside a
+ * transaction (CREATE INDEX CONCURRENTLY, online VALIDATE CONSTRAINT). See docs/migrations.md.
+ */
+export const NO_TRANSACTION_MARKER = '-- mms:migration no-transaction';
+
+const MARKER_LINE = /^--\s*mms:migration\s+no-transaction\s*$/;
+
+/** True when the leading comment lines of the file contain the marker line. */
+export function isNonTransactional(sql: string): boolean {
+  for (const line of sql.replace(/\r\n/g, '\n').split('\n')) {
+    const text = line.trim();
+    if (text === '') continue;
+    if (!text.startsWith('--')) return false;
+    if (MARKER_LINE.test(text)) return true;
+  }
+  return false;
+}
+
+const LEADING_COMMENTS = /^(?:\s*(?:--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*/;
+const withoutLeadingComments = (statement: string): string =>
+  statement.replace(LEADING_COMMENTS, '');
+
+const CREATE_INDEX = /^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i;
+const CREATE_INDEX_ONLINE =
+  /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+("(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)/i;
+const DROP_INDEX = /^DROP\s+INDEX\b/i;
+const DROP_INDEX_ONLINE = /^DROP\s+INDEX\s+CONCURRENTLY\s+IF\s+EXISTS\b/i;
+const TRANSACTION_CONTROL =
+  /^(?:BEGIN|COMMIT|ROLLBACK|END|ABORT|SAVEPOINT|RELEASE|START\s+TRANSACTION)\b/i;
+
+/**
+ * The statements of a non-transactional file. A failed run is repeated from the first
+ * statement, so each one must be safe to run again; what the text can show is checked here,
+ * before anything runs.
+ */
+export function nonTransactionalStatements(file: MigrationFile): string[] {
+  let statements: string[];
+  try {
+    statements = splitSqlStatements(file.sql);
+  } catch (error) {
+    throw new MigrationInvalidError(file.name, [
+      error instanceof Error ? error.message : String(error),
+    ]);
+  }
+  const problems: string[] = [];
+  statements.forEach((statement, k) => {
+    const text = withoutLeadingComments(statement);
+    const label = `statement ${k + 1} (${text.slice(0, 60).replace(/\s+/g, ' ')})`;
+    if (TRANSACTION_CONTROL.test(text)) {
+      problems.push(`${label} controls a transaction`);
+    }
+    if (CREATE_INDEX.test(text) && !CREATE_INDEX_ONLINE.test(text)) {
+      problems.push(
+        `${label} must be CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS`,
+      );
+    }
+    if (DROP_INDEX.test(text) && !DROP_INDEX_ONLINE.test(text)) {
+      problems.push(`${label} must be DROP INDEX CONCURRENTLY IF EXISTS`);
+    }
+  });
+  if (statements.length === 0) problems.push('it has no statement');
+  if (problems.length > 0) throw new MigrationInvalidError(file.name, problems);
+  return statements;
+}
+
+/** The indexes the statements build CONCURRENTLY; an interrupted build leaves one INVALID. */
+export function indexesBuiltBy(statements: string[]): string[] {
+  return statements.flatMap((statement) => {
+    const name = CREATE_INDEX_ONLINE.exec(
+      withoutLeadingComments(statement),
+    )?.[1];
+    if (name === undefined) return [];
+    return [
+      name.startsWith('"')
+        ? name.slice(1, -1).replace(/""/g, '"')
+        : name.toLowerCase(),
+    ];
+  });
+}
+
 /** SHA-256 of the SQL with line endings normalised, so Windows and Linux checkouts agree. */
 export function checksum(sql: string): string {
   return createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
@@ -177,7 +296,19 @@ export async function runMigrations(
     throw new MigrationMissingError(missing);
   }
 
-  const report: MigrationReport = { applied: [], skipped: [], baselined: [] };
+  if (
+    options.through !== undefined &&
+    !ordered.some(({ file }) => file.name === options.through)
+  ) {
+    throw new MigrationThroughError(options.through);
+  }
+
+  const report: MigrationReport = {
+    applied: [],
+    skipped: [],
+    baselined: [],
+    pending: [],
+  };
 
   // A baseline marks files applied without running them, so a mistake silently
   // skips schema: the name must be exact, the database must have no history yet and
@@ -219,12 +350,33 @@ export async function runMigrations(
     }
   }
 
+  const isPending = (name: string) =>
+    !applied.has(name) &&
+    !baselined.has(name) &&
+    (options.through === undefined || name <= options.through);
+  // Every file this run will apply is checked before the first one runs
+  const statementsOf = new Map<string, string[]>();
+  for (const { file } of ordered) {
+    if (isPending(file.name) && isNonTransactional(file.sql)) {
+      statementsOf.set(file.name, nonTransactionalStatements(file));
+    }
+  }
+
   for (const { file, checksum: sum } of ordered) {
     if (applied.has(file.name)) {
       report.skipped.push(file.name);
-    } else if (!baselined.has(file.name)) {
+    } else if (baselined.has(file.name)) {
+      continue;
+    } else if (!isPending(file.name)) {
+      report.pending.push(file.name);
+    } else {
+      const statements = statementsOf.get(file.name);
       try {
-        await store.applyInTransaction(file, sum);
+        if (statements) {
+          await store.applyWithoutTransaction(file, sum, statements);
+        } else {
+          await store.applyInTransaction(file, sum);
+        }
       } catch (err) {
         throw new MigrationFailedError(file.name, err);
       }

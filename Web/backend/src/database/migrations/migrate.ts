@@ -84,6 +84,7 @@ export async function migrateWithClient(
     await client.query('RESET lock_timeout');
     return await runMigrations(store, files, {
       baselineThrough: options.baselineThrough,
+      through: options.through,
     });
   } finally {
     try {

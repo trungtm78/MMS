@@ -4,7 +4,11 @@ import type { MigrateOptions } from './migrate';
 
 export type MigrationCliOptions = Pick<
   MigrateOptions,
-  'directory' | 'baselineThrough' | 'lockTimeout' | 'advisoryLockTimeout'
+  | 'directory'
+  | 'baselineThrough'
+  | 'through'
+  | 'lockTimeout'
+  | 'advisoryLockTimeout'
 >;
 
 /** DATABASE_URL, else the DB_* variables with the application's own defaults. */
@@ -36,6 +40,8 @@ export function migrationOptionsFromEnv(
   const baselineThrough =
     argValue(argv, 'baseline-through') ?? env.MIGRATION_BASELINE_THROUGH;
   if (baselineThrough) options.baselineThrough = baselineThrough;
+  const through = argValue(argv, 'through') ?? env.MIGRATION_THROUGH;
+  if (through) options.through = through;
   if (env.MIGRATION_LOCK_TIMEOUT)
     options.lockTimeout = env.MIGRATION_LOCK_TIMEOUT;
   if (env.MIGRATION_LOCK_WAIT) {

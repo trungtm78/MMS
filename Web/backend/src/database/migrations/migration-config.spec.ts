@@ -79,6 +79,21 @@ describe('migrationOptionsFromEnv', () => {
     ).toBe('018_recruitment_applications.sql');
   });
 
+  it('reads the last file to apply from --through, then MIGRATION_THROUGH', () => {
+    expect(
+      migrationOptionsFromEnv({ MIGRATION_THROUGH: '038_a.sql' }, [], '/app')
+        .through,
+    ).toBe('038_a.sql');
+    expect(
+      migrationOptionsFromEnv(
+        { MIGRATION_THROUGH: '038_a.sql' },
+        ['node', 'migrate', '--through=039_b.sql'],
+        '/app',
+      ).through,
+    ).toBe('039_b.sql');
+    expect(migrationOptionsFromEnv({}, [], '/app').through).toBeUndefined();
+  });
+
   it('defaults to ./migrations and leaves the timeouts to the runner', () => {
     expect(migrationOptionsFromEnv({}, [], '/srv/backend')).toEqual({
       directory: path.resolve('/srv/backend', 'migrations'),

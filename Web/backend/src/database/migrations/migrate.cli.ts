@@ -13,6 +13,9 @@
 // running them again. It must name a migration file exactly, only works while
 // schema_migrations is empty, and is refused unless every table, column and index those
 // files create exists. Remove it after the first start. See docs/migrations.md.
+// --through=<file> (or MIGRATION_THROUGH) applies the pending files up to and including that
+// file and leaves the later ones pending: the online preparation of a release runs ahead of
+// its drained window. See docs/migrations.md.
 import { migrateDatabase } from './migrate';
 import {
   connectionStringFromEnv,
@@ -26,8 +29,9 @@ async function main(): Promise<void> {
   });
   for (const name of report.baselined) console.log(`baselined ${name}`);
   for (const name of report.applied) console.log(`applied   ${name}`);
+  for (const name of report.pending) console.log(`pending   ${name}`);
   console.log(
-    `migrations: ${report.applied.length} applied, ${report.skipped.length} already applied, ${report.baselined.length} baselined`,
+    `migrations: ${report.applied.length} applied, ${report.skipped.length} already applied, ${report.baselined.length} baselined, ${report.pending.length} pending`,
   );
 }
 

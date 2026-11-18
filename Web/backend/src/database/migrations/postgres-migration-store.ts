@@ -1,9 +1,10 @@
 import type { ClientBase } from 'pg';
-import type {
-  BaselineEntry,
-  MigrationFile,
-  MigrationStore,
-  SchemaInventory,
+import {
+  indexesBuiltBy,
+  type BaselineEntry,
+  type MigrationFile,
+  type MigrationStore,
+  type SchemaInventory,
 } from './migration-runner';
 
 export interface PostgresMigrationStoreOptions {
@@ -69,6 +70,26 @@ export class PostgresMigrationStore implements MigrationStore {
     });
   }
 
+  async applyWithoutTransaction(
+    file: MigrationFile,
+    checksum: string,
+    statements: string[],
+  ): Promise<void> {
+    // Session-wide: there is no transaction for SET LOCAL to belong to. It also bounds how
+    // long CREATE INDEX CONCURRENTLY waits for older transactions; a build that times out
+    // leaves an INVALID index, which the next run drops and builds again.
+    await this.client.query(`SET lock_timeout = '${this.lockTimeout}'`);
+    try {
+      await this.dropInvalidIndexes(indexesBuiltBy(statements));
+      for (const statement of statements) {
+        await this.client.query(statement);
+      }
+      await this.record(file.name, checksum);
+    } finally {
+      await this.resetLockTimeout();
+    }
+  }
+
   async baseline(entries: BaselineEntry[]): Promise<void> {
     await this.inTransaction(async () => {
       for (const entry of entries) {
@@ -115,6 +136,30 @@ export class PostgresMigrationStore implements MigrationStore {
       columns,
       indexes: indexes.rows.map((row) => row.index_name),
     };
+  }
+
+  // IF NOT EXISTS would skip an INVALID index for ever: drop it, without blocking writers
+  private async dropInvalidIndexes(names: string[]): Promise<void> {
+    if (names.length === 0) return;
+    const { rows } = await this.client.query<{ name: string }>(
+      `SELECT c.relname AS name FROM pg_index x JOIN pg_class c ON c.oid = x.indexrelid
+        WHERE c.relnamespace = 'public'::regnamespace AND NOT x.indisvalid
+          AND c.relname = ANY ($1)`,
+      [names],
+    );
+    for (const { name } of rows) {
+      await this.client.query(
+        `DROP INDEX CONCURRENTLY IF EXISTS "${name.replace(/"/g, '""')}"`,
+      );
+    }
+  }
+
+  private async resetLockTimeout(): Promise<void> {
+    try {
+      await this.client.query('RESET lock_timeout');
+    } catch {
+      // The connection is broken; the statement's own error is the one to report
+    }
   }
 
   private async inTransaction(work: () => Promise<void>): Promise<void> {
