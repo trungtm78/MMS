@@ -1,6 +1,11 @@
 import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { TenantContext } from './tenancy/tenant-context';
+import { isTenancyEnforced } from './tenancy/tenancy-mode';
+
+// FIRST_TENANT_ID is the tenant migration 036 creates for the pre-existing data
+const FIRST_TENANT_ID = 'a1000000-0000-4000-8000-000000000001';
 
 // Development demo accounts only. The schema and the role catalogue belong to the SQL
 // migrations (023 seeds the roles), so development and production databases share one shape.
@@ -13,7 +18,13 @@ export class SeederService implements OnApplicationBootstrap {
   async onApplicationBootstrap() {
     if (process.env.NODE_ENV === 'production') return;
     try {
-      await this.seedUsers();
+      if (isTenancyEnforced()) {
+        await TenantContext.runAs({ tenantId: FIRST_TENANT_ID }, () =>
+          this.seedUsers(),
+        );
+      } else {
+        await this.seedUsers();
+      }
       this.logger.log('Database seeding complete');
     } catch (err) {
       this.logger.error('Seeder failed', err);

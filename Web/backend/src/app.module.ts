@@ -1,4 +1,9 @@
-import { Module } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -58,7 +63,12 @@ import { RewardsModule } from './rewards/rewards.module';
 import { SettingsModule } from './settings/settings.module';
 import { CustomReportsModule } from './reports/custom-reports.module';
 import { SeederService } from './database/seeder.service';
-import { buildTypeOrmOptions } from './database/typeorm.options';
+import {
+  buildTypeOrmOptions,
+  tenantAwareDataSource,
+} from './database/typeorm.options';
+import { TenancyModule } from './database/tenancy/tenancy.module';
+import { TenantScopeMiddleware } from './database/tenancy/tenant-scope.middleware';
 
 @Module({
   imports: [
@@ -71,8 +81,10 @@ import { buildTypeOrmOptions } from './database/typeorm.options';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: buildTypeOrmOptions,
+      dataSourceFactory: tenantAwareDataSource,
       inject: [ConfigService],
     }),
+    TenancyModule,
 
     TypeOrmModule.forFeature([User, Session, AuditLog]),
 
@@ -163,4 +175,10 @@ import { buildTypeOrmOptions } from './database/typeorm.options';
   ],
   exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(TenantScopeMiddleware)
+      .forRoutes({ path: '{*splat}', method: RequestMethod.ALL });
+  }
+}

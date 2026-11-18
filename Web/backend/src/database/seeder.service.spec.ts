@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SeederService } from './seeder.service';
 import { DataSource } from 'typeorm';
+import { TenantContext } from './tenancy/tenant-context';
 
 const mockQuery = jest.fn();
 const mockDataSource = { query: mockQuery } as unknown as DataSource;
@@ -8,6 +9,7 @@ const mockDataSource = { query: mockQuery } as unknown as DataSource;
 describe('SeederService', () => {
   let service: SeederService;
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalTenancyMode = process.env.TENANCY_MODE;
 
   beforeEach(async () => {
     mockQuery.mockReset();
@@ -19,6 +21,11 @@ describe('SeederService', () => {
     }).compile();
     service = module.get<SeederService>(SeederService);
     process.env.NODE_ENV = 'development';
+  });
+
+  afterEach(() => {
+    if (originalTenancyMode === undefined) delete process.env.TENANCY_MODE;
+    else process.env.TENANCY_MODE = originalTenancyMode;
   });
 
   afterAll(() => {
@@ -105,6 +112,42 @@ describe('SeederService', () => {
       expect(
         roleAssigns.some((s) => s.includes("'dqtv01'") && s.includes("'dqtv'")),
       ).toBe(true);
+    });
+  });
+
+  // The demo accounts belong to the first tenant; Row-Level Security rejects an insert
+  // that carries no tenant scope once tenancy is enforced
+  describe('tenancy scope', () => {
+    const FIRST_TENANT_ID = 'a1000000-0000-4000-8000-000000000001';
+
+    const scopesSeenByQueries = async (): Promise<
+      Array<string | undefined>
+    > => {
+      const seen: Array<string | undefined> = [];
+      mockQuery.mockImplementation(() => {
+        seen.push(TenantContext.current()?.tenantId);
+        return Promise.resolve([]);
+      });
+      await service.onApplicationBootstrap();
+      return seen;
+    };
+
+    it('runs every statement under the first tenant when tenancy is enforced', async () => {
+      process.env.TENANCY_MODE = 'enforced';
+
+      const seen = await scopesSeenByQueries();
+
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((tenantId) => tenantId === FIRST_TENANT_ID)).toBe(true);
+    });
+
+    it('opens no tenant scope in legacy mode', async () => {
+      delete process.env.TENANCY_MODE;
+
+      const seen = await scopesSeenByQueries();
+
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((tenantId) => tenantId === undefined)).toBe(true);
     });
   });
 });
