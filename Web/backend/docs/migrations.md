@@ -61,10 +61,13 @@ An empty database is not affected: it migrates from 001 as usual.
 
 1. **Stop the backend** so that nothing writes while you prepare. For example:
    `docker compose -f docker-compose.prod.yml stop backend`.
-2. **Back up the database** and keep the dump until the upgrade is verified:
+2. **Back up the database** and keep the dump until the upgrade is verified. Use
+   `--create`: without it the dump loses database-level settings, which from migration 037
+   on include the setting legacy mode needs (see "Backups and restores" below), and a
+   custom-format archive made with `--create` is restored with `pg_restore --create`:
    ```sh
    docker compose -f docker-compose.prod.yml exec postgres \
-     pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -f /tmp/before-baseline.dump
+     pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc --create -f /tmp/before-baseline.dump
    docker compose -f docker-compose.prod.yml cp postgres:/tmp/before-baseline.dump .
    ```
 3. **Find the last file the shell runner applied.** This is the highest-numbered file in
@@ -165,8 +168,27 @@ that never write a tenant (the migrator, admin tools, and the application itself
 `TENANCY_MODE=legacy`) therefore inherit the first tenant and see all their old data, as
 before. The setting reaches **new** sessions only: after migrating, restart the
 application so its pool reconnects. M1 removes the default with
-`ALTER DATABASE <db> RESET app.tenant_id`, and `TENANCY_MODE=enforced` refuses to start
-while it exists.
+`ALTER DATABASE <db> RESET app.tenant_id`, only after every replica runs
+`TENANCY_MODE=enforced`; `enforced` refuses to start while the default exists, and
+`legacy` refuses to start once it is gone (`legacy_tenant_default_missing`).
+
+### Backups and restores
+
+A database-level setting is not part of a plain `pg_dump`, and legacy mode depends on this
+one: after a restore without it, every insert into the nine tenant tables fails
+(`null value in column "tenant_id"`), the fire-and-forget audit inserts fail with only a
+warning (audit data is lost), and the application now refuses to boot. So:
+
+- Back up with `pg_dump --create` (plain SQL: replay with `psql -d postgres -f dump.sql`;
+  custom format: `pg_dump -Fc --create`, restored with `pg_restore --create -d postgres`).
+  Or, after restoring a dump taken without it, repeat
+  `ALTER DATABASE <db> SET app.tenant_id = 'a1000000-0000-4000-8000-000000000001'`.
+- **Restore the roles first** when restoring onto another cluster:
+  `pg_dumpall --roles-only` on the source, replayed on the target. Roles are cluster-wide
+  and not part of any database dump; without `mms_app` and `mms_platform`,
+  `CREATE POLICY ... TO mms_app` and the grants in the dump fail.
+- A database cloned with `CREATE DATABASE ... TEMPLATE` does not copy the setting either:
+  repeat the `ALTER DATABASE` on the clone.
 
 ### Requirements and release kind
 
@@ -174,13 +196,21 @@ while it exists.
   037 changes a database-level setting; FORCE ROW LEVEL SECURITY would also lock a plain
   table-owner role out of the tables. In the Docker image set `DATABASE_URL` to the owner
   when the application runs as `DB_USER=mms_app` (see `tenancy.md`).
+- **The legacy application role must be a superuser, a BYPASSRLS role, or `mms_app` (or a
+  member of it).** The policies are `TO mms_app` and FORCE applies them to the table
+  owner, so any other plain role sees empty tables under the legacy default; the
+  application refuses to boot with one (`legacy_role_blocked_by_rls`). The sample
+  environment's `DB_USER=mms` is a superuser and keeps working.
 - **037 is an incompatible release.** It drops the single-column unique constraints that
   earlier code names in `ON CONFLICT (username)` and `ON CONFLICT (code)`. Old instances
   fail on those statements once 037 is applied, so deploy a release that contains it
   drained, as described above under "Releases with incompatible changes".
-- 037 adds the columns and foreign keys under table locks. That is quick on these nine
-  tables but is not an online change; M1 builds the indexes for the other tables
-  `CONCURRENTLY`.
-- After 037, give the application role a login (`ALTER ROLE mms_app LOGIN PASSWORD '...'`)
-  only when you run `TENANCY_MODE=enforced`; legacy deployments keep their current
-  database user.
+- 037 is not an online change. Adding the columns, the foreign keys to `tenants`, the
+  `tenant_id` indexes and the per-tenant unique constraints scans and locks each of the
+  nine tables, in one transaction (see the comment at the top of the file); how long that
+  blocks `users` and `audit_logs` has not been measured on production-sized data, so
+  rehearse it on a copy. M1 touches ~60 more tables and builds online
+  (`CREATE INDEX CONCURRENTLY` first).
+- After 037, give `mms_app` a login (`ALTER ROLE mms_app LOGIN PASSWORD '...'`) only when
+  you run `TENANCY_MODE=enforced`; a legacy deployment keeps its current database user as
+  long as that user is a superuser, a BYPASSRLS role or `mms_app` (see above).
