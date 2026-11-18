@@ -7,6 +7,8 @@
 // application's defaults.
 // MIGRATION_LOCK_TIMEOUT (default 10s): longest one statement waits for a table lock.
 // MIGRATION_LOCK_WAIT (default 10min): longest to wait for another running migrator.
+// MIGRATION_ONLINE_LOCK_TIMEOUT (default 30min): longest an index build or VALIDATE CONSTRAINT
+// of a non-transactional file waits for older transactions; '0s' waits for ever.
 // A database without migration history that already has application tables is refused:
 // it was migrated before schema_migrations existed. --baseline-through (or
 // MIGRATION_BASELINE_THROUGH) adopts it by recording the already-applied files without
@@ -21,18 +23,18 @@ import {
   connectionStringFromEnv,
   migrationOptionsFromEnv,
 } from './migration-config';
+import { describeReport } from './migration-report';
 
 async function main(): Promise<void> {
   const report = await migrateDatabase({
     connectionString: connectionStringFromEnv(process.env),
     ...migrationOptionsFromEnv(process.env, process.argv, process.cwd()),
   });
-  for (const name of report.baselined) console.log(`baselined ${name}`);
-  for (const name of report.applied) console.log(`applied   ${name}`);
-  for (const name of report.pending) console.log(`pending   ${name}`);
-  console.log(
-    `migrations: ${report.applied.length} applied, ${report.skipped.length} already applied, ${report.baselined.length} baselined, ${report.pending.length} pending`,
-  );
+  const { lines, warnings } = describeReport(report);
+  for (const line of lines) console.log(line);
+  // Exit code 0 either way: stopping at --through is what that setting asks for. The warning
+  // keeps a boot that left it set from passing for a complete run.
+  for (const warning of warnings) console.warn(warning);
 }
 
 main().catch((err: unknown) => {

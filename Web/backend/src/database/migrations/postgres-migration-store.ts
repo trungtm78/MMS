@@ -1,6 +1,7 @@
 import type { ClientBase } from 'pg';
 import {
   indexesBuiltBy,
+  isOnlineStatement,
   type BaselineEntry,
   type MigrationFile,
   type MigrationStore,
@@ -14,6 +15,15 @@ export interface PostgresMigrationStoreOptions {
    * queue behind the ALTER.
    */
   lockTimeout?: string;
+  /**
+   * Longest an online statement of a non-transactional file waits, e.g. '30min': CREATE
+   * INDEX CONCURRENTLY and DROP INDEX CONCURRENTLY, which wait for every older transaction
+   * to end, and VALIDATE CONSTRAINT. They never block a writer, so waiting is harmless and
+   * the short lockTimeout would only cancel a build behind a long transaction. '0s' waits
+   * for ever; the default is generous but finite so that a stuck session cannot hang a
+   * deployment unseen.
+   */
+  onlineLockTimeout?: string;
 }
 
 const DURATION = /^\d+(ms|s|min)$/;
@@ -27,16 +37,23 @@ export function isLockDuration(value: string): boolean {
 // transaction together with its bookkeeping row, so a failure leaves no half-applied file.
 export class PostgresMigrationStore implements MigrationStore {
   private readonly lockTimeout: string;
+  private readonly onlineLockTimeout: string;
 
   constructor(
     private readonly client: Pick<ClientBase, 'query'>,
     options: PostgresMigrationStoreOptions = {},
   ) {
     this.lockTimeout = options.lockTimeout ?? '10s';
-    // Interpolated into SET LOCAL, which takes no bind parameters
+    this.onlineLockTimeout = options.onlineLockTimeout ?? '30min';
+    // Interpolated into SET, which takes no bind parameters
     if (!isLockDuration(this.lockTimeout)) {
       throw new Error(
         `Invalid migration lock timeout ${JSON.stringify(this.lockTimeout)}: use a duration such as '10s'`,
+      );
+    }
+    if (!isLockDuration(this.onlineLockTimeout)) {
+      throw new Error(
+        `Invalid migration online lock timeout ${JSON.stringify(this.onlineLockTimeout)}: use a duration such as '30min'`,
       );
     }
   }
@@ -75,15 +92,31 @@ export class PostgresMigrationStore implements MigrationStore {
     checksum: string,
     statements: string[],
   ): Promise<void> {
-    // Session-wide: there is no transaction for SET LOCAL to belong to. It also bounds how
-    // long CREATE INDEX CONCURRENTLY waits for older transactions; a build that times out
-    // leaves an INVALID index, which the next run drops and builds again.
-    await this.client.query(`SET lock_timeout = '${this.lockTimeout}'`);
+    // Session-wide: there is no transaction for SET LOCAL to belong to. A statement that
+    // locks a table against writers keeps the short bound; an online one (an index build
+    // waits for every older transaction) gets the long one, because waiting blocks nobody
+    // and a cancelled build leaves an INVALID index behind.
+    let bound: string | undefined;
+    const boundTo = async (timeout: string): Promise<void> => {
+      if (timeout === bound) return;
+      await this.client.query(`SET lock_timeout = '${timeout}'`);
+      bound = timeout;
+    };
     try {
-      await this.dropInvalidIndexes(indexesBuiltBy(statements));
+      const built = indexesBuiltBy(statements);
+      await this.dropInvalidIndexes(built, () =>
+        boundTo(this.onlineLockTimeout),
+      );
       for (const statement of statements) {
+        await boundTo(
+          isOnlineStatement(statement)
+            ? this.onlineLockTimeout
+            : this.lockTimeout,
+        );
         await this.client.query(statement);
       }
+      await this.verifyIndexes(built);
+      await boundTo(this.lockTimeout);
       await this.record(file.name, checksum);
     } finally {
       await this.resetLockTimeout();
@@ -138,8 +171,12 @@ export class PostgresMigrationStore implements MigrationStore {
     };
   }
 
-  // IF NOT EXISTS would skip an INVALID index for ever: drop it, without blocking writers
-  private async dropInvalidIndexes(names: string[]): Promise<void> {
+  // IF NOT EXISTS would skip an INVALID index for ever: drop it, without blocking writers.
+  // Only indexes of this file's own names, in the schema its tables live in.
+  private async dropInvalidIndexes(
+    names: string[],
+    beforeDrop: () => Promise<void>,
+  ): Promise<void> {
     if (names.length === 0) return;
     const { rows } = await this.client.query<{ name: string }>(
       `SELECT c.relname AS name FROM pg_index x JOIN pg_class c ON c.oid = x.indexrelid
@@ -147,9 +184,29 @@ export class PostgresMigrationStore implements MigrationStore {
           AND c.relname = ANY ($1)`,
       [names],
     );
+    if (rows.length > 0) await beforeDrop();
     for (const { name } of rows) {
       await this.client.query(
-        `DROP INDEX CONCURRENTLY IF EXISTS "${name.replace(/"/g, '""')}"`,
+        `DROP INDEX CONCURRENTLY IF EXISTS public."${name.replace(/"/g, '""')}"`,
+      );
+    }
+  }
+
+  // A build that was cancelled, or that a failed run left INVALID, must not be recorded as
+  // done: IF NOT EXISTS would skip it for ever on the next start
+  private async verifyIndexes(names: string[]): Promise<void> {
+    if (names.length === 0) return;
+    const { rows } = await this.client.query<{ name: string }>(
+      `SELECT c.relname AS name FROM pg_index x JOIN pg_class c ON c.oid = x.indexrelid
+        WHERE c.relnamespace = 'public'::regnamespace AND x.indisvalid
+          AND c.relname = ANY ($1)`,
+      [names],
+    );
+    const valid = new Set(rows.map((row) => row.name));
+    const missing = [...new Set(names)].filter((name) => !valid.has(name));
+    if (missing.length > 0) {
+      throw new Error(
+        `The index ${missing.join(', ')} is missing or INVALID after its statement ran; the file is not recorded`,
       );
     }
   }
@@ -157,8 +214,12 @@ export class PostgresMigrationStore implements MigrationStore {
   private async resetLockTimeout(): Promise<void> {
     try {
       await this.client.query('RESET lock_timeout');
-    } catch {
-      // The connection is broken; the statement's own error is the one to report
+    } catch (error) {
+      // The statement's own error is the one to report, but a session left with a
+      // migration timeout would be worth knowing about
+      console.warn(
+        `Could not reset lock_timeout after a non-transactional migration: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

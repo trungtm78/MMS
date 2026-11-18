@@ -12,7 +12,10 @@ function fakeClient(handler: Handler = () => undefined) {
     const statement = sql.trim();
     statements.push(statement);
     try {
-      return Promise.resolve(handler(statement) ?? { rows: [] });
+      return Promise.resolve(
+        handler(statement) ??
+          (statement === TRY_LOCK ? lockRow(true) : { rows: [] }),
+      );
     } catch (err) {
       return Promise.reject(err as Error);
     }
@@ -28,36 +31,76 @@ const files: MigrationFile[] = [
   { name: '001_a.sql', sql: 'CREATE TABLE a (id int);' },
 ];
 
-const lockTimeoutError = () =>
-  Object.assign(new Error('canceling statement due to lock timeout'), {
-    code: '55P03',
-  });
+const TRY_LOCK = 'SELECT pg_try_advisory_lock($1) AS locked';
+const lockRow = (locked: boolean) => ({ rows: [{ locked }] });
 
 describe('migrateWithClient', () => {
-  it('waits for the migration lock with a bounded timeout, then clears it', async () => {
+  it('takes the migration lock without ever blocking on it, then releases it', async () => {
     const { client, statements } = fakeClient();
 
     await migrateWithClient(client, files);
 
-    expect(statements.slice(0, 3)).toEqual([
-      "SET lock_timeout = '10min'",
-      'SELECT pg_advisory_lock($1)',
-      'RESET lock_timeout',
-    ]);
+    expect(statements[0]).toBe(TRY_LOCK);
+    // A blocking wait holds a snapshot, which an index build in the migrator that owns the
+    // lock would wait for for ever: the two would deadlock
+    expect(statements).not.toContain('SELECT pg_advisory_lock($1)');
     expect(statements[statements.length - 1]).toBe(
       'SELECT pg_advisory_unlock($1)',
     );
   });
 
-  it('uses the configured lock wait and statement lock timeout', async () => {
-    const { client, statements } = fakeClient();
+  describe('while another migrator holds the lock', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
 
-    await migrateWithClient(client, files, {
-      advisoryLockTimeout: '30s',
-      lockTimeout: '2s',
+    it('polls for it until it is free, at the configured interval', async () => {
+      let attempts = 0;
+      const { client, statements } = fakeClient((sql) =>
+        sql === TRY_LOCK ? lockRow(++attempts >= 3) : undefined,
+      );
+
+      const run = migrateWithClient(client, files, {
+        advisoryLockTimeout: '30s',
+        advisoryLockPollMs: 100,
+      });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(statements.filter((s) => s === TRY_LOCK)).toHaveLength(1);
+      await jest.advanceTimersByTimeAsync(99);
+      expect(statements.filter((s) => s === TRY_LOCK)).toHaveLength(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(statements.filter((s) => s === TRY_LOCK)).toHaveLength(2);
+      await jest.advanceTimersByTimeAsync(100);
+
+      await expect(run).resolves.toMatchObject({ applied: ['001_a.sql'] });
+      expect(statements.filter((s) => s === TRY_LOCK)).toHaveLength(3);
     });
 
-    expect(statements[0]).toBe("SET lock_timeout = '30s'");
+    it('reports another running migration when the lock wait times out', async () => {
+      const { client, statements } = fakeClient((sql) =>
+        sql === TRY_LOCK ? lockRow(false) : undefined,
+      );
+
+      const run = migrateWithClient(client, files, {
+        advisoryLockTimeout: '1s',
+        advisoryLockPollMs: 250,
+      });
+      const outcome = Promise.all([
+        expect(run).rejects.toBeInstanceOf(MigrationLockTimeoutError),
+        expect(run).rejects.toThrow(/another migration/),
+      ]);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await outcome;
+
+      expect(statements).not.toContain('SELECT pg_advisory_unlock($1)');
+      expect(statements.filter((s) => s === TRY_LOCK)).toHaveLength(5);
+    });
+  });
+
+  it('uses the configured statement lock timeout', async () => {
+    const { client, statements } = fakeClient();
+
+    await migrateWithClient(client, files, { lockTimeout: '2s' });
+
     expect(statements).toContain("SET LOCAL lock_timeout = '2s'");
   });
 
@@ -72,16 +115,22 @@ describe('migrateWithClient', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('reports another running migration when the lock wait times out', async () => {
-    const { client, statements } = fakeClient((sql) => {
-      if (sql === 'SELECT pg_advisory_lock($1)') throw lockTimeoutError();
+  it('passes the online lock timeout to the store', async () => {
+    const { client, statements } = fakeClient();
+    const marked: MigrationFile[] = [
+      {
+        name: '002_online.sql',
+        sql: '-- mms:migration no-transaction\nANALYZE a;\nALTER TABLE a VALIDATE CONSTRAINT c;',
+      },
+    ];
+
+    await migrateWithClient(client, marked, {
+      lockTimeout: '2s',
+      onlineLockTimeout: '45min',
     });
 
-    const run = migrateWithClient(client, files);
-
-    await expect(run).rejects.toBeInstanceOf(MigrationLockTimeoutError);
-    await expect(run).rejects.toThrow(/another migration/);
-    expect(statements).not.toContain('SELECT pg_advisory_unlock($1)');
+    expect(statements).toContain("SET lock_timeout = '2s'");
+    expect(statements).toContain("SET lock_timeout = '45min'");
   });
 
   it('keeps the migration error when unlocking also fails', async () => {

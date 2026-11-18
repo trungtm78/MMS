@@ -465,6 +465,20 @@ export async function runMigrations(
   // skips schema: the name must be exact, the database must have no history yet and
   // everything those files create must exist
   const baselined = new Set<string>();
+  const isPending = (name: string) =>
+    !applied.has(name) &&
+    !baselined.has(name) &&
+    (options.through === undefined || name <= options.through);
+  // Every file this run will apply is checked before the first one runs, and before a
+  // baseline is recorded: "nothing was run" must hold for the whole run
+  const statementsOf = new Map<string, string[]>();
+  const checkPendingFiles = () => {
+    for (const { file } of ordered) {
+      if (isPending(file.name) && isNonTransactional(file.sql)) {
+        statementsOf.set(file.name, nonTransactionalStatements(file));
+      }
+    }
+  };
   if (options.baselineThrough !== undefined) {
     const through = options.baselineThrough;
     if (!ordered.some(({ file }) => file.name === through)) {
@@ -483,6 +497,8 @@ export async function runMigrations(
       through,
       entries.map(({ file }) => file),
     );
+    for (const { file } of entries) baselined.add(file.name);
+    checkPendingFiles();
     try {
       await store.baseline(entries);
     } catch (err) {
@@ -490,27 +506,15 @@ export async function runMigrations(
         `Recording the baseline through ${through} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    for (const { file } of entries) {
-      baselined.add(file.name);
-      report.baselined.push(file.name);
+    for (const { file } of entries) report.baselined.push(file.name);
+  } else {
+    if (applied.size === 0) {
+      const { tables } = await store.inspectSchema();
+      if (tables.length > 0) {
+        throw new MigrationBaselineRequiredError([...tables].sort(byName));
+      }
     }
-  } else if (applied.size === 0) {
-    const { tables } = await store.inspectSchema();
-    if (tables.length > 0) {
-      throw new MigrationBaselineRequiredError([...tables].sort(byName));
-    }
-  }
-
-  const isPending = (name: string) =>
-    !applied.has(name) &&
-    !baselined.has(name) &&
-    (options.through === undefined || name <= options.through);
-  // Every file this run will apply is checked before the first one runs
-  const statementsOf = new Map<string, string[]>();
-  for (const { file } of ordered) {
-    if (isPending(file.name) && isNonTransactional(file.sql)) {
-      statementsOf.set(file.name, nonTransactionalStatements(file));
-    }
+    checkPendingFiles();
   }
 
   for (const { file, checksum: sum } of ordered) {

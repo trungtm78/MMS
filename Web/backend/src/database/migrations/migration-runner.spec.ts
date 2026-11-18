@@ -649,6 +649,27 @@ describe('non-transactional migrations', () => {
     expect(report.pending).toEqual(['003_c.sql']);
   });
 
+  it('refuses a marked file that cannot run again before it records a baseline', async () => {
+    const store = new MemoryStore();
+    store.inventory = {
+      tables: ['a'],
+      columns: [{ table: 'a', column: 'v' }],
+      indexes: [],
+    };
+
+    await expect(
+      runMigrations(store, [base, online('UPDATE a SET v = 1;')], {
+        baselineThrough: '001_a.sql',
+      }),
+    ).rejects.toMatchObject({
+      name: 'MigrationInvalidError',
+      fileName: '002_online.sql',
+    });
+    // Nothing was run, and nothing was recorded either
+    expect(store.checksums.size).toBe(0);
+    expect(store.executed).toEqual([]);
+  });
+
   it('refuses a through that names no migration file, before running anything', async () => {
     const store = new MemoryStore();
 

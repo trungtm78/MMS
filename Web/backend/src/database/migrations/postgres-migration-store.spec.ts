@@ -156,54 +156,96 @@ describe('PostgresMigrationStore without a transaction', () => {
     'CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_a ON a (v)',
     'ALTER TABLE a VALIDATE CONSTRAINT a_fkey',
   ];
+  const INVALID_QUERY = /NOT x\.indisvalid/;
+  const VALID_QUERY = /AND x\.indisvalid\b/;
+  // The catalog answers: nothing is INVALID, every index named is there and valid
+  const healthy = (sql: string): unknown[] =>
+    VALID_QUERY.test(sql) ? [{ name: 'ix_a' }] : [];
+  const run = (
+    client: ReturnType<typeof fakeClient>,
+    options?: ConstructorParameters<typeof PostgresMigrationStore>[1],
+    sql: string[] = statements,
+  ) =>
+    new PostgresMigrationStore(
+      client as never,
+      options,
+    ).applyWithoutTransaction(online, 'x'.repeat(64), sql);
 
-  it('runs each statement on its own, bounded by the lock timeout, and records the file after the last', async () => {
-    const client = fakeClient();
+  it('runs each statement on its own, waits for older transactions with the online timeout, and records the file after the last', async () => {
+    const client = fakeClient(undefined, healthy);
 
-    await new PostgresMigrationStore(client as never).applyWithoutTransaction(
-      online,
-      'x'.repeat(64),
-      statements,
-    );
+    await run(client);
 
     expect(client.statements).not.toContain('BEGIN');
-    expect(client.statements[0]).toBe("SET lock_timeout = '10s'");
-    expect(client.statements[1]).toMatch(/NOT x\.indisvalid/);
+    expect(client.statements[0]).toMatch(INVALID_QUERY);
+    expect(client.statements[1]).toBe("SET lock_timeout = '30min'");
     expect(client.statements.slice(2, 4)).toEqual(statements);
-    expect(client.statements[4]).toMatch(/^INSERT INTO schema_migrations/);
+    expect(client.statements[4]).toMatch(VALID_QUERY);
+    expect(client.statements[5]).toBe("SET lock_timeout = '10s'");
+    expect(client.statements[6]).toMatch(/^INSERT INTO schema_migrations/);
     expect(last(client.statements)).toBe('RESET lock_timeout');
   });
 
-  it('drops an index an interrupted build left INVALID before building it again', async () => {
+  it('keeps the short bound for statements that lock a table against writers', async () => {
+    const client = fakeClient(undefined, healthy);
+    const sql = [
+      'ALTER TABLE a ADD COLUMN IF NOT EXISTS w int',
+      statements[0],
+      'ALTER TABLE a ALTER COLUMN w SET DEFAULT 1',
+    ];
+
+    await run(client, { lockTimeout: '2s', onlineLockTimeout: '5min' }, sql);
+
+    const bounds = client.statements.filter((s) =>
+      s.startsWith('SET lock_timeout'),
+    );
+    expect(bounds).toEqual([
+      "SET lock_timeout = '2s'",
+      "SET lock_timeout = '5min'",
+      "SET lock_timeout = '2s'",
+    ]);
+    const order = client.statements.filter(
+      (s) => s.startsWith('SET lock_timeout') || sql.includes(s),
+    );
+    expect(order).toEqual([
+      "SET lock_timeout = '2s'",
+      sql[0],
+      "SET lock_timeout = '5min'",
+      sql[1],
+      "SET lock_timeout = '2s'",
+      sql[2],
+    ]);
+  });
+
+  it('rejects an online lock timeout that is not a plain duration', () => {
+    expect(
+      () =>
+        new PostgresMigrationStore(fakeClient() as never, {
+          onlineLockTimeout: "1s'; DROP TABLE a; --",
+        }),
+    ).toThrow(/online lock timeout/);
+  });
+
+  it('drops, by schema, an index an interrupted build left INVALID before building it again', async () => {
     const client = fakeClient(undefined, (sql) =>
-      /NOT x\.indisvalid/.test(sql) ? [{ name: 'ix_a' }] : [],
+      INVALID_QUERY.test(sql) ? [{ name: 'ix_a' }] : healthy(sql),
     );
 
-    await new PostgresMigrationStore(client as never).applyWithoutTransaction(
-      online,
-      'x'.repeat(64),
-      statements,
-    );
+    await run(client);
 
+    expect(client.statements[1]).toBe("SET lock_timeout = '30min'");
     expect(client.statements[2]).toBe(
-      'DROP INDEX CONCURRENTLY IF EXISTS "ix_a"',
+      'DROP INDEX CONCURRENTLY IF EXISTS public."ix_a"',
     );
     expect(client.statements[3]).toBe(statements[0]);
   });
 
-  it('records nothing when a statement fails, reports that failure, and still resets the lock timeout', async () => {
-    const failure = new Error('could not validate');
-    const client = fakeClient((sql) =>
-      sql === statements[1] ? failure : undefined,
-    );
+  it('refuses to record a file one of whose indexes is missing or INVALID', async () => {
+    const client = fakeClient(undefined, () => []);
 
-    await expect(
-      new PostgresMigrationStore(client as never).applyWithoutTransaction(
-        online,
-        'x'.repeat(64),
-        statements,
-      ),
-    ).rejects.toBe(failure);
+    await expect(run(client)).rejects.toMatchObject({
+      message: expect.stringContaining('ix_a') as unknown,
+    });
     expect(
       client.statements.some((s) =>
         s.startsWith('INSERT INTO schema_migrations'),
@@ -212,22 +254,41 @@ describe('PostgresMigrationStore without a transaction', () => {
     expect(last(client.statements)).toBe('RESET lock_timeout');
   });
 
-  it('reports the statement failure even when the reset fails too', async () => {
+  it('records nothing when a statement fails, reports that failure, and still resets the lock timeout', async () => {
     const failure = new Error('could not validate');
-    const client = fakeClient((sql) =>
-      sql === statements[1]
-        ? failure
-        : sql === 'RESET lock_timeout'
-          ? new Error('gone')
-          : undefined,
+    const client = fakeClient(
+      (sql) => (sql === statements[1] ? failure : undefined),
+      healthy,
     );
 
-    await expect(
-      new PostgresMigrationStore(client as never).applyWithoutTransaction(
-        online,
-        'x'.repeat(64),
-        statements,
+    await expect(run(client)).rejects.toBe(failure);
+    expect(
+      client.statements.some((s) =>
+        s.startsWith('INSERT INTO schema_migrations'),
       ),
-    ).rejects.toBe(failure);
+    ).toBe(false);
+    expect(last(client.statements)).toBe('RESET lock_timeout');
+  });
+
+  it('reports the statement failure even when the reset fails too, and says the reset failed', async () => {
+    const failure = new Error('could not validate');
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const client = fakeClient(
+      (sql) =>
+        sql === statements[1]
+          ? failure
+          : sql === 'RESET lock_timeout'
+            ? new Error('gone')
+            : undefined,
+      healthy,
+    );
+
+    await expect(run(client)).rejects.toBe(failure);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('gone') as unknown,
+    );
+    warn.mockRestore();
   });
 });

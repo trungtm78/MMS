@@ -52,6 +52,7 @@ describe('migrationOptionsFromEnv', () => {
           MIGRATIONS_DIR: '/app/migrations',
           MIGRATION_LOCK_TIMEOUT: '5s',
           MIGRATION_LOCK_WAIT: '2min',
+          MIGRATION_ONLINE_LOCK_TIMEOUT: '45min',
           MIGRATION_BASELINE_THROUGH: '018_recruitment_applications.sql',
         },
         [],
@@ -60,6 +61,7 @@ describe('migrationOptionsFromEnv', () => {
     ).toEqual({
       directory: '/app/migrations',
       lockTimeout: '5s',
+      onlineLockTimeout: '45min',
       advisoryLockTimeout: '2min',
       baselineThrough: '018_recruitment_applications.sql',
     });

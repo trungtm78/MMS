@@ -8,6 +8,7 @@ export type MigrationCliOptions = Pick<
   | 'baselineThrough'
   | 'through'
   | 'lockTimeout'
+  | 'onlineLockTimeout'
   | 'advisoryLockTimeout'
 >;
 
@@ -44,6 +45,9 @@ export function migrationOptionsFromEnv(
   if (through) options.through = through;
   if (env.MIGRATION_LOCK_TIMEOUT)
     options.lockTimeout = env.MIGRATION_LOCK_TIMEOUT;
+  if (env.MIGRATION_ONLINE_LOCK_TIMEOUT) {
+    options.onlineLockTimeout = env.MIGRATION_ONLINE_LOCK_TIMEOUT;
+  }
   if (env.MIGRATION_LOCK_WAIT) {
     options.advisoryLockTimeout = env.MIGRATION_LOCK_WAIT;
   }
