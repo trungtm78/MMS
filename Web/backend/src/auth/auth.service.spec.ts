@@ -4,7 +4,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { AuthService } from './auth.service';
@@ -12,6 +16,18 @@ import { AuthStateService } from './auth-state.service';
 import { LoginAttemptsService } from './login-attempts.service';
 import { User } from '../database/entities/user.entity';
 import { Session } from '../database/entities/refresh-token.entity';
+import { TenantContext } from '../database/tenancy/tenant-context';
+
+// Real bcrypt, observed: a sign-in that fails on the tenant must cost what a wrong password costs
+jest.mock('bcrypt', () => {
+  const actual = jest.requireActual<typeof import('bcrypt')>('bcrypt');
+  return {
+    ...actual,
+    compare: jest.fn((data: string | Buffer, hash: string) =>
+      actual.compare(data, hash),
+    ),
+  };
+});
 
 const PW = 'Police@123';
 const PW_HASH = bcrypt.hashSync(PW, 10); // synchronous for test setup
@@ -681,6 +697,242 @@ describe('AuthService', () => {
         new UnauthorizedException('invalid_refresh_token'),
       );
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // Multi-tenant (TENANCY_MODE=enforced): the tenant code picks the tenant, the tenant is
+  // adopted into the request scope and named by the `tid` claim of both tokens
+  describe('tenant at sign-in', () => {
+    const TID = 'a1000000-0000-4000-8000-000000000001';
+    const LOOKUP = 'SELECT id, status FROM auth_tenant_by_code($1)';
+    const previousMode = process.env.TENANCY_MODE;
+
+    afterEach(() => {
+      if (previousMode === undefined) delete process.env.TENANCY_MODE;
+      else process.env.TENANCY_MODE = previousMode;
+    });
+
+    describe('resolveLoginTenant', () => {
+      beforeEach(() => {
+        process.env.TENANCY_MODE = 'enforced';
+      });
+
+      test('asks for a tenant code when none is typed', async () => {
+        await expect(
+          TenantContext.start(() => service.resolveLoginTenant(undefined, PW)),
+        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
+        await expect(
+          TenantContext.start(() => service.resolveLoginTenant('   ', PW)),
+        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+      });
+
+      test('answers an unknown tenant like a wrong password, after the same bcrypt work', async () => {
+        mockDataSource.query.mockResolvedValueOnce([]);
+        const compare = jest.mocked(bcrypt.compare);
+        compare.mockClear();
+
+        await expect(
+          TenantContext.start(() => service.resolveLoginTenant('nowhere', PW)),
+        ).rejects.toThrow(new UnauthorizedException('invalid_credentials'));
+
+        expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['nowhere']);
+        expect(compare).toHaveBeenCalledTimes(1);
+      });
+
+      test('answers a tenant that is not active like a wrong password', async () => {
+        mockDataSource.query.mockResolvedValueOnce([
+          { id: TID, status: 'suspended' },
+        ]);
+
+        let adopted: string | undefined;
+        await expect(
+          TenantContext.start(async () => {
+            try {
+              return await service.resolveLoginTenant('phu-dinh', PW);
+            } finally {
+              adopted = TenantContext.current()?.tenantId;
+            }
+          }),
+        ).rejects.toThrow(new UnauthorizedException('invalid_credentials'));
+        // A refused tenant is never adopted
+        expect(adopted).toBeUndefined();
+      });
+
+      test('adopts the active tenant into the request scope and returns its id', async () => {
+        mockDataSource.query.mockResolvedValueOnce([
+          { id: TID, status: 'active' },
+        ]);
+
+        const scoped = await TenantContext.start(async () => {
+          const id = await service.resolveLoginTenant(' phu-dinh ', PW);
+          return { id, adopted: TenantContext.current()?.tenantId };
+        });
+
+        expect(scoped).toEqual({ id: TID, adopted: TID });
+        expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['phu-dinh']);
+      });
+    });
+
+    test('has no tenant in legacy mode and never looks one up', async () => {
+      delete process.env.TENANCY_MODE;
+
+      await expect(
+        service.resolveLoginTenant('phu-dinh', PW),
+      ).resolves.toBeNull();
+      await expect(
+        service.resolveLoginTenant(undefined, PW),
+      ).resolves.toBeNull();
+      expect(mockDataSource.query).not.toHaveBeenCalled();
+    });
+
+    describe('issueTokens', () => {
+      beforeEach(() => {
+        mockDataSource.query.mockImplementation((sql: string) =>
+          Promise.resolve(
+            /INSERT INTO sessions/.test(sql) ? [{ auth_version: '7' }] : [],
+          ),
+        );
+      });
+
+      test('names the adopted tenant in the access and the refresh token', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+
+        await TenantContext.runAs({ tenantId: TID }, () =>
+          service.issueTokens(tokenUser()),
+        );
+
+        expect(signed('access')[0]).toEqual(
+          expect.objectContaining({ typ: 'access', tid: TID }),
+        );
+        expect(signed('refresh')[0]).toEqual(
+          expect.objectContaining({ type: 'refresh', tid: TID }),
+        );
+      });
+
+      test('opens no session when the sign-in has no tenant', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+
+        await expect(
+          TenantContext.start(() => service.issueTokens(tokenUser())),
+        ).rejects.toMatchObject({ code: 'no_tenant_scope' });
+        expect(callsWith(mockDataSource.query, /INSERT INTO sessions/)).toEqual(
+          [],
+        );
+        expect(jwtSign).not.toHaveBeenCalled();
+      });
+
+      test('adds no tid claim in legacy mode', async () => {
+        delete process.env.TENANCY_MODE;
+
+        await service.issueTokens(tokenUser());
+
+        expect(signed('access')[0]).not.toHaveProperty('tid');
+        expect(signed('refresh')[0]).not.toHaveProperty('tid');
+      });
+    });
+
+    describe('refreshTokens', () => {
+      const USER = '11111111-1111-4111-8111-111111111111';
+      const SID = '5d0c7a3e-9f1b-4c2d-8e6f-1a2b3c4d5e6f';
+      const REFRESH = 'presented.refresh.token';
+      let scopeSeenByQueries: (string | undefined)[];
+
+      beforeEach(() => {
+        scopeSeenByQueries = [];
+        const record = () =>
+          scopeSeenByQueries.push(TenantContext.current()?.tenantId);
+        mockManager.query.mockImplementation((sql: string) => {
+          record();
+          if (/FOR UPDATE OF s/.test(sql)) {
+            return Promise.resolve([
+              {
+                id: SID,
+                user_id: USER,
+                refresh_token_hash: sha256(REFRESH),
+                expires_at: new Date(Date.now() + 60_000),
+                revoked_at: null,
+                replaced_by: null,
+                amr: ['pwd'],
+                session_version: '3',
+                status: 'active',
+                user_version: '3',
+                mfa_enabled: false,
+                mfa_required: false,
+              },
+            ]);
+          }
+          if (/INSERT INTO sessions/.test(sql)) {
+            return Promise.resolve([{ auth_version: '3' }]);
+          }
+          if (/FROM user_roles/.test(sql)) {
+            return Promise.resolve([{ code: 'police_ward' }]);
+          }
+          return Promise.resolve([]);
+        });
+        mockManager.findOneOrFail.mockResolvedValue(
+          tokenUser({ id: USER, role: undefined }),
+        );
+        mockDataSource.query.mockImplementation(() => {
+          record();
+          return Promise.resolve([]);
+        });
+      });
+
+      test('adopts the tenant of the refresh token before any query, and keeps it in the new tokens', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        jwtVerify.mockReturnValue({
+          sub: USER,
+          type: 'refresh',
+          sid: SID,
+          tid: TID,
+        });
+
+        await TenantContext.start(() => service.refreshTokens(REFRESH));
+
+        expect(scopeSeenByQueries.length).toBeGreaterThan(0);
+        expect(new Set(scopeSeenByQueries)).toEqual(new Set([TID]));
+        expect(signed('access')[0]).toEqual(
+          expect.objectContaining({ tid: TID }),
+        );
+        expect(signed('refresh')[0]).toEqual(
+          expect.objectContaining({ tid: TID }),
+        );
+      });
+
+      test.each([
+        ['without a tenant', undefined],
+        ['naming something that is not a tenant id', 'phu-dinh'],
+      ])('refuses a refresh token %s before any query', async (_label, tid) => {
+        process.env.TENANCY_MODE = 'enforced';
+        jwtVerify.mockReturnValue({
+          sub: USER,
+          type: 'refresh',
+          sid: SID,
+          tid,
+        });
+
+        await expect(
+          TenantContext.start(() => service.refreshTokens(REFRESH)),
+        ).rejects.toThrow(new UnauthorizedException('invalid_refresh_token'));
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+        expect(mockDataSource.transaction).not.toHaveBeenCalled();
+      });
+
+      test('ignores a tenant claim in legacy mode', async () => {
+        delete process.env.TENANCY_MODE;
+        jwtVerify.mockReturnValue({
+          sub: USER,
+          type: 'refresh',
+          sid: SID,
+          tid: TID,
+        });
+
+        await service.refreshTokens(REFRESH);
+
+        expect(new Set(scopeSeenByQueries)).toEqual(new Set([undefined]));
+        expect(signed('access')[0]).not.toHaveProperty('tid');
+      });
     });
   });
 

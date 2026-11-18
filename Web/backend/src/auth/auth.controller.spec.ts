@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
-import { AuthController } from './auth.controller';
+import { validateSync } from 'class-validator';
+import { AuthController, LoginDto } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa/mfa.service';
 import { LOGIN_THROTTLE } from './auth-throttle';
@@ -8,6 +9,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 const mockAuthService = {
+  resolveLoginTenant: jest.fn(),
   validateUser: jest.fn(),
   refreshTokens: jest.fn(),
   logout: jest.fn(),
@@ -68,6 +70,41 @@ describe('AuthController', () => {
         { id: 'user-1', username: 'admin', mfaEnabled: false },
         { ip: '10.0.0.7', userAgent: 'jest' },
       );
+    });
+
+    // The tenant is adopted into the request scope first, so the password check and
+    // everything after it run under that tenant
+    it('resolves the tenant of the sign-in before it checks the password', async () => {
+      mockAuthService.validateUser.mockResolvedValueOnce(mockUser);
+      mockMfaService.beginLogin.mockResolvedValueOnce({ status: 'SUCCESS' });
+
+      await controller.login(
+        { tenantCode: 'phu-dinh', username: 'admin', password: 'pass' },
+        request,
+      );
+
+      expect(mockAuthService.resolveLoginTenant).toHaveBeenCalledWith(
+        'phu-dinh',
+        'pass',
+      );
+      expect(
+        mockAuthService.resolveLoginTenant.mock.invocationCallOrder[0],
+      ).toBeLessThan(mockAuthService.validateUser.mock.invocationCallOrder[0]);
+    });
+
+    it('checks no password for a tenant that cannot be signed in to', async () => {
+      mockAuthService.resolveLoginTenant.mockRejectedValueOnce(
+        new UnauthorizedException('invalid_credentials'),
+      );
+
+      await expect(
+        controller.login(
+          { tenantCode: 'nowhere', username: 'admin', password: 'pass' },
+          request,
+        ),
+      ).rejects.toThrow('invalid_credentials');
+      expect(mockAuthService.validateUser).not.toHaveBeenCalled();
+      expect(mockMfaService.beginLogin).not.toHaveBeenCalled();
     });
 
     it('tells the MFA policy the account is enrolled', async () => {
@@ -168,5 +205,28 @@ describe('AuthController', () => {
         'not_found',
       );
     });
+  });
+});
+
+describe('LoginDto', () => {
+  const dto = (fields: Record<string, unknown>) =>
+    Object.assign(
+      new LoginDto(),
+      { username: 'admin', password: 'pass' },
+      fields,
+    );
+  const rejected = (fields: Record<string, unknown>) =>
+    validateSync(dto(fields)).map((error) => error.property);
+
+  it('takes an optional tenant code', () => {
+    expect(rejected({})).toEqual([]);
+    expect(rejected({ tenantCode: 'phu-dinh' })).toEqual([]);
+  });
+
+  it.each([
+    ['not text', 42],
+    ['longer than a tenant code can be', 'x'.repeat(51)],
+  ])('refuses a tenant code that is %s', (_label, tenantCode) => {
+    expect(rejected({ tenantCode })).toEqual(['tenantCode']);
   });
 });

@@ -11,7 +11,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsBoolean,
+  MaxLength,
+} from 'class-validator';
 import { AuthService } from './auth.service';
 import { LOGIN_THROTTLE } from './auth-throttle';
 import { MfaService } from './mfa/mfa.service';
@@ -19,6 +25,13 @@ import { requestContext, type ContextRequest } from './request-context';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 export class LoginDto {
+  // Which tenant the user signs in to; required when the backend runs with
+  // TENANCY_MODE=enforced and unused otherwise
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  tenantCode?: string;
+
   @IsString()
   @IsNotEmpty()
   username: string;
@@ -52,6 +65,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle(LOGIN_THROTTLE)
   async login(@Body() dto: LoginDto, @Req() req: ContextRequest) {
+    // Adopts the tenant into the request scope, so every query below runs under it
+    await this.authService.resolveLoginTenant(dto.tenantCode, dto.password);
     const user = await this.authService.validateUser(
       dto.username,
       dto.password,

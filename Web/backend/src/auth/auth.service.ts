@@ -4,6 +4,7 @@
 // BR-AUTH-02: lockout counted in Postgres by LoginAttemptsService
 import {
   Injectable,
+  BadRequestException,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { queryRows } from '../database/query-rows';
 import { User, type UserRole } from '../database/entities/user.entity';
 import { Session } from '../database/entities/refresh-token.entity';
 import { sortRolesByPriority } from '../common/constants/roles';
+import { TenantContext } from '../database/tenancy/tenant-context';
+import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
 
 export interface JwtPayload {
   sub: string; // user UUID
@@ -36,6 +39,8 @@ export interface JwtPayload {
   // AuthStateService refuses the token once either no longer matches
   sid?: string;
   ver?: number;
+  // The tenant the session belongs to (TENANCY_MODE=enforced); JwtAuthGuard adopts it
+  tid?: string;
 }
 
 export interface TokenPair {
@@ -161,6 +166,30 @@ export class AuthService {
     const row = result[0];
     if (!row || row.scope_type === 'all') return null;
     return row.code;
+  }
+
+  /**
+   * The tenant a sign-in is for. Legacy mode has none. Enforced mode takes the code the
+   * user typed: an unknown or inactive tenant looks exactly like a wrong password (same
+   * answer, same work), so codes cannot be probed. The tenant is adopted into the request
+   * scope, so every later query of the sign-in runs under it.
+   */
+  async resolveLoginTenant(
+    tenantCode: string | undefined,
+    password: string,
+  ): Promise<string | null> {
+    if (!isTenancyEnforced()) return null;
+    const code = (tenantCode ?? '').trim();
+    if (!code) throw new BadRequestException('tenant_code_required');
+    const [tenant] = await this.dataSource.query<
+      { id: string; status: string }[]
+    >('SELECT id, status FROM auth_tenant_by_code($1)', [code]);
+    if (!tenant || tenant.status !== 'active') {
+      await bcrypt.compare(password, DUMMY_HASH);
+      throw new UnauthorizedException('invalid_credentials');
+    }
+    TenantContext.adopt({ tenantId: tenant.id });
+    return tenant.id;
   }
 
   // US-W001 AC-1: Validate credentials. BR-AUTH-02: the attempt takes a lockout slot first
@@ -305,8 +334,12 @@ export class AuthService {
     accessMinutes?: number,
   ): Promise<{ tokens: TokenPair; sessionId: string }> {
     const sessionId = randomUUID();
+    // Both tokens name the tenant the session belongs to
+    const tid = isTenancyEnforced()
+      ? TenantContext.requireTenantId()
+      : undefined;
     const refreshToken = this.jwtService.sign(
-      { sub: user.id, type: 'refresh', sid: sessionId },
+      { sub: user.id, type: 'refresh', sid: sessionId, ...(tid && { tid }) },
       {
         secret: this.config.get('jwt.refreshSecret'),
         expiresIn: this.config.get('jwt.refreshExpiresIn'),
@@ -342,6 +375,7 @@ export class AuthService {
       amr,
       sid: sessionId,
       ver: Number(session.auth_version),
+      ...(tid && { tid }),
     };
     const minutes = accessMinutes ?? (await this.accessTokenMinutes());
     const accessToken = this.jwtService.sign(payload, {
@@ -388,7 +422,7 @@ export class AuthService {
     refreshToken: string,
     ctx: RequestContext = {},
   ): Promise<TokenPair> {
-    let payload: { sub?: string; type?: string; sid?: string };
+    let payload: { sub?: string; type?: string; sid?: string; tid?: string };
     try {
       payload = this.jwtService.verify(refreshToken, {
         secret: this.config.get('jwt.refreshSecret'),
@@ -399,6 +433,14 @@ export class AuthService {
     const sid = payload.sid;
     if (payload.type !== 'refresh' || typeof sid !== 'string' || !isUUID(sid)) {
       throw new UnauthorizedException('invalid_refresh_token');
+    }
+    // The session lookup below is a tenant query: run it under the tenant of the token
+    if (isTenancyEnforced()) {
+      const { tid } = payload;
+      if (typeof tid !== 'string' || !isUUID(tid)) {
+        throw new UnauthorizedException('invalid_refresh_token');
+      }
+      TenantContext.adopt({ tenantId: tid });
     }
 
     // Read before the session lock is taken (see below)
