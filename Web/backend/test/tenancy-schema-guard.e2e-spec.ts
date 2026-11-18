@@ -31,6 +31,10 @@ interface ForeignKeyRow {
   table: string;
   parent: string;
   validated: boolean;
+  /** pg_constraint.confdeltype: 'a' no action, 'r' restrict, 'c' cascade, 'n' set null, 'd' set default */
+  onDelete: string;
+  /** ON DELETE SET NULL (cols): null when the clause carries no column list */
+  setNullColumns: string[] | null;
   columns: string[];
   parentColumns: string[];
 }
@@ -42,13 +46,19 @@ interface IndexRow {
   primary: boolean;
   partial: boolean;
   nullsNotDistinct: boolean;
+  /** A CONCURRENTLY build that failed leaves an index that is not valid, or not ready */
+  usable: boolean;
   columns: string[];
   notNull: boolean[];
 }
 
 const FOREIGN_KEYS_SQL = `
   SELECT f.conname AS name, c.relname AS "table", p.relname AS parent,
-         f.convalidated AS validated,
+         f.convalidated AS validated, f.confdeltype AS "onDelete",
+         CASE WHEN f.confdelsetcols IS NULL THEN NULL
+              ELSE ARRAY(SELECT a.attname FROM unnest(f.confdelsetcols) AS k(attnum)
+                           JOIN pg_attribute a ON a.attrelid = f.conrelid AND a.attnum = k.attnum
+                          ORDER BY a.attname)::text[] END AS "setNullColumns",
          ARRAY(SELECT a.attname FROM unnest(f.conkey) WITH ORDINALITY AS k(attnum, ord)
                  JOIN pg_attribute a ON a.attrelid = f.conrelid AND a.attnum = k.attnum
                 ORDER BY k.ord)::text[] AS columns,
@@ -67,6 +77,7 @@ const INDEXES_SQL = `
   SELECT c.relname AS "table", i.relname AS "index", x.indisunique AS "unique",
          x.indisprimary AS "primary", x.indpred IS NOT NULL AS partial,
          x.indnullsnotdistinct AS "nullsNotDistinct",
+         (x.indisvalid AND x.indisready) AS usable,
          ARRAY(SELECT COALESCE(a.attname, '<expression>')
                  FROM unnest(x.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
                  LEFT JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum
@@ -252,6 +263,7 @@ describe('tenant schema guard (e2e)', () => {
     // or contains a column that only ever holds ids of rows of the same tenant (a scoped
     // foreign key column) and cannot let NULLs collide across tenants
     const wrong = all
+      .filter((u) => u.usable)
       .filter((u) => u.unique)
       .filter((u) => {
         if (u.columns.includes('tenant_id')) return false;
@@ -272,7 +284,8 @@ describe('tenant schema guard (e2e)', () => {
       async (c) =>
         [await indexes(c, tables), await foreignKeys(c, tables)] as const,
     );
-    const usable = all.filter((i) => !i.partial);
+    // An index a failed CONCURRENTLY build left behind is no index: it enforces and serves nothing
+    const usable = all.filter((i) => i.usable && !i.partial);
     const wrong: string[] = [];
     for (const fk of scopedForeignKeys(fks, new Set(tables))) {
       const want = [...fk.columns].sort().join();
@@ -297,6 +310,61 @@ describe('tenant schema guard (e2e)', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('leaves no invalid or unready index in the public schema', async () => {
+    // 038 builds its indexes CONCURRENTLY: a failed build leaves an INVALID index that a
+    // rerun of IF NOT EXISTS would skip, so the tenant key it was meant to give is missing
+    const broken = await db.admin(async (c) =>
+      (
+        await c.query<{ index: string }>(
+          `SELECT i.relname AS "index" FROM pg_index x
+             JOIN pg_class i ON i.oid = x.indexrelid
+             JOIN pg_class c ON c.oid = x.indrelid
+            WHERE c.relnamespace = 'public'::regnamespace
+              AND NOT (x.indisvalid AND x.indisready)
+            ORDER BY 1`,
+        )
+      ).rows.map((r) => r.index),
+    );
+    expect(broken).toEqual([]);
+  });
+
+  it('keeps every ON DELETE SET NULL key between tenant tables from clearing tenant_id', async () => {
+    // Without a column list SET NULL clears every referencing column, tenant_id included,
+    // which a NOT NULL column refuses and RLS would hide
+    const fks = await db.admin((c) => foreignKeys(c, tables));
+    const tenantSet = new Set(tables);
+    const wrong = fks
+      .filter((fk) => fk.onDelete === 'n' && tenantSet.has(fk.parent))
+      .filter(
+        (fk) =>
+          fk.setNullColumns === null || fk.setNullColumns.includes('tenant_id'),
+      )
+      .map(
+        (fk) =>
+          `${fk.table}.${fk.name}: ON DELETE SET NULL ${
+            fk.setNullColumns === null
+              ? 'without a column list'
+              : `(${fk.setNullColumns.join(', ')})`
+          }`,
+      );
+    expect(wrong).toEqual([]);
+  });
+
+  it('keeps every table in the public schema', async () => {
+    const outside = await db.admin(async (c) =>
+      (
+        await c.query<{ name: string }>(
+          `SELECT n.nspname || '.' || c.relname AS name FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('r', 'p') AND n.nspname <> 'public'
+              AND n.nspname <> 'information_schema' AND left(n.nspname, 3) <> 'pg_'
+            ORDER BY 1`,
+        )
+      ).rows.map((r) => r.name),
+    );
+    expect(outside).toEqual([]);
+  });
+
   it('grants the runtime role DML on tenant tables only, and each role exactly the listed privileges on global tables', async () => {
     const granted = await db.admin(async (c) =>
       (
@@ -319,6 +387,26 @@ describe('tenant schema guard (e2e)', () => {
       ]),
     ];
     expect([...granted].sort()).toEqual([...expected].sort());
+  });
+
+  it('grants no privilege on a single column that the table does not grant as a whole', async () => {
+    // has_table_privilege ignores column-level grants; has_any_column_privilege sees them
+    const columnOnly = await db.admin(async (c) =>
+      (
+        await c.query<{ grant: string }>(
+          `SELECT c.relname || ':' || r.role || ':' || p.privilege AS "grant"
+             FROM pg_class c
+            CROSS JOIN (VALUES ('mms_app'), ('mms_platform')) AS r(role)
+            CROSS JOIN unnest($1::text[]) AS p(privilege)
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+              AND has_any_column_privilege(r.role, c.oid, p.privilege)
+              AND NOT has_table_privilege(r.role, c.oid, p.privilege)
+            ORDER BY 1`,
+          [['SELECT', 'INSERT', 'UPDATE', 'REFERENCES']],
+        )
+      ).rows.map((r) => r.grant),
+    );
+    expect(columnOnly).toEqual([]);
   });
 
   it('lets the runtime role write its own rows, but neither the tenant registry nor the role catalogue', async () => {
