@@ -274,6 +274,100 @@ describe('FilesService', () => {
       expect(mockAssignments.getAssignedDqtvIds).toHaveBeenCalledWith('ca-1');
     });
 
+    // Each role held grants what it grants: the union, whichever role is the primary one
+    describe('a holder of both a unit role and ca_officer', () => {
+      const roles = ['police_area', 'ca_officer'];
+      const asArea = {
+        sub: 'pc-1',
+        role: 'police_area',
+        roles,
+        unitScope: 'KV1',
+      };
+      const asOfficer = { ...asArea, role: 'ca_officer' };
+      // The author is in the unit when `inUnit`, and assigned to the actor when `assigned`
+      const reportBy = (inUnit: boolean, assigned: boolean) => {
+        mockDs.query.mockImplementation((sql: string) =>
+          Promise.resolve(
+            sql.includes('FROM files f') ? [workReportFile()] : [{ inUnit }],
+          ),
+        );
+        mockAssignments.getAssignedDqtvIds.mockResolvedValue(
+          assigned ? ['author-1'] : ['someone-else'],
+        );
+      };
+
+      it.each([
+        ['police_area', asArea],
+        ['ca_officer', asOfficer],
+      ])(
+        'reads report attachments by an assigned DQTV of another unit (primary %s)',
+        async (_primary, actor) => {
+          store();
+          reportBy(false, true);
+
+          await expect(
+            service.openForDownload(actor, 'f-1'),
+          ).resolves.toMatchObject({ file: { id: 'f-1' } });
+        },
+      );
+
+      it.each([
+        ['police_area', asArea],
+        ['ca_officer', asOfficer],
+      ])(
+        'reads report attachments by an unassigned member of their unit (primary %s)',
+        async (_primary, actor) => {
+          store();
+          reportBy(true, false);
+
+          await expect(
+            service.openForDownload(actor, 'f-1'),
+          ).resolves.toMatchObject({ file: { id: 'f-1' } });
+        },
+      );
+
+      it('still hides attachments by someone neither in the unit nor assigned', async () => {
+        store();
+        reportBy(false, false);
+
+        await expect(service.openForDownload(asOfficer, 'f-1')).rejects.toThrow(
+          notFound,
+        );
+        await expect(service.openForDownload(asArea, 'f-1')).rejects.toThrow(
+          notFound,
+        );
+      });
+
+      it.each([
+        ['an assigned DQTV of another unit', 'dq-2', 'KV9'],
+        ['an unassigned member of their unit', 'dq-9', 'KV1'],
+      ])(
+        'reads the profile documents of %s whichever role is primary',
+        async (_label, owner, unitCode) => {
+          store();
+          mockDs.query.mockImplementation((sql: string) =>
+            Promise.resolve(
+              sql.includes('FROM files f')
+                ? [
+                    fileRow({
+                      relatedType: 'militia_profile',
+                      relatedId: 'mp-1',
+                    }),
+                  ]
+                : [{ userId: owner, unitCode }],
+            ),
+          );
+          mockAssignments.getAssignedDqtvIds.mockResolvedValue(['dq-2']);
+
+          for (const actor of [asArea, asOfficer]) {
+            await expect(
+              service.openForDownload(actor, 'f-1'),
+            ).resolves.toMatchObject({ file: { id: 'f-1' } });
+          }
+        },
+      );
+    });
+
     it.each([
       ['another DQTV member', otherDqtv],
       // Not a role that reads reports, however wide its unit
@@ -482,6 +576,34 @@ describe('FilesService', () => {
           null,
           ['dq-7'],
           'ca-1',
+        ]);
+      });
+
+      // police_area reads no tasks: held with ca_officer, only the CA officer grant applies
+      it('reads tasks for police_area with ca_officer only through the DQTV assigned', async () => {
+        store();
+        mockDs.query
+          .mockResolvedValueOnce([taskFile()])
+          .mockResolvedValueOnce([{ readable: true }]);
+        mockAssignments.getAssignedDqtvIds.mockResolvedValueOnce(['dq-7']);
+
+        await expect(
+          service.openForDownload(
+            {
+              sub: 'pc-1',
+              role: 'police_area',
+              roles: ['police_area', 'ca_officer'],
+              unitScope: 'KV1',
+            },
+            'f-1',
+          ),
+        ).resolves.toMatchObject({ file: { id: 'f-1' } });
+        expect(mockDs.query).toHaveBeenCalledTimes(2);
+        expect(paramsOf(mockDs.query, 1)).toEqual([
+          't-1',
+          null,
+          ['dq-7'],
+          'pc-1',
         ]);
       });
 

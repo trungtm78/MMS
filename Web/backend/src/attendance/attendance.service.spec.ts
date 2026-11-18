@@ -10,7 +10,10 @@ import { ExcelExportService } from '../common/services/excel-export.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { useUtcServerClock, VN_1_OCTOBER_0130 } from '../../test/support/clock';
 
-const mockDataSource = { query: jest.fn() };
+// Typed so mock.calls yields [sql, params] tuples rather than any
+const mockDataSource = {
+  query: jest.fn<Promise<unknown>, [sql: string, params: unknown[]]>(),
+};
 const mockAssignmentsService = { getAssignedDqtvIds: jest.fn() };
 
 const mockExcelExportService = {
@@ -404,7 +407,7 @@ describe('AttendanceService', () => {
           { id: 'rec-1', checkout_at: new Date('2026-04-27T17:00:00Z') },
         ]); // update
 
-      const result = await service.checkOut('user-1', {});
+      const result = await service.checkOut('user-1');
       expect(result.status).toBe('checked_out');
       expect(result.id).toBe('rec-1');
     });
@@ -414,7 +417,7 @@ describe('AttendanceService', () => {
         .mockResolvedValueOnce([{ id: 'militia-1' }])
         .mockResolvedValueOnce([]); // no open record
 
-      await expect(service.checkOut('user-1', {})).rejects.toThrow(
+      await expect(service.checkOut('user-1')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -491,8 +494,7 @@ describe('AttendanceService', () => {
   // Mobile clients act on Vietnamese calendar days; production servers run on UTC
   describe('business date', () => {
     useUtcServerClock(VN_1_OCTOBER_0130);
-    const paramsOf = (call: number) =>
-      (mockDataSource.query.mock.calls as unknown[][])[call][1] as unknown[];
+    const paramsOf = (call: number) => mockDataSource.query.mock.calls[call][1];
 
     it('checks in against the Vietnamese date', async () => {
       mockDataSource.query
@@ -518,7 +520,7 @@ describe('AttendanceService', () => {
           { id: 'rec-1', checkout_at: VN_1_OCTOBER_0130 },
         ]);
 
-      await service.checkOut('user-1', {});
+      await service.checkOut('user-1');
 
       expect(paramsOf(1)).toEqual(['militia-1', '2026-10-01']);
     });
@@ -647,7 +649,7 @@ describe('AttendanceService', () => {
         '2026-04-01',
         '2026-04-30',
       );
-      const params = mockDataSource.query.mock.calls[0][1] as unknown[];
+      const params = mockDataSource.query.mock.calls[0][1];
       expect(params[2]).toBe('UNIT_001');
     });
 
@@ -659,7 +661,7 @@ describe('AttendanceService', () => {
         '2026-04-30',
         'UNIT_002',
       );
-      const params = mockDataSource.query.mock.calls[0][1] as unknown[];
+      const params = mockDataSource.query.mock.calls[0][1];
       expect(params[2]).toBe('UNIT_002');
     });
 

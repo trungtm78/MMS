@@ -9,7 +9,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { useUtcServerClock, VN_1_OCTOBER_0130 } from '../../test/support/clock';
 
-const mockQuery = jest.fn();
+// Typed so mock.calls yields [sql, params] tuples rather than any
+const mockQuery = jest.fn<Promise<unknown>, [sql: string, params: unknown[]]>();
 const mockDataSource = { query: mockQuery };
 
 const mockExcelExportService = {
@@ -145,9 +146,9 @@ describe('AuditController', () => {
       50,
     );
 
-    const countSql = mockQuery.mock.calls[0][0] as string;
+    const countSql = mockQuery.mock.calls[0][0];
     expect(countSql).toContain('al.action');
-    const countParams = mockQuery.mock.calls[0][1] as unknown[];
+    const countParams = mockQuery.mock.calls[0][1];
     expect(countParams[0]).toBe('DELETE');
   });
 
@@ -165,8 +166,8 @@ describe('AuditController', () => {
       200,
     );
 
-    const dataSql = mockQuery.mock.calls[1][0] as string;
-    const dataParams = mockQuery.mock.calls[1][1] as unknown[];
+    const dataSql = mockQuery.mock.calls[1][0];
+    const dataParams = mockQuery.mock.calls[1][1];
     // limit param (index 8) capped at 100
     expect(dataParams[8]).toBe(100);
     expect(dataSql).toContain('LIMIT');

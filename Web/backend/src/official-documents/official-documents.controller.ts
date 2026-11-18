@@ -24,44 +24,61 @@ import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../auth/auth.service';
 
 class CreateDocDto {
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   docNumber?: string;
 
-  @IsString() @IsNotEmpty()
+  @IsString()
+  @IsNotEmpty()
   docType: string;
 
-  @IsString() @IsNotEmpty()
+  @IsString()
+  @IsNotEmpty()
   title: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   issuedBy?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   issuedDate?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   effectiveDate?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   expiryDate?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   subject?: string;
 
   // An id from POST /files/upload, uploaded by the caller and not attached elsewhere
-  @IsOptional() @IsUUID('all')
+  @IsOptional()
+  @IsUUID('all')
   fileId?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   relatedMilitiaId?: string;
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   relatedUnitId?: string;
 }
 
 @Controller('official-documents')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('system_admin', 'police_ward', 'police_area', 'office_staff', 'ca_officer')
+@Roles(
+  'system_admin',
+  'police_ward',
+  'police_area',
+  'office_staff',
+  'ca_officer',
+)
 export class OfficialDocumentsController {
   constructor(private readonly service: OfficialDocumentsService) {}
 

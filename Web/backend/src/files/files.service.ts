@@ -13,17 +13,13 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { holdsAnyRole, type ScopedActor } from '../common/access/unit-scope';
+import { REVIEWER_ROLES, WIDE_SCOPE_ROLES } from '../common/constants/roles';
 import {
-  effectiveUnit,
-  holdsAnyRole,
-  type ScopedActor,
-} from '../common/access/unit-scope';
-import {
-  DQTV_ROLES,
-  REVIEWER_ROLES,
-  WIDE_SCOPE_ROLES,
-} from '../common/constants/roles';
-import { resolveMemberScope } from '../common/access/member-scope';
+  grantsReach,
+  resolveMemberGrants,
+  type MemberScope,
+} from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { queryRows } from '../database/query-rows';
 import { MILITIA_STAFF_ROLE_SET } from '../militia/militia-roles';
@@ -253,6 +249,8 @@ export class FilesService {
    *    assigned to them, others the members of their effective unit (ward-level roles
    *    without a unit scope: everyone). The author is the owner: only the uploader can
    *    attach a file (attach), and only to their own report.
+   * Rules 6 to 8 take every role the actor holds (resolveMemberGrants): a user holding a
+   * unit role and ca_officer reaches the union of both, whichever is the primary role.
    * 7. attached to a task: whoever the task routes let read the task (taskScopeSql): its
    *    assignees, the CA officer who created it or whose DQTV it is assigned to, and the
    *    unit staff of the task's unit.
@@ -283,27 +281,37 @@ export class FilesService {
     actor: FileActor,
     taskId: string | null,
   ): Promise<boolean> {
-    let scope: Awaited<ReturnType<typeof resolveMemberScope>>;
+    const grants = await this.grantsOf(actor, TASK_STAFF_ROLES);
+    for (const grant of grants) {
+      const rows = await this.ds.query<{ readable: boolean }[]>(
+        `SELECT EXISTS (
+           SELECT 1 FROM tasks t
+           ${TASK_UNIT_JOIN}
+           WHERE t.id = $1
+             AND ${taskScopeSql({ unit: '$2', userIds: '$3', caller: '$4' })}
+         ) AS readable`,
+        [taskId, grant.unit, grant.userIds, actor.sub],
+      );
+      if (rows[0]?.readable === true) return true;
+    }
+    return false;
+  }
+
+  // What the actor's roles grant over members' records; none when they grant nothing (a
+  // role outside `staffRoles`, or an area role without a unit scope), concealed as 404
+  private async grantsOf(
+    actor: FileActor,
+    staffRoles: ReadonlySet<string>,
+  ): Promise<MemberScope[]> {
     try {
-      scope = await resolveMemberScope(actor, {
-        staffRoles: TASK_STAFF_ROLES,
+      return await resolveMemberGrants(actor, {
+        staffRoles,
         assignments: this.assignments,
       });
     } catch (error) {
-      // A role that reads no tasks, or an area role without a unit scope: not found
-      if (error instanceof ForbiddenException) return false;
+      if (error instanceof ForbiddenException) return [];
       throw error;
     }
-    const rows = await this.ds.query<{ readable: boolean }[]>(
-      `SELECT EXISTS (
-         SELECT 1 FROM tasks t
-         ${TASK_UNIT_JOIN}
-         WHERE t.id = $1
-           AND ${taskScopeSql({ unit: '$2', userIds: '$3', caller: '$4' })}
-       ) AS readable`,
-      [taskId, scope.unit, scope.userIds, actor.sub],
-    );
-    return rows[0]?.readable === true;
   }
 
   private async readsProfile(
@@ -320,22 +328,13 @@ export class FilesService {
       [profileId],
     );
     if (!profile) return false;
-    if (!holdsAnyRole(actor, MILITIA_STAFF_ROLE_SET)) {
-      return profile.userId !== null && profile.userId === actor.sub;
-    }
-    if (actor.role === 'ca_officer') {
-      const assigned = await this.assignments.getAssignedDqtvIds(actor.sub);
-      return profile.userId !== null && assigned.includes(profile.userId);
-    }
-    let unit: string | null;
-    try {
-      unit = effectiveUnit(actor);
-    } catch (error) {
-      // An area role without a unit scope reads no profile; answered as not found
-      if (error instanceof ForbiddenException) return false;
-      throw error;
-    }
-    return unit === null || unit === profile.unitCode;
+    // A member reads their own profile
+    if (profile.userId !== null && profile.userId === actor.sub) return true;
+    if (!holdsAnyRole(actor, MILITIA_STAFF_ROLE_SET)) return false;
+    return grantsReach(await this.grantsOf(actor, MILITIA_STAFF_ROLE_SET), {
+      unitCode: profile.unitCode,
+      ownerId: profile.userId,
+    });
   }
 
   private async managesAuthor(
@@ -343,24 +342,21 @@ export class FilesService {
     authorId: string,
   ): Promise<boolean> {
     if (!holdsAnyRole(actor, RECORD_MANAGER_ROLES)) return false;
-    if (DQTV_ROLES.has(actor.role)) return false;
-    if (actor.role === 'ca_officer') {
-      const assigned = await this.assignments.getAssignedDqtvIds(actor.sub);
-      return assigned.includes(authorId);
+    const grants = await this.grantsOf(actor, RECORD_MANAGER_ROLES);
+    // Members lists first: they need no query
+    if (grants.some((g) => g.userIds?.includes(authorId) && g.unit === null)) {
+      return true;
     }
-    let unit: string | null;
-    try {
-      unit = effectiveUnit(actor);
-    } catch {
-      // An area role without a unit scope reads nothing; answered as not found
-      return false;
+    for (const grant of grants) {
+      if (grant.userIds !== null) continue;
+      if (grant.unit === null) return true;
+      const rows = await this.ds.query<{ inUnit: boolean }[]>(
+        `SELECT ${userInUnit('$1::uuid', '$2')} AS "inUnit"`,
+        [authorId, grant.unit],
+      );
+      if (rows[0]?.inUnit === true) return true;
     }
-    if (unit === null) return true;
-    const rows = await this.ds.query<{ inUnit: boolean }[]>(
-      `SELECT ${userInUnit('$1::uuid', '$2')} AS "inUnit"`,
-      [authorId, unit],
-    );
-    return rows[0]?.inUnit === true;
+    return false;
   }
 
   /**

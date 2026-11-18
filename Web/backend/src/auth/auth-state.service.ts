@@ -16,20 +16,23 @@ export interface AccessClaims {
 
 type Queryable = Pick<DataSource | EntityManager, 'query'>;
 
+// Tokens checked per query by validAccess
+const VALID_ACCESS_BATCH = 1_000;
+
+// Claims a token must carry to be checked at all: a session id, a subject and a version
+const isWellFormed = (claims: AccessClaims): claims is Required<AccessClaims> =>
+  isUUID(claims.sub) &&
+  typeof claims.sid === 'string' &&
+  isUUID(claims.sid) &&
+  Number.isSafeInteger(claims.ver);
+
 @Injectable()
 export class AuthStateService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /** True while the token's session is live and the account unchanged since issue. */
   async isAccessValid(claims: AccessClaims): Promise<boolean> {
-    if (
-      !isUUID(claims.sub) ||
-      typeof claims.sid !== 'string' ||
-      !isUUID(claims.sid) ||
-      !Number.isSafeInteger(claims.ver)
-    ) {
-      return false;
-    }
+    if (!isWellFormed(claims)) return false;
     const rows = await this.dataSource.query<{ ok: boolean }[]>(
       `SELECT true AS ok
        FROM sessions s
@@ -43,6 +46,39 @@ export class AuthStateService {
       [claims.sid, claims.sub, claims.ver],
     );
     return rows.length > 0;
+  }
+
+  /**
+   * isAccessValid for many tokens at once, answered in their order: one query per batch of
+   * VALID_ACCESS_BATCH tokens. Malformed claims are invalid and never sent.
+   */
+  async validAccess(claims: readonly AccessClaims[]): Promise<boolean[]> {
+    const valid = claims.map(() => false);
+    const wellFormed = claims
+      .map((claim, index) => ({ claim, index }))
+      .filter(({ claim }) => isWellFormed(claim));
+    for (let at = 0; at < wellFormed.length; at += VALID_ACCESS_BATCH) {
+      const batch = wellFormed.slice(at, at + VALID_ACCESS_BATCH);
+      const rows = await this.dataSource.query<{ i: string | number }[]>(
+        `SELECT c.i
+         FROM unnest($1::uuid[], $2::uuid[], $3::bigint[]) WITH ORDINALITY AS c(sid, sub, ver, i)
+         JOIN sessions s ON s.id = c.sid AND s.user_id = c.sub
+         JOIN users u ON u.id = s.user_id
+         WHERE s.revoked_at IS NULL
+           AND s.expires_at > now()
+           AND u.status = 'active'
+           AND u.auth_version = c.ver
+           AND s.auth_version = c.ver`,
+        [
+          batch.map(({ claim }) => claim.sid),
+          batch.map(({ claim }) => claim.sub),
+          batch.map(({ claim }) => claim.ver),
+        ],
+      );
+      // WITH ORDINALITY counts from 1
+      for (const row of rows) valid[batch[Number(row.i) - 1].index] = true;
+    }
+    return valid;
   }
 
   /**

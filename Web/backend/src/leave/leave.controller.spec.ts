@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { LeaveController } from './leave.controller';
 import { LeaveService } from './leave.service';
+import { CreateLeaveDto } from './dto/create-leave.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotFoundException, RequestMethod } from '@nestjs/common';
@@ -103,19 +104,18 @@ describe('LeaveController', () => {
   });
 
   describe('createLeaveRequest', () => {
+    const dto: CreateLeaveDto = {
+      leaveTypeId: '7a1f3c52-9d4e-4b8a-a6f1-2c3d4e5f6a7b',
+      fromDate: '2025-02-01',
+      toDate: '2025-02-05',
+      reason: 'Nghỉ phép năm',
+    };
+
     it('creates and returns leave request', async () => {
-      const dto = {
-        leaveType: 'annual',
-        startDate: '2025-02-01',
-        endDate: '2025-02-05',
-      };
       const created = { id: 'lr-new', ...dto, status: 'pending' };
       mockLeaveService.createLeaveRequest.mockResolvedValueOnce(created);
 
-      const result = await controller.createLeaveRequest(
-        userReq as never,
-        dto as any,
-      );
+      const result = await controller.createLeaveRequest(userReq as never, dto);
 
       expect(result).toEqual(created);
       expect(mockLeaveService.createLeaveRequest).toHaveBeenCalledWith(
@@ -130,7 +130,11 @@ describe('LeaveController', () => {
       );
 
       await expect(
-        controller.createLeaveRequest(userReq as never, {} as any),
+        controller.createLeaveRequest(userReq as never, {
+          ...dto,
+          fromDate: '2025-02-05',
+          toDate: '2025-02-01',
+        }),
       ).rejects.toThrow('invalid_dates');
     });
   });

@@ -11,7 +11,8 @@ import { queryRows } from '../database/query-rows';
 import type { JwtPayload } from '../auth/auth.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { businessDate, isIsoDate } from '../common/time/business-date';
-import { effectiveUnit, holdsAnyRole } from '../common/access/unit-scope';
+import { holdsAnyRole } from '../common/access/unit-scope';
+import { resolveMemberGrants } from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { AssignmentsService } from '../assignments/assignments.service';
 
@@ -112,19 +113,45 @@ const REVIEWER_ROLES = new Set([
   'system_admin',
 ]);
 
-// Whose requests a caller may act on: one requester, the people of a unit, or a fixed
-// list of requesters; null in every field means no restriction
+// Whose requests a caller reaches: the union of every requester (everyone), the people of
+// a unit (unit, null: none through a unit) and a list of requesters (requesterIds)
 interface RequesterScope {
-  requesterId: string | null;
+  everyone: boolean;
   unit: string | null;
-  requesterIds: string[] | null;
+  requesterIds: string[];
 }
 
 const UNRESTRICTED: RequesterScope = {
-  requesterId: null,
+  everyone: true,
   unit: null,
-  requesterIds: null,
+  requesterIds: [],
 };
+
+const ownRequests = (userId: string): RequesterScope => ({
+  everyone: false,
+  unit: null,
+  requesterIds: [userId],
+});
+
+const reachesNobody = (scope: RequesterScope) =>
+  !scope.everyone && scope.unit === null && scope.requesterIds.length === 0;
+
+/**
+ * SQL condition limiting `column` (a requester id) to a RequesterScope passed as three
+ * parameters from $first: everyone (boolean), unit (text), requesterIds (uuid[]).
+ */
+function requesterScopeSql(column: string, first: number): string {
+  const everyone = `$${first}`;
+  const unit = `$${first + 1}`;
+  const requesterIds = `$${first + 2}`;
+  return `(${everyone}::boolean OR (${unit}::text IS NOT NULL AND ${userInUnit(column, unit)}) OR ${column} = ANY(${requesterIds}::uuid[]))`;
+}
+
+const requesterScopeParams = (scope: RequesterScope) => [
+  scope.everyone,
+  scope.unit,
+  scope.requesterIds,
+];
 
 const DAY_MS = 86_400_000;
 
@@ -164,21 +191,49 @@ export class LeaveService {
     private readonly assignments: AssignmentsService,
   ) {}
 
-  // Reviewers act on the requests of people in their effective unit, CA officers on those
-  // of the DQTV assigned to them, everyone else on their own. null: nobody's.
+  /**
+   * Whose requests the caller reaches. Every role held counts, whatever its priority
+   * (resolveMemberGrants): unit reviewers reach the people of their effective unit, CA
+   * officers the DQTV assigned to them, and a user holding both reaches both.
+   * - review: the requests the caller may decide; refused (403) when no reviewer role
+   *   grants anything, e.g. an area reviewer without a unit scope
+   * - read: those, and always the caller's own requests (a reviewer requests leave too)
+   */
   private async requesterScope(
     user: JwtPayload,
-  ): Promise<RequesterScope | null> {
-    if (!holdsAnyRole(user, REVIEWER_ROLES)) {
-      return { ...UNRESTRICTED, requesterId: user.sub };
+    purpose: 'read' | 'review',
+  ): Promise<RequesterScope> {
+    const scope: RequesterScope = {
+      everyone: false,
+      unit: null,
+      requesterIds: purpose === 'read' ? [user.sub] : [],
+    };
+    if (!holdsAnyRole(user, REVIEWER_ROLES)) return scope;
+
+    let grants: Awaited<ReturnType<typeof resolveMemberGrants>>;
+    try {
+      grants = await resolveMemberGrants(user, {
+        staffRoles: REVIEWER_ROLES,
+        assignments: this.assignments,
+      });
+    } catch (error) {
+      if (purpose === 'read' && error instanceof ForbiddenException) {
+        return scope;
+      }
+      throw error;
     }
-    if (user.role === 'ca_officer') {
-      const assigned = await this.assignments.getAssignedDqtvIds(user.sub);
-      return assigned.length
-        ? { ...UNRESTRICTED, requesterIds: assigned }
-        : null;
+    for (const grant of grants) {
+      if (grant.userIds !== null) {
+        scope.requesterIds = [
+          ...new Set([...scope.requesterIds, ...grant.userIds]),
+        ];
+      } else if (grant.unit === null) {
+        scope.everyone = true;
+      } else {
+        scope.unit = grant.unit;
+      }
     }
-    return { ...UNRESTRICTED, unit: effectiveUnit(user) };
+    return scope;
   }
 
   async listLeaveRequests(
@@ -196,20 +251,12 @@ export class LeaveService {
     const offset = (page - 1) * limit;
 
     const scope = params.mine
-      ? { ...UNRESTRICTED, requesterId: user.sub }
-      : await this.requesterScope(user);
-    if (!scope) return { data: [], total: 0, page, limit };
+      ? ownRequests(user.sub)
+      : await this.requesterScope(user, 'read');
     const statusFilter: string | null = params.status ?? null;
-    const filters = `WHERE ($1::uuid IS NULL OR lr.requester_id = $1::uuid)
-         AND ($2::text IS NULL OR lr.status = $2::text)
-         AND ($3::text IS NULL OR ${userInUnit('lr.requester_id', '$3')})
-         AND ($4::uuid[] IS NULL OR lr.requester_id = ANY($4::uuid[]))`;
-    const filterParams = [
-      scope.requesterId,
-      statusFilter,
-      scope.unit,
-      scope.requesterIds,
-    ];
+    const filters = `WHERE ${requesterScopeSql('lr.requester_id', 1)}
+         AND ($4::text IS NULL OR lr.status = $4::text)`;
+    const filterParams = [...requesterScopeParams(scope), statusFilter];
 
     const countRows = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(*) AS count
@@ -250,11 +297,9 @@ export class LeaveService {
     );
   }
 
-  // A request outside the caller's scope answers 404
+  // A request outside the caller's scope answers 404; their own is always in it
   async getLeaveRequest(user: JwtPayload, id: string): Promise<LeaveRequest> {
-    const scope = await this.requesterScope(user);
-    if (!scope) throw new NotFoundException('leave_request_not_found');
-    return this.readLeaveRequest(id, scope);
+    return this.readLeaveRequest(id, await this.requesterScope(user, 'read'));
   }
 
   private async readLeaveRequest(
@@ -266,11 +311,9 @@ export class LeaveService {
        FROM leave_requests lr
        ${LEAVE_REQUEST_JOINS}
        WHERE lr.id = $1::uuid
-         AND ($2::uuid IS NULL OR lr.requester_id = $2::uuid)
-         AND ($3::text IS NULL OR ${userInUnit('lr.requester_id', '$3')})
-         AND ($4::uuid[] IS NULL OR lr.requester_id = ANY($4::uuid[]))
+         AND ${requesterScopeSql('lr.requester_id', 2)}
        LIMIT 1`,
-      [id, scope.requesterId, scope.unit, scope.requesterIds],
+      [id, ...requesterScopeParams(scope)],
     );
     if (!rows.length) throw new NotFoundException('leave_request_not_found');
     return rows[0];
@@ -305,13 +348,16 @@ export class LeaveService {
       throw new BadRequestException('invalid_date');
     }
 
-    // Calculate total days
+    // Leave counts working days (Mon–Fri). A half day is half of a single working day: one
+    // date, and that date a working day, as a full-day request must contain one.
+    if (dto.isHalfDay && fromDate !== toDate) {
+      throw new BadRequestException('half_day_requires_single_date');
+    }
     const weekdays = countWeekdays(fromDate, toDate);
-    const totalDays = dto.isHalfDay ? 0.5 : weekdays;
-
-    if (totalDays <= 0) {
+    if (weekdays <= 0) {
       throw new BadRequestException('invalid_date_range_no_working_days');
     }
+    const totalDays = dto.isHalfDay ? 0.5 : weekdays;
 
     // Balances are yearly: the leave draws on the year it starts in. A type with a yearly
     // limit gets its balance at the limit; a type without one (sick, maternity, unpaid
@@ -427,8 +473,10 @@ export class LeaveService {
       throw new ForbiddenException('insufficient_role_to_review');
     }
     const decision = action === 'approve' ? 'approved' : 'rejected';
-    const scope = await this.requesterScope(reviewer);
-    if (!scope) throw new NotFoundException('leave_request_not_found');
+    const scope = await this.requesterScope(reviewer, 'review');
+    if (reachesNobody(scope)) {
+      throw new NotFoundException('leave_request_not_found');
+    }
 
     // One transaction: concurrent reviewers serialise on the request row, and a balance
     // that no longer covers the leave undoes the whole decision
@@ -451,11 +499,10 @@ export class LeaveService {
                 (SELECT lt.max_days_per_year FROM leave_types lt WHERE lt.id = leave_type_id) AS "maxDaysPerYear"
          FROM leave_requests
          WHERE id = $1::uuid
-           AND ($2::text IS NULL OR ${userInUnit('requester_id', '$2')})
-           AND ($3::uuid[] IS NULL OR requester_id = ANY($3::uuid[]))
+           AND ${requesterScopeSql('requester_id', 2)}
          FOR UPDATE`,
         // Outside the reviewer's scope the request is not found
-        [id, scope.unit, scope.requesterIds],
+        [id, ...requesterScopeParams(scope)],
       );
       if (!rows.length) throw new NotFoundException('leave_request_not_found');
       const request = rows[0];
@@ -579,8 +626,8 @@ export class LeaveService {
     }
 
     const statusFilter: string | null = status ?? null;
-    const scope = await this.requesterScope(reviewer);
-    if (!scope) return [];
+    const scope = await this.requesterScope(reviewer, 'review');
+    if (reachesNobody(scope)) return [];
 
     const rows = await this.dataSource.query<
       {
@@ -608,10 +655,9 @@ export class LeaveService {
        JOIN users u ON u.id = lr.requester_id
        JOIN leave_types lt ON lt.id = lr.leave_type_id
        WHERE ($1::text IS NULL OR lr.status = $1::text)
-         AND ($2::text IS NULL OR ${userInUnit('lr.requester_id', '$2')})
-         AND ($3::uuid[] IS NULL OR lr.requester_id = ANY($3::uuid[]))
+         AND ${requesterScopeSql('lr.requester_id', 2)}
        ORDER BY lr.created_at DESC`,
-      [statusFilter, scope.unit, scope.requesterIds],
+      [statusFilter, ...requesterScopeParams(scope)],
     );
 
     return rows.map((r) => ({

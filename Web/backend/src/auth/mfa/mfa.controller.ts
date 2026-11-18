@@ -174,12 +174,14 @@ export class MfaController {
     );
   }
 
+  // { user, tokens }: disabling ends every session of the account, so the answer carries
+  // the new one (as POST /confirm does)
   @Post('disable')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @Throttle(MFA_THROTTLE)
-  async disable(@Body() dto: MfaDisableDto, @Req() req: SignedInRequest) {
-    await this.mfaService.disable(
+  disable(@Body() dto: MfaDisableDto, @Req() req: SignedInRequest) {
+    return this.mfaService.disable(
       req.user.sub,
       { method: dto.method, code: dto.code },
       requestContext(req),

@@ -423,11 +423,18 @@ export class MfaService {
     return { recoveryCodes: outcome.codes };
   }
 
+  /**
+   * Removes the factor once the caller proved it with a code. As with enrolment, every
+   * session, issued access token and open challenge of the account ends in the same
+   * transaction (whoever holds a token taken while MFA protected the account loses it),
+   * and the caller continues in a new session answered here, authenticated by the code
+   * just checked.
+   */
   async disable(
     userId: string,
     input: { method: MfaMethod; code: string },
     ctx?: RequestContext,
-  ): Promise<void> {
+  ): Promise<SignedInSession> {
     if (await this.roleRequiresMfa(this.dataSource, userId)) {
       throw new ForbiddenException('mfa_required_by_role');
     }
@@ -454,6 +461,7 @@ export class MfaService {
 
       await this.clearFactor(mgr, userId);
       await this.resetFailures(mgr, user);
+      await this.authState.invalidateUser(mgr, userId);
       await this.audit(
         mgr,
         userId,
@@ -467,6 +475,7 @@ export class MfaService {
 
     if (outcome === 'locked') throw lockedError();
     if (outcome !== 'ok') throw this.codeRejection(outcome === 'locked_now');
+    return this.authService.signInUser(userId, AMR[input.method], ctx);
   }
 
   // For a user who lost their authenticator and recovery codes. Every session, issued

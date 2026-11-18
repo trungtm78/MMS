@@ -3,13 +3,21 @@ import { ProfileController } from './profile.controller';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import type { JwtPayload } from '../auth/auth.service';
 
 const mockUsersService = {
   getProfile: jest.fn(),
   getPoliceProfile: jest.fn(),
 };
 
-const userReq = { user: { sub: 'user-1', role: 'ca_officer', unitScope: 'UNIT_001' } };
+const userReq: { user: JwtPayload } = {
+  user: {
+    sub: 'user-1',
+    username: 'ca_officer1',
+    role: 'ca_officer',
+    unitScope: 'UNIT_001',
+  },
+};
 
 describe('ProfileController', () => {
   let controller: ProfileController;
@@ -31,10 +39,14 @@ describe('ProfileController', () => {
 
   describe('getProfile', () => {
     it('returns profile for calling user', () => {
-      const profile = { id: 'user-1', username: 'ca_officer1', role: 'ca_officer' };
+      const profile = {
+        id: 'user-1',
+        username: 'ca_officer1',
+        role: 'ca_officer',
+      };
       mockUsersService.getProfile.mockReturnValueOnce(profile);
 
-      const result = controller.getProfile(userReq as any);
+      const result = controller.getProfile(userReq);
 
       expect(result).toEqual(profile);
       expect(mockUsersService.getProfile).toHaveBeenCalledWith('user-1');
@@ -45,16 +57,20 @@ describe('ProfileController', () => {
         throw new Error('not_found');
       });
 
-      expect(() => controller.getProfile(userReq as any)).toThrow('not_found');
+      expect(() => controller.getProfile(userReq)).toThrow('not_found');
     });
   });
 
   describe('getPoliceProfile', () => {
     it('returns police-specific profile', () => {
-      const policeProfile = { id: 'user-1', badgeNumber: 'CA001', rank: 'Trung úy' };
+      const policeProfile = {
+        id: 'user-1',
+        badgeNumber: 'CA001',
+        rank: 'Trung úy',
+      };
       mockUsersService.getPoliceProfile.mockReturnValueOnce(policeProfile);
 
-      const result = controller.getPoliceProfile(userReq as any);
+      const result = controller.getPoliceProfile(userReq);
 
       expect(result).toEqual(policeProfile);
       expect(mockUsersService.getPoliceProfile).toHaveBeenCalledWith('user-1');
@@ -65,7 +81,7 @@ describe('ProfileController', () => {
         throw new Error('not_found');
       });
 
-      expect(() => controller.getPoliceProfile(userReq as any)).toThrow('not_found');
+      expect(() => controller.getPoliceProfile(userReq)).toThrow('not_found');
     });
   });
 });

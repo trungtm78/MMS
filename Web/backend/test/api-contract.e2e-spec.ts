@@ -1170,6 +1170,69 @@ describe('API contract (e2e)', () => {
       }
     });
 
+    it('ends every session of the account when MFA is disabled, answering a new one for the caller', async () => {
+      const account = await createAccount();
+      const { secret, tokens } = await enrolFromSession(account);
+      // A second device signed in with password and code
+      const challenge = (await signIn(account.username, account.password))
+        .body as { mfaToken: string };
+      const other = (
+        await api()
+          .post(`/${PREFIX}/auth/mfa/verify`)
+          .send({
+            mfaToken: challenge.mfaToken,
+            method: 'totp',
+            code: await freshCode(account.id, secret),
+          })
+          .expect(200)
+      ).body as SignedIn;
+
+      const disabled = await api()
+        .post(`/${PREFIX}/auth/mfa/disable`)
+        .set(bearer(tokens.accessToken))
+        .send({ method: 'totp', code: await freshCode(account.id, secret) })
+        .expect(200);
+      const session = disabled.body as SignedIn;
+      expect(session.user).toEqual(expect.objectContaining({ id: account.id }));
+
+      // Neither the caller's former session nor the other device keeps working
+      for (const ended of [tokens, other.tokens]) {
+        await api()
+          .get(`/${PREFIX}/auth/me`)
+          .set(bearer(ended.accessToken))
+          .expect(401);
+        await api()
+          .post(`/${PREFIX}/auth/refresh`)
+          .send({ refreshToken: ended.refreshToken })
+          .expect(401);
+      }
+      // The caller continues in the session answered, which refreshes normally
+      await api()
+        .get(`/${PREFIX}/auth/me`)
+        .set(bearer(session.tokens.accessToken))
+        .expect(200);
+      await api()
+        .post(`/${PREFIX}/auth/refresh`)
+        .send({ refreshToken: session.tokens.refreshToken })
+        .expect(200);
+      const status = await db(async (c) => {
+        const { rows } = await c.query<{ mfa_enabled: boolean }>(
+          `SELECT mfa_enabled FROM users WHERE id = $1`,
+          [account.id],
+        );
+        return rows[0].mfa_enabled;
+      });
+      expect(status).toBe(false);
+      // A password alone signs in again
+      expect(
+        (
+          (await signIn(account.username, account.password)).body as {
+            status: string;
+          }
+        ).status,
+      ).toBe('SUCCESS');
+    });
+
     it('lets an administrator reset a lost authenticator, ending the sessions of that account', async () => {
       const account = await createAccount();
       const { tokens } = await enrolFromSession(account);
@@ -2622,6 +2685,83 @@ describe('API contract (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ action: 'approve' })
         .expect(403);
+    });
+
+    // A half day is half of a single working day
+    it('files a half day only on one working day', async () => {
+      const halfDay = (fromDate: string, toDate: string) =>
+        api()
+          .post(`/${PREFIX}/leave`)
+          .set('Authorization', `Bearer ${dqtvToken}`)
+          .send({
+            leaveTypeId,
+            fromDate,
+            toDate,
+            isHalfDay: true,
+            halfDayPeriod: 'morning',
+            reason: 'Khám bệnh',
+          });
+
+      // Monday 22 to Friday 26 March 2027
+      const range = await halfDay('2027-03-22', '2027-03-26').expect(400);
+      expect((range.body as { message: string }).message).toBe(
+        'half_day_requires_single_date',
+      );
+      // Saturday 27 March 2027
+      const weekend = await halfDay('2027-03-27', '2027-03-27').expect(400);
+      expect((weekend.body as { message: string }).message).toBe(
+        'invalid_date_range_no_working_days',
+      );
+
+      // Monday 22 March 2027
+      const filed = await halfDay('2027-03-22', '2027-03-22').expect(201);
+      expect(filed.body).toEqual(
+        expect.objectContaining({ isHalfDay: true, totalDays: 0.5 }),
+      );
+    });
+
+    // Reviewers request leave too: a CA officer reviews only the DQTV assigned to them,
+    // yet always reads their own requests
+    it('lets a CA officer read their own request', async () => {
+      await db((c) =>
+        c.query(
+          `INSERT INTO units (code, name, type) VALUES ('KV-LEAVE', 'Khu vực nghỉ phép', 'area')
+           ON CONFLICT (code) DO NOTHING`,
+        ),
+      );
+      const created = await api()
+        .post(`/${PREFIX}/admin/users`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          username: 'leave_ca_officer',
+          fullName: 'Cán bộ CA',
+          role: 'ca_officer',
+          unitCode: 'KV-LEAVE',
+        })
+        .expect(201);
+      const { temporaryPassword } = created.body as {
+        temporaryPassword: string;
+      };
+      const caToken = await login('leave_ca_officer', temporaryPassword);
+      const id = await createRequest(caToken, '2027-03-29', '2027-03-29');
+
+      await api()
+        .get(`/${PREFIX}/leave/${id}`)
+        .set('Authorization', `Bearer ${caToken}`)
+        .expect(200);
+      const listed = await api()
+        .get(`/${PREFIX}/leave`)
+        .set('Authorization', `Bearer ${caToken}`)
+        .expect(200);
+      expect(
+        (listed.body as { data: { id: string }[] }).data.map((r) => r.id),
+      ).toContain(id);
+      // Nothing to review: their own request is not among their approvals
+      const approvals = await api()
+        .get(`/${PREFIX}/approvals`)
+        .set('Authorization', `Bearer ${caToken}`)
+        .expect(200);
+      expect(approvals.body).toEqual([]);
     });
 
     it('answers 400 for malformed ids and dates', async () => {

@@ -72,10 +72,16 @@ describe('AdminController', () => {
       );
     });
 
-    it('clamps limit to 100', () => {
+    it('clamps limit to 100', async () => {
       mockAdminService.listUsers.mockReturnValueOnce({ data: [], total: 0 });
 
-      controller.listUsers(adminReq as never, 1, 999, undefined, undefined);
+      await controller.listUsers(
+        adminReq as never,
+        1,
+        999,
+        undefined,
+        undefined,
+      );
 
       expect(mockAdminService.listUsers).toHaveBeenCalledWith(
         adminReq.user,
@@ -100,15 +106,15 @@ describe('AdminController', () => {
 
   describe('createUser', () => {
     it('creates and returns user', () => {
-      const dto = {
+      const dto: CreateUserBodyDto = {
         username: 'newstaff',
-        password: 'Pass123',
+        fullName: 'New Staff',
         role: 'office_staff',
       };
       const created = { id: 'u-new', ...dto };
       mockAdminService.createUser.mockReturnValueOnce(created);
 
-      const result = controller.createUser(adminReq as never, dto as any);
+      const result = controller.createUser(adminReq as never, dto);
 
       expect(result).toEqual(created);
     });

@@ -4,6 +4,8 @@ import { OrganizationService } from './organization.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotFoundException } from '@nestjs/common';
+import { CreateUnitDto } from './dto/create-unit.dto';
+import { UpdatePositionDto } from './dto/update-position.dto';
 
 const mockOrganizationService = {
   getStructure: jest.fn(),
@@ -20,7 +22,9 @@ describe('OrganizationController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrganizationController],
-      providers: [{ provide: OrganizationService, useValue: mockOrganizationService }],
+      providers: [
+        { provide: OrganizationService, useValue: mockOrganizationService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
@@ -53,21 +57,26 @@ describe('OrganizationController', () => {
   });
 
   describe('createUnit', () => {
+    const dto: CreateUnitDto = { name: 'Tiểu đội 2', type: 'tieu_doi' };
+
     it('creates and returns unit', async () => {
-      const dto = { unitCode: 'UNIT_002', name: 'Khu phố 2', unitType: 'ward' };
       const created = { id: 'unit-new', ...dto };
       mockOrganizationService.createUnit.mockResolvedValueOnce(created);
 
-      const result = await controller.createUnit(dto as any);
+      const result = await controller.createUnit(dto);
 
       expect(result).toEqual(created);
       expect(mockOrganizationService.createUnit).toHaveBeenCalledWith(dto);
     });
 
     it('propagates error on duplicate unit code', async () => {
-      mockOrganizationService.createUnit.mockRejectedValueOnce(new Error('duplicate_code'));
+      mockOrganizationService.createUnit.mockRejectedValueOnce(
+        new Error('duplicate_code'),
+      );
 
-      await expect(controller.createUnit({} as any)).rejects.toThrow('duplicate_code');
+      await expect(controller.createUnit(dto)).rejects.toThrow(
+        'duplicate_code',
+      );
     });
   });
 
@@ -82,9 +91,13 @@ describe('OrganizationController', () => {
     });
 
     it('propagates NotFoundException for unknown id', async () => {
-      mockOrganizationService.getUnitById.mockRejectedValueOnce(new NotFoundException());
+      mockOrganizationService.getUnitById.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
-      await expect(controller.getUnit('bad')).rejects.toThrow(NotFoundException);
+      await expect(controller.getUnit('bad')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -93,16 +106,25 @@ describe('OrganizationController', () => {
       const updated = { id: 'unit-1', name: 'New Name' };
       mockOrganizationService.updateUnit.mockResolvedValueOnce(updated);
 
-      const result = await controller.updateUnit('unit-1', { name: 'New Name' } as any);
+      const result = await controller.updateUnit('unit-1', {
+        name: 'New Name',
+      });
 
       expect(result).toEqual(updated);
-      expect(mockOrganizationService.updateUnit).toHaveBeenCalledWith('unit-1', { name: 'New Name' });
+      expect(mockOrganizationService.updateUnit).toHaveBeenCalledWith(
+        'unit-1',
+        { name: 'New Name' },
+      );
     });
 
     it('propagates NotFoundException', async () => {
-      mockOrganizationService.updateUnit.mockRejectedValueOnce(new NotFoundException());
+      mockOrganizationService.updateUnit.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
-      await expect(controller.updateUnit('bad', {} as any)).rejects.toThrow(NotFoundException);
+      await expect(controller.updateUnit('bad', {})).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -115,27 +137,39 @@ describe('OrganizationController', () => {
     });
 
     it('propagates NotFoundException for unknown unit', async () => {
-      mockOrganizationService.deleteUnit.mockRejectedValueOnce(new NotFoundException());
+      mockOrganizationService.deleteUnit.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
-      await expect(controller.deleteUnit('bad')).rejects.toThrow(NotFoundException);
+      await expect(controller.deleteUnit('bad')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('updatePosition', () => {
     it('updates position and returns result', async () => {
-      const updated = { id: 'pos-1', title: 'Commander' };
+      const dto: UpdatePositionDto = { name: 'Commander' };
+      const updated = { id: 'pos-1', name: 'Commander' };
       mockOrganizationService.updatePosition.mockResolvedValueOnce(updated);
 
-      const result = await controller.updatePosition('pos-1', { title: 'Commander' } as any);
+      const result = await controller.updatePosition('pos-1', dto);
 
       expect(result).toEqual(updated);
-      expect(mockOrganizationService.updatePosition).toHaveBeenCalledWith('pos-1', { title: 'Commander' });
+      expect(mockOrganizationService.updatePosition).toHaveBeenCalledWith(
+        'pos-1',
+        { name: 'Commander' },
+      );
     });
 
     it('propagates NotFoundException for unknown position', async () => {
-      mockOrganizationService.updatePosition.mockRejectedValueOnce(new NotFoundException());
+      mockOrganizationService.updatePosition.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
-      await expect(controller.updatePosition('bad', {} as any)).rejects.toThrow(NotFoundException);
+      await expect(controller.updatePosition('bad', {})).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

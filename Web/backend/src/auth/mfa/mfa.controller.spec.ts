@@ -111,6 +111,9 @@ describe('MfaController', () => {
   });
 
   it('manages the factor of the signed-in user only', async () => {
+    // Disabling ends every session of the account: the answer carries the new one
+    const session = { user: { id: 'user-1' }, tokens: { accessToken: 'a' } };
+    mfa.disable.mockResolvedValueOnce(session);
     await controller.status(signedIn);
     await controller.regenerateRecoveryCodes({ code: '123456' }, signedIn);
     await expect(
@@ -118,7 +121,7 @@ describe('MfaController', () => {
         { method: 'recovery_code', code: 'ABCDE-FGHJK' },
         signedIn,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(session);
 
     expect(mfa.status).toHaveBeenCalledWith('user-1');
     expect(mfa.regenerateRecoveryCodes).toHaveBeenCalledWith(
@@ -155,7 +158,7 @@ describe('MfaController', () => {
         true,
         200,
       ],
-      ['disable', RequestMethod.POST, 'disable', true, 204],
+      ['disable', RequestMethod.POST, 'disable', true, 200],
     ] as const)('%s: %s %s', (name, method, path, signedInOnly, httpCode) => {
       const handler = handlerOf(MfaController.prototype, name);
       expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(method);

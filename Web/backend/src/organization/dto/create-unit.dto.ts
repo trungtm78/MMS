@@ -1,29 +1,37 @@
-import { IsString, IsNotEmpty, IsOptional, IsIn, IsUUID, Length, IsNumber } from 'class-validator'
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsIn,
+  IsUUID,
+  Length,
+  IsNumber,
+} from 'class-validator';
 
 export class CreateUnitDto {
   @IsString()
   @IsNotEmpty()
   @Length(1, 200)
-  name: string
+  name: string;
 
   @IsString()
   @IsNotEmpty()
   @IsIn(['tieu_doi', 'trung_doi', 'dai_doi'])
-  type: 'tieu_doi' | 'trung_doi' | 'dai_doi'
+  type: 'tieu_doi' | 'trung_doi' | 'dai_doi';
 
   @IsOptional()
   @IsUUID()
-  parentId?: string
+  parentId?: string;
 
   @IsOptional()
   @IsUUID()
-  commanderId?: string
+  commanderId?: string;
 
   @IsOptional()
   @IsNumber()
-  capacity?: number
+  capacity?: number;
 
   @IsOptional()
   @IsString()
-  wardId?: string
+  wardId?: string;
 }

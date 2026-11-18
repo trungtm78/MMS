@@ -86,10 +86,10 @@ describe('WorkReportsController', () => {
       });
     });
 
-    it('passes type and author filters', () => {
+    it('passes type and author filters', async () => {
       mockWorkReportsService.list.mockReturnValueOnce({ data: [], total: 0 });
 
-      controller.list(caReq, {
+      await controller.list(caReq, {
         type: 'daily',
         userId: AUTHOR_ID,
         page: 2,
@@ -124,13 +124,13 @@ describe('WorkReportsController', () => {
   });
 
   describe('review', () => {
-    it('passes the report id, decision and reviewer to the service', () => {
+    it('passes the report id, decision and reviewer to the service', async () => {
       mockWorkReportsService.review.mockReturnValueOnce({
         id: 'wr-1',
         reviewStatus: 'rejected',
       });
 
-      controller.review(caReq, 'wr-1', {
+      await controller.review(caReq, 'wr-1', {
         reviewStatus: 'rejected',
         reviewNote: 'Incomplete',
       });

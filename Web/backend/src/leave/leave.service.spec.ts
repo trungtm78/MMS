@@ -154,6 +154,45 @@ describe('LeaveService', () => {
       expect(insertParams[9]).toBe(0.5);
     });
 
+    // A half day is half of one working day: not a range, and not a weekend day
+    it.each([
+      [
+        'spans more than one date',
+        { fromDate: '2026-04-28', toDate: '2026-04-29' },
+        'half_day_requires_single_date',
+      ],
+      [
+        'spans a weekend',
+        { fromDate: '2026-05-02', toDate: '2026-05-03' },
+        'half_day_requires_single_date',
+      ],
+      [
+        'falls on a Saturday',
+        { fromDate: '2026-05-02', toDate: '2026-05-02' },
+        'invalid_date_range_no_working_days',
+      ],
+      [
+        'falls on a Sunday',
+        { fromDate: '2026-05-03', toDate: '2026-05-03' },
+        'invalid_date_range_no_working_days',
+      ],
+    ])(
+      'refuses a half-day request that %s, before checking balances',
+      async (_label, dates, code) => {
+        mockDataSource.query.mockResolvedValueOnce([annualType]);
+
+        await expect(
+          service.createLeaveRequest(regularUser, {
+            ...baseDto,
+            ...dates,
+            isHalfDay: true,
+            halfDayPeriod: 'morning',
+          }),
+        ).rejects.toThrow(new BadRequestException(code));
+        expect(mockDataSource.query).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it('throws NotFoundException when leave_type not found', async () => {
       mockDataSource.query.mockResolvedValueOnce([]); // leave type not found
       await expect(
@@ -638,7 +677,13 @@ describe('LeaveService', () => {
 
       for (const call of [0, 1]) {
         expect(sqlOf(call)).toMatch(/militia_profiles[\s\S]*user_unit_scopes/);
-        expect(paramsOf(call).slice(0, 4)).toEqual([null, null, 'KV1', null]);
+        // Their unit, and their own requests wherever they are
+        expect(paramsOf(call).slice(0, 4)).toEqual([
+          false,
+          'KV1',
+          ['area-001'],
+          null,
+        ]);
       }
     });
 
@@ -649,7 +694,7 @@ describe('LeaveService', () => {
 
       await service.listLeaveRequests(regularUser, { status: 'pending' });
 
-      expect(paramsOf(0)).toEqual(['user-001', 'pending', null, null]);
+      expect(paramsOf(0)).toEqual([false, null, ['user-001'], 'pending']);
     });
 
     // Reviewers also request leave: "my requests" must not mean their whole unit
@@ -660,17 +705,26 @@ describe('LeaveService', () => {
 
       await service.listLeaveRequests(areaOfficer, { mine: true });
 
-      expect(paramsOf(0)).toEqual(['area-001', null, null, null]);
+      expect(paramsOf(0)).toEqual([false, null, ['area-001'], null]);
       expect(mockAssignments.getAssignedDqtvIds).not.toHaveBeenCalled();
     });
 
-    it('refuses lists to an area reviewer without a unit scope', async () => {
-      await expect(
-        service.listLeaveRequests(areaWithoutScope, {}),
-      ).rejects.toThrow(new ForbiddenException('no_unit_scope'));
+    // A missing unit scope never widens an area role; their own requests stay readable
+    it('shows an area reviewer without a unit scope only their own requests, and no approvals', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ count: '0' }])
+        .mockResolvedValueOnce([]);
+
+      await service.listLeaveRequests(areaWithoutScope, {});
+      expect(paramsOf(0)).toEqual([false, null, ['area-001'], null]);
+
+      mockDataSource.query.mockClear();
       await expect(service.listApprovals(areaWithoutScope)).rejects.toThrow(
         new ForbiddenException('no_unit_scope'),
       );
+      await expect(
+        service.reviewLeaveRequest(areaWithoutScope, 'lr-001', 'approve'),
+      ).rejects.toThrow(new ForbiddenException('no_unit_scope'));
       expect(mockDataSource.query).not.toHaveBeenCalled();
     });
 
@@ -679,7 +733,7 @@ describe('LeaveService', () => {
 
       await service.listApprovals(areaOfficer, 'pending');
 
-      expect(paramsOf(0)).toEqual(['pending', 'KV1', null]);
+      expect(paramsOf(0)).toEqual(['pending', false, 'KV1', []]);
       expect(sqlOf(0)).toMatch(/user_unit_scopes/);
     });
 
@@ -689,7 +743,7 @@ describe('LeaveService', () => {
       await expect(
         service.reviewLeaveRequest(areaOfficer, 'lr-001', 'approve'),
       ).rejects.toThrow(new NotFoundException('leave_request_not_found'));
-      expect(paramsOf(0)).toEqual(['lr-001', 'KV1', null]);
+      expect(paramsOf(0)).toEqual(['lr-001', false, 'KV1', []]);
     });
 
     it("hides other people's requests from non-reviewers", async () => {
@@ -698,7 +752,7 @@ describe('LeaveService', () => {
       await expect(
         service.getLeaveRequest(regularUser, 'lr-001'),
       ).rejects.toThrow(new NotFoundException('leave_request_not_found'));
-      expect(paramsOf(0)).toEqual(['lr-001', 'user-001', null, null]);
+      expect(paramsOf(0)).toEqual(['lr-001', false, null, ['user-001']]);
     });
 
     it('lets reviewers read requests in their unit', async () => {
@@ -706,7 +760,7 @@ describe('LeaveService', () => {
 
       await service.getLeaveRequest(areaOfficer, 'lr-001');
 
-      expect(paramsOf(0)).toEqual(['lr-001', null, 'KV1', null]);
+      expect(paramsOf(0)).toEqual(['lr-001', false, 'KV1', ['area-001']]);
     });
 
     // PoliceApp US-007: CA officers approve the leave of the militia members they supervise
@@ -728,7 +782,7 @@ describe('LeaveService', () => {
 
       await service.listApprovals(caWard, 'pending');
 
-      expect(paramsOf(0)).toEqual(['pending', 'KV1', null]);
+      expect(paramsOf(0)).toEqual(['pending', false, 'KV1', []]);
     });
 
     it('limits CA officers to the DQTV assigned to them', async () => {
@@ -743,8 +797,13 @@ describe('LeaveService', () => {
       await service.listLeaveRequests(caOfficer, {});
 
       expect(mockAssignments.getAssignedDqtvIds).toHaveBeenCalledWith('ca-1');
-      expect(paramsOf(0)).toEqual([null, null, null, ['dq-1', 'dq-2']]);
-      expect(sqlOf(0)).toMatch(/lr\.requester_id = ANY\(\$4::uuid\[\]\)/);
+      expect(paramsOf(0)).toEqual([
+        false,
+        null,
+        ['ca-1', 'dq-1', 'dq-2'],
+        null,
+      ]);
+      expect(sqlOf(0)).toMatch(/lr\.requester_id = ANY\(\$3::uuid\[\]\)/);
     });
 
     it('reviews for a CA officer only requests by assigned DQTV', async () => {
@@ -754,29 +813,71 @@ describe('LeaveService', () => {
       await expect(
         service.reviewLeaveRequest(caOfficer, 'lr-001', 'approve'),
       ).rejects.toThrow(new NotFoundException('leave_request_not_found'));
-      expect(paramsOf(0)).toEqual(['lr-001', null, ['dq-1']]);
+      expect(paramsOf(0)).toEqual(['lr-001', false, null, ['dq-1']]);
     });
 
-    it('shows a CA officer without assignments nothing, without querying', async () => {
-      for (let i = 0; i < 4; i++) {
-        mockAssignments.getAssignedDqtvIds.mockResolvedValueOnce([]);
-      }
+    it('shows a CA officer without assignments no approvals, without querying', async () => {
+      mockAssignments.getAssignedDqtvIds.mockResolvedValue([]);
 
-      await expect(service.listLeaveRequests(caOfficer, {})).resolves.toEqual({
-        data: [],
-        total: 0,
-        page: 1,
-        limit: 20,
-      });
       await expect(service.listApprovals(caOfficer)).resolves.toEqual([]);
-      await expect(
-        service.getLeaveRequest(caOfficer, 'lr-001'),
-      ).rejects.toThrow(new NotFoundException('leave_request_not_found'));
       await expect(
         service.reviewLeaveRequest(caOfficer, 'lr-001', 'approve'),
       ).rejects.toThrow(new NotFoundException('leave_request_not_found'));
       expect(mockDataSource.query).not.toHaveBeenCalled();
     });
+
+    // Reviewers request leave too: whatever they review, their own requests stay theirs
+    it('lets a CA officer read their own request, outside the DQTV they review', async () => {
+      mockAssignments.getAssignedDqtvIds.mockResolvedValue([]);
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'lr-own', requesterId: 'ca-1' }])
+        .mockResolvedValueOnce([{ count: '1' }])
+        .mockResolvedValueOnce([{ id: 'lr-own' }]);
+
+      await expect(
+        service.getLeaveRequest(caOfficer, 'lr-own'),
+      ).resolves.toMatchObject({ id: 'lr-own' });
+      expect(paramsOf(0)).toEqual(['lr-own', false, null, ['ca-1']]);
+
+      await expect(service.listLeaveRequests(caOfficer, {})).resolves.toEqual(
+        expect.objectContaining({ total: 1, data: [{ id: 'lr-own' }] }),
+      );
+      expect(paramsOf(1)).toEqual([false, null, ['ca-1'], null]);
+    });
+
+    it('lets a wide reviewer read every request', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'lr-001' }]);
+
+      await service.getLeaveRequest(adminUser, 'lr-001');
+
+      expect(paramsOf(0)).toEqual(['lr-001', true, null, ['admin-001']]);
+    });
+
+    // Each role held grants what it grants: a unit role and ca_officer reach the union,
+    // whichever is the primary role
+    it.each(['police_area', 'ca_officer'])(
+      'gives a holder of police_area and ca_officer their unit and their DQTV (primary %s)',
+      async (primary) => {
+        mockAssignments.getAssignedDqtvIds.mockResolvedValue(['dq-1']);
+        mockDataSource.query.mockResolvedValueOnce([]);
+
+        await service.listApprovals(
+          {
+            sub: 'pc-1',
+            username: 'pc',
+            role: primary,
+            roles: ['police_area', 'ca_officer'],
+            unitScope: 'KV1',
+          },
+          'pending',
+        );
+
+        expect(paramsOf(0)).toEqual(['pending', false, 'KV1', ['dq-1']]);
+        expect(sqlOf(0)).toMatch(
+          /\$2::boolean OR \(\$3::text IS NOT NULL AND[\s\S]*user_unit_scopes[\s\S]*\) OR lr\.requester_id = ANY\(\$4::uuid\[\]\)/,
+        );
+      },
+    );
   });
 
   // ── leave types ─────────────────────────────────────────────────────────

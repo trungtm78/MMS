@@ -10,6 +10,10 @@ import type { Server, Socket } from 'socket.io';
 import { ChatService } from '../chat/chat.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { AuthStateService } from '../auth/auth-state.service';
+import {
+  AuthRevocationFeed,
+  type AuthRevocationSubscriber,
+} from '../auth/auth-revocation-feed';
 
 const CONV_ID = '0b6f3c1e-3a53-4f4f-9d1a-6c1c2f7f1a01';
 
@@ -21,7 +25,9 @@ const chatService = {
 const jwtVerify = jest.fn();
 const configGet = jest.fn();
 const emit = jest.fn();
-const authState = { isAccessValid: jest.fn() };
+const authState = { isAccessValid: jest.fn(), validAccess: jest.fn() };
+const unsubscribe = jest.fn();
+const revocationFeed = { subscribe: jest.fn() };
 
 function socket(sub?: string) {
   return {
@@ -45,8 +51,10 @@ describe('NotificationsGateway', () => {
         { provide: ConfigService, useValue: { get: configGet } },
         { provide: ChatService, useValue: chatService },
         { provide: AuthStateService, useValue: authState },
+        { provide: AuthRevocationFeed, useValue: revocationFeed },
       ],
     }).compile();
+    revocationFeed.subscribe.mockReturnValue(unsubscribe);
     gateway = module.get(NotificationsGateway);
     to = jest.fn(() => ({ emit }));
     gateway.server = { to } as unknown as Server;
@@ -177,8 +185,10 @@ describe('NotificationsGateway', () => {
   describe('connection', () => {
     const connected = (user?: Record<string, unknown>) =>
       ({
+        id: 'socket-1',
         data: { user },
         join: jest.fn(),
+        emit: jest.fn(),
         disconnect: jest.fn(),
       }) as unknown as Socket & { join: jest.Mock; disconnect: jest.Mock };
 
@@ -241,6 +251,306 @@ describe('NotificationsGateway', () => {
 
       const rooms = client.join.mock.calls.map(([room]) => String(room));
       expect(rooms.filter((room) => room.startsWith('gps:'))).toEqual([]);
+    });
+  });
+
+  // A socket stays in user:, unit: and GPS rooms after connecting, receiving what the server
+  // pushes without emitting anything: it is closed when its token expires and as soon as its
+  // session ends, not only when it next emits an event
+  describe('server-side session end', () => {
+    const USER = '11111111-1111-4111-8111-111111111111';
+    const SID = '5d0c7a3e-9f1b-4c2d-8e6f-1a2b3c4d5e6f';
+    const OTHER_SID = '6e1d8b4f-0a2c-4d3e-9f70-2b3c4d5e6f70';
+    const NOW_S = Math.floor(Date.UTC(2026, 10, 18, 3, 0, 0) / 1000);
+
+    type FakeSocket = Socket & {
+      join: jest.Mock;
+      emit: jest.Mock;
+      disconnect: jest.Mock;
+    };
+    let sequence = 0;
+    const live = (claims: Record<string, unknown> = {}): FakeSocket =>
+      ({
+        id: `socket-${++sequence}`,
+        data: {
+          user: {
+            sub: USER,
+            role: 'police_area',
+            unitScope: 'KV1',
+            typ: 'access',
+            sid: SID,
+            ver: 3,
+            exp: NOW_S + 900,
+            ...claims,
+          },
+        },
+        join: jest.fn(),
+        emit: jest.fn(),
+        disconnect: jest.fn(),
+      }) as unknown as FakeSocket;
+
+    // The sockets this replica holds, all of them or those of a room
+    let localSockets: FakeSocket[];
+    let roomQueried: string[];
+    let subscriber: AuthRevocationSubscriber;
+
+    const notTold = (client: FakeSocket) => {
+      expect(client.emit).not.toHaveBeenCalled();
+      expect(client.disconnect).not.toHaveBeenCalled();
+    };
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: NOW_S * 1000 });
+      localSockets = [];
+      roomQueried = [];
+      gateway.server = {
+        to,
+        local: {
+          in: (room: string) => {
+            roomQueried.push(room);
+            return {
+              fetchSockets: () =>
+                Promise.resolve(
+                  localSockets.filter(
+                    (client) =>
+                      room ===
+                      `user:${(client.data as { user: { sub: string } }).user.sub}`,
+                  ),
+                ),
+            };
+          },
+          fetchSockets: () => Promise.resolve(localSockets),
+        },
+      } as unknown as Server;
+      gateway.afterInit({ use: jest.fn() } as unknown as Server);
+      [[subscriber]] = revocationFeed.subscribe.mock.calls as [
+        [AuthRevocationSubscriber],
+      ];
+    });
+
+    afterEach(() => {
+      gateway.onModuleDestroy();
+      jest.useRealTimers();
+    });
+
+    it('subscribes to the revocation feed once initialised, and stops on shutdown', () => {
+      expect(revocationFeed.subscribe).toHaveBeenCalledTimes(1);
+
+      gateway.onModuleDestroy();
+
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    describe('token expiry', () => {
+      it('closes the socket when its access token expires, saying why', async () => {
+        const client = live({ exp: NOW_S + 60 });
+        gateway.handleConnection(client);
+
+        await jest.advanceTimersByTimeAsync(59_000);
+        notTold(client);
+        await jest.advanceTimersByTimeAsync(1_000);
+
+        toldBeforeDisconnect(client, 'token_expired');
+      });
+
+      it('closes at once a socket whose token expired before it connected', () => {
+        const client = live({ exp: NOW_S });
+
+        gateway.handleConnection(client);
+
+        toldBeforeDisconnect(client, 'token_expired');
+      });
+
+      it('forgets the timer of a socket that disconnected', async () => {
+        const client = live({ exp: NOW_S + 60 });
+        gateway.handleConnection(client);
+
+        gateway.handleDisconnect(client);
+        await jest.advanceTimersByTimeAsync(120_000);
+
+        notTold(client);
+        expect(jest.getTimerCount()).toBe(0);
+      });
+
+      // setTimeout cannot wait longer than about 24.8 days
+      it('waits out a lifetime longer than one timer can', async () => {
+        const days30 = 30 * 86_400;
+        const client = live({ exp: NOW_S + days30 });
+        gateway.handleConnection(client);
+
+        await jest.advanceTimersByTimeAsync(25 * 86_400_000);
+        notTold(client);
+        await jest.advanceTimersByTimeAsync(5 * 86_400_000);
+
+        toldBeforeDisconnect(client, 'token_expired');
+      });
+    });
+
+    describe('revocation', () => {
+      it("closes only the sockets of the session that ended, in that user's room", async () => {
+        const ended = live();
+        const sameUserOtherSession = live({ sid: OTHER_SID });
+        const otherUser = live({ sub: '22222222-2222-4222-8222-222222222222' });
+        localSockets = [ended, sameUserOtherSession, otherUser];
+
+        subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
+        await flush();
+
+        expect(roomQueried).toEqual([`user:${USER}`]);
+        toldBeforeDisconnect(ended, 'session_revoked');
+        notTold(sameUserOtherSession);
+        notTold(otherUser);
+      });
+
+      it('closes the sockets of tokens issued before the account changed', async () => {
+        const before = live({ ver: 3 });
+        const after = live({ sid: OTHER_SID, ver: 4 });
+        localSockets = [before, after];
+
+        subscriber.revoked({
+          kind: 'account',
+          userId: USER,
+          version: 4,
+          active: true,
+        });
+        await flush();
+
+        toldBeforeDisconnect(before, 'session_revoked');
+        notTold(after);
+      });
+
+      it('closes every socket of an account that is no longer active', async () => {
+        const sockets = [live({ ver: 4 }), live({ sid: OTHER_SID, ver: 4 })];
+        localSockets = sockets;
+
+        subscriber.revoked({
+          kind: 'account',
+          userId: USER,
+          version: 4,
+          active: false,
+        });
+        await flush();
+
+        sockets.forEach((client) =>
+          toldBeforeDisconnect(client, 'session_revoked'),
+        );
+      });
+
+      // The handshake may have read the session just before the change committed: a socket
+      // connecting after the notification arrived is closed as it connects
+      it('closes a socket that connects just after its session ended', async () => {
+        subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
+        subscriber.revoked({
+          kind: 'account',
+          userId: '22222222-2222-4222-8222-222222222222',
+          version: 9,
+          active: true,
+        });
+        await flush();
+        const late = live();
+        const lateOldVersion = live({
+          sub: '22222222-2222-4222-8222-222222222222',
+          ver: 8,
+        });
+        const unaffected = live({ sid: OTHER_SID });
+
+        for (const client of [late, lateOldVersion, unaffected]) {
+          gateway.handleConnection(client);
+        }
+
+        toldBeforeDisconnect(late, 'session_revoked');
+        expect(late.join).not.toHaveBeenCalled();
+        toldBeforeDisconnect(lateOldVersion, 'session_revoked');
+        notTold(unaffected);
+        expect(unaffected.join).toHaveBeenCalledWith(`user:${USER}`);
+      });
+
+      it('forgets ended sessions after a while', async () => {
+        subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
+        await flush();
+        await jest.advanceTimersByTimeAsync(10 * 60_000);
+        // Recording another revocation sweeps the expired ones
+        subscriber.revoked({
+          kind: 'session',
+          userId: USER,
+          sessionId: OTHER_SID,
+        });
+        await flush();
+        const client = live({ exp: NOW_S + 3_600 });
+
+        gateway.handleConnection(client);
+
+        notTold(client);
+      });
+
+      it('logs instead of failing when the sockets cannot be looked up', async () => {
+        const warn = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+        gateway.server = {
+          local: {
+            in: () => ({
+              fetchSockets: () => Promise.reject(new Error('adapter down')),
+            }),
+          },
+        } as unknown as Server;
+
+        subscriber.revoked({ kind: 'session', userId: USER, sessionId: SID });
+        await flush();
+
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('adapter down'),
+        );
+        warn.mockRestore();
+      });
+    });
+
+    // Notifications sent while the feed was disconnected are lost: every socket is re-checked
+    describe('resync', () => {
+      it('re-checks every socket of the replica in one batch and closes those whose session ended', async () => {
+        const kept = live();
+        const ended = live({ sid: OTHER_SID });
+        localSockets = [kept, ended];
+        authState.validAccess.mockResolvedValueOnce([true, false]);
+
+        subscriber.resync();
+        await flush();
+
+        const claimsOf = (client: FakeSocket) =>
+          (client.data as { user: Record<string, unknown> }).user;
+        expect(authState.validAccess).toHaveBeenCalledWith([
+          claimsOf(kept),
+          claimsOf(ended),
+        ]);
+        notTold(kept);
+        toldBeforeDisconnect(ended, 'session_revoked');
+      });
+
+      it('does not query when the replica holds no socket', async () => {
+        subscriber.resync();
+        await flush();
+
+        expect(authState.validAccess).not.toHaveBeenCalled();
+      });
+
+      it('keeps the sockets and logs when the sessions cannot be checked', async () => {
+        const warn = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+        const client = live();
+        localSockets = [client];
+        authState.validAccess.mockRejectedValueOnce(new Error('db down'));
+
+        subscriber.resync();
+        await flush();
+
+        notTold(client);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('db down'));
+        warn.mockRestore();
+      });
     });
   });
 

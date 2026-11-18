@@ -12,7 +12,6 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -80,13 +79,6 @@ export class CheckInDto {
   @IsOptional()
   @IsString()
   source?: string;
-}
-
-export class CheckOutDto {
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => LocationDto)
-  location?: LocationDto;
 }
 
 @Controller('attendance')
@@ -217,15 +209,13 @@ export class AttendanceController {
     return this.attendanceService.checkIn(req.user.sub, dto);
   }
 
-  // POST /attendance/check-out — mobile self-service check-out
+  // POST /attendance/check-out — mobile self-service check-out. Clients may send a
+  // location, but check-out records only the time, so the request body is not read.
   @Post('check-out')
   @Roles('dqtv_member', 'dqtv', 'system_admin')
   @HttpCode(HttpStatus.OK)
-  async checkOut(
-    @Request() req: { user: JwtPayload },
-    @Body() dto: CheckOutDto,
-  ) {
-    return this.attendanceService.checkOut(req.user.sub, dto);
+  async checkOut(@Request() req: { user: JwtPayload }) {
+    return this.attendanceService.checkOut(req.user.sub);
   }
 
   // GET /attendance/today — today's status for current user

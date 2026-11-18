@@ -71,10 +71,6 @@ export interface CheckInDto {
   source?: string;
 }
 
-export interface CheckOutDto {
-  location?: { lat?: number; lng?: number; accuracy?: number };
-}
-
 export interface TodayStatusResult {
   status: string;
   checkinAt: Date | null;
@@ -378,11 +374,8 @@ export class AttendanceService {
     };
   }
 
-  // Mobile: check-out for current user
-  async checkOut(
-    userId: string,
-    _dto: CheckOutDto,
-  ): Promise<{
+  // Mobile: check-out for current user; records the time only
+  async checkOut(userId: string): Promise<{
     id: string;
     militiaId: string;
     status: string;

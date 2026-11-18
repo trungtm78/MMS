@@ -66,7 +66,7 @@ describe('AuthService', () => {
     createQueryBuilder: jest.fn(),
   };
 
-  const mockManager = { query: jest.fn() };
+  const mockManager = { query: jest.fn(), findOneOrFail: jest.fn() };
   const mockDataSource = {
     query: jest.fn(),
     transaction: jest.fn(),
@@ -483,14 +483,17 @@ describe('AuthService', () => {
         if (/INSERT INTO sessions/.test(sql)) {
           return Promise.resolve([{ auth_version: '3' }]);
         }
+        if (/FROM user_roles/.test(sql)) return Promise.resolve(roles);
+        if (/FROM user_unit_scopes|FROM system_settings/.test(sql)) {
+          return Promise.resolve([]);
+        }
         return Promise.resolve([[], 1]);
       });
-      mockDataSource.query.mockImplementation((sql: string) =>
-        Promise.resolve(/FROM user_roles/.test(sql) ? roles : []),
-      );
-      mockUserRepo.findOneOrFail.mockResolvedValue(
+      mockManager.findOneOrFail.mockResolvedValue(
         tokenUser({ id: USER, role: undefined }),
       );
+      // No session_timeout_minutes setting: the configured lifetime applies
+      mockDataSource.query.mockResolvedValue([]);
     }
 
     const managerInserts = () =>
@@ -521,6 +524,47 @@ describe('AuthService', () => {
         ).map(([, params]) => params),
       ).toEqual([[SID, newSid]]);
       expect(tokens.refreshToken).toBe(`refresh.token.${String(newSid)}`);
+    });
+
+    // The session row lock is held on one pooled connection: a read on another connection
+    // would wait for a second one (exhausting the pool under a burst of refreshes) and
+    // would not see the snapshot the decision was made on
+    test('reads the account on the connection holding the session lock', async () => {
+      database(sessionState());
+
+      await service.refreshTokens(REFRESH);
+
+      expect(mockUserRepo.findOneOrFail).not.toHaveBeenCalled();
+      expect(mockManager.findOneOrFail).toHaveBeenCalledWith(User, {
+        where: { id: USER },
+      });
+      expect(
+        callsWith(mockManager.query, /^SELECT r.code FROM user_roles/),
+      ).toHaveLength(1);
+      expect(
+        callsWith(mockManager.query, /FROM user_unit_scopes/),
+      ).toHaveLength(1);
+      // The access-token lifetime setting is read before the lock is taken: a failed
+      // read there falls back to the configured lifetime, which inside the transaction
+      // would have aborted it
+      expect(callsWith(mockManager.query, /FROM system_settings/)).toHaveLength(
+        0,
+      );
+      const settingsReads = callsWith(mockDataSource.query, /./);
+      expect(settingsReads).toHaveLength(1);
+      expect(String(settingsReads[0][0])).toMatch(/FROM system_settings/);
+      expect(mockDataSource.query.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDataSource.transaction.mock.invocationCallOrder[0],
+      );
+    });
+
+    test('issues the access token for the configured session timeout', async () => {
+      database(sessionState());
+      mockDataSource.query.mockResolvedValue([{ value: '42' }]);
+
+      const tokens = await service.refreshTokens(REFRESH);
+
+      expect(tokens.expiresIn).toBe(42 * 60);
     });
 
     test.each([

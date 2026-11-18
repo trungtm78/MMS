@@ -60,6 +60,81 @@ describe('AuthStateService', () => {
     });
   });
 
+  // The realtime gateway re-checks every socket it holds in one round trip
+  describe('validAccess', () => {
+    const SID2 = '6e1d8b4f-0a2c-4d3e-9f70-2b3c4d5e6f70';
+    const SID3 = '7f2e9c50-1b3d-4e4f-8a81-3c4d5e6f7081';
+
+    it('answers, in order, which tokens still work, in one query', async () => {
+      dataSource.query.mockResolvedValueOnce([{ i: '1' }, { i: '3' }]);
+
+      await expect(
+        service.validAccess([
+          { sub: USER, sid: SID, ver: 3 },
+          { sub: USER, sid: SID2, ver: 2 },
+          { sub: USER, sid: SID3, ver: 3 },
+        ]),
+      ).resolves.toEqual([true, false, true]);
+
+      expect(dataSource.query).toHaveBeenCalledTimes(1);
+      const sql = sqlAt(dataSource.query, 0);
+      expect(sql).toMatch(
+        /unnest\(\$1::uuid\[\], \$2::uuid\[\], \$3::bigint\[\]\) WITH ORDINALITY/,
+      );
+      // The same conditions as isAccessValid
+      expect(sql).toMatch(/s\.revoked_at IS NULL/);
+      expect(sql).toMatch(/s\.expires_at > now\(\)/);
+      expect(sql).toMatch(/u\.status = 'active'/);
+      expect(sql).toMatch(/u\.auth_version = c\.ver/);
+      expect(sql).toMatch(/s\.auth_version = c\.ver/);
+      expect(paramsAt(dataSource.query, 0)).toEqual([
+        [SID, SID2, SID3],
+        [USER, USER, USER],
+        [3, 2, 3],
+      ]);
+    });
+
+    it('refuses malformed claims without sending them', async () => {
+      dataSource.query.mockResolvedValueOnce([{ i: '1' }]);
+
+      await expect(
+        service.validAccess([
+          { sub: USER, sid: 'abc', ver: 1 },
+          { sub: USER, sid: SID, ver: 3 },
+        ]),
+      ).resolves.toEqual([false, true]);
+      expect(paramsAt(dataSource.query, 0)).toEqual([[SID], [USER], [3]]);
+    });
+
+    it('does not query for nothing', async () => {
+      await expect(service.validAccess([])).resolves.toEqual([]);
+      await expect(
+        service.validAccess([{ sub: 'x', sid: SID, ver: 1 }]),
+      ).resolves.toEqual([false]);
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it('checks a large number of tokens in bounded batches', async () => {
+      const claims = Array.from({ length: 1_200 }, () => ({
+        sub: USER,
+        sid: SID,
+        ver: 3,
+      }));
+      dataSource.query
+        .mockResolvedValueOnce(
+          Array.from({ length: 1_000 }, (_, i) => ({ i: String(i + 1) })),
+        )
+        .mockResolvedValueOnce([{ i: '200' }]);
+
+      const valid = await service.validAccess(claims);
+
+      expect(dataSource.query).toHaveBeenCalledTimes(2);
+      expect(valid.filter(Boolean)).toHaveLength(1_001);
+      expect(valid[1_199]).toBe(true);
+      expect(valid[1_198]).toBe(false);
+    });
+  });
+
   describe('invalidateUser', () => {
     it('bumps the account version, then ends every session and open MFA challenge', async () => {
       const runner = { query: jest.fn() };

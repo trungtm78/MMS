@@ -106,9 +106,14 @@ export class AuthService {
     private readonly authState: AuthStateService,
   ) {}
 
-  // Every role assigned to the user, highest priority first (empty when none)
-  private async getUserRoles(userId: string): Promise<string[]> {
-    const result = await this.dataSource.query<{ code: string }[]>(
+  // Every role assigned to the user, highest priority first (empty when none). Inside a
+  // transaction pass its manager, so the read uses the connection the transaction holds.
+  private async getUserRoles(
+    userId: string,
+    runner: Queryable = this.dataSource,
+  ): Promise<string[]> {
+    const result = await queryRows<{ code: string }>(
+      runner,
       `SELECT r.code FROM user_roles ur
        JOIN roles r ON r.id = ur.role_id
        WHERE ur.user_id = $1`,
@@ -137,10 +142,12 @@ export class AuthService {
 
   // Unit scope from user_unit_scopes: 'all' means the whole ward (null). When several
   // rows exist the broadest scope wins, then the unit code, so the claim is stable.
-  private async getUserUnitScope(userId: string): Promise<string | null> {
-    const result = await this.dataSource.query<
-      { code: string; scope_type?: string }[]
-    >(
+  private async getUserUnitScope(
+    userId: string,
+    runner: Queryable = this.dataSource,
+  ): Promise<string | null> {
+    const result = await queryRows<{ code: string; scope_type?: string }>(
+      runner,
       `SELECT u.code, uus.scope_type
        FROM user_unit_scopes uus
        JOIN units u ON u.id = uus.unit_id
@@ -293,6 +300,9 @@ export class AuthService {
     amr: string[],
     ctx: RequestContext,
     runner: Queryable,
+    // Read beforehand by a caller holding a transaction, which must not reach for a
+    // second pooled connection
+    accessMinutes?: number,
   ): Promise<{ tokens: TokenPair; sessionId: string }> {
     const sessionId = randomUUID();
     const refreshToken = this.jwtService.sign(
@@ -333,7 +343,7 @@ export class AuthService {
       sid: sessionId,
       ver: Number(session.auth_version),
     };
-    const minutes = await this.accessTokenMinutes();
+    const minutes = accessMinutes ?? (await this.accessTokenMinutes());
     const accessToken = this.jwtService.sign(payload, {
       secret: this.config.get('jwt.secret'),
       expiresIn: `${minutes}m`,
@@ -391,6 +401,8 @@ export class AuthService {
       throw new UnauthorizedException('invalid_refresh_token');
     }
 
+    // Read before the session lock is taken (see below)
+    const accessMinutes = await this.accessTokenMinutes();
     const outcome = await this.dataSource.transaction(async (mgr) => {
       const [state] = await mgr.query<RefreshState[]>(
         `SELECT s.id, s.user_id, s.refresh_token_hash, s.expires_at, s.revoked_at,
@@ -434,20 +446,24 @@ export class AuthService {
         return { kind: 'mfa' as const };
       }
 
-      const roles = await this.getUserRoles(state.user_id);
+      // Every read below uses mgr: the transaction already holds a pooled connection and the
+      // session lock, so asking the pool for another one could wait forever under a burst
+      // of refreshes, and would read outside the snapshot the checks above were made on
+      const roles = await this.getUserRoles(state.user_id, mgr);
       if (!roles.length) {
         await this.endSession(mgr, state.id);
         return { kind: 'no_role' as const };
       }
-      const user = await this.userRepo.findOneOrFail({
+      const user = await mgr.findOneOrFail(User, {
         where: { id: state.user_id },
       });
-      const unitScope = await this.getUserUnitScope(state.user_id);
+      const unitScope = await this.getUserUnitScope(state.user_id, mgr);
       const { tokens, sessionId } = await this.openSession(
         { ...user, role: roles[0] as UserRole, roles, unitScope },
         amr,
         ctx,
         mgr,
+        accessMinutes,
       );
       await mgr.query(
         `UPDATE sessions SET revoked_at = now(), replaced_by = $2 WHERE id = $1`,

@@ -8,6 +8,7 @@ import { TOTP_PERIOD_SECONDS } from './totp';
 import {
   MfaService,
   USER_MFA_FAILURE_LIMIT,
+  type MfaMethod,
   type RequestContext,
 } from './mfa.service';
 
@@ -910,6 +911,46 @@ describe('MfaService', () => {
       expect(audits).toEqual([
         expect.objectContaining({ action: 'mfa.disabled' }),
       ]);
+    });
+
+    // As for enrolment: sessions, tokens and challenges opened while the account had MFA
+    // end with the factor, and the caller continues in a new session
+    const disabledWith: [MfaMethod, () => string, string[]][] = [
+      ['totp', () => codeAt(), ['pwd', 'otp', 'mfa']],
+      ['recovery_code', () => 'ABCDE-FGHJK', ['pwd', 'recovery_code', 'mfa']],
+    ];
+    it.each(disabledWith)(
+      'ends every session of the account and answers a new one for the caller (%s)',
+      async (method, code, amr) => {
+        recoveryCodes = [
+          {
+            id: 'a',
+            code_hash: await bcrypt.hash('ABCDE-FGHJK', 4),
+            used_at: null,
+          },
+        ];
+
+        await expect(
+          service.disable(USER_ID, { method, code: code() }, CTX),
+        ).resolves.toBe(signedIn);
+
+        expect(authState.invalidateUser).toHaveBeenCalledWith(mgr, USER_ID);
+        expect(authService.signInUser).toHaveBeenCalledWith(USER_ID, amr, CTX);
+        // The new session is opened once the old ones are committed as ended
+        expect(
+          authService.signInUser.mock.invocationCallOrder[0],
+        ).toBeGreaterThan(authState.invalidateUser.mock.invocationCallOrder[0]);
+      },
+    );
+
+    it('keeps every session when the code is refused', async () => {
+      await expectHttp(
+        service.disable(USER_ID, { method: 'totp', code: '000000' }, CTX),
+        HttpStatus.UNAUTHORIZED,
+        'invalid_code',
+      );
+      expect(authState.invalidateUser).not.toHaveBeenCalled();
+      expect(authService.signInUser).not.toHaveBeenCalled();
     });
 
     it('is refused while a role of the account requires MFA', async () => {

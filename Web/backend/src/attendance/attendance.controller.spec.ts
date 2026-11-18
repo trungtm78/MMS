@@ -278,10 +278,10 @@ describe('AttendanceController', () => {
       const result = { id: 'att-1', checkoutAt: '17:00:00' };
       mockAttendanceService.checkOut.mockResolvedValueOnce(result);
 
-      const response = await controller.checkOut({ user: dqtvUser }, {});
+      const response = await controller.checkOut({ user: dqtvUser });
 
       expect(response).toEqual(result);
-      expect(mockAttendanceService.checkOut).toHaveBeenCalledWith('dqtv-1', {});
+      expect(mockAttendanceService.checkOut).toHaveBeenCalledWith('dqtv-1');
     });
 
     it('propagates error when no active check-in', async () => {
@@ -289,7 +289,7 @@ describe('AttendanceController', () => {
         new Error('no_active_checkin'),
       );
 
-      await expect(controller.checkOut({ user: dqtvUser }, {})).rejects.toThrow(
+      await expect(controller.checkOut({ user: dqtvUser })).rejects.toThrow(
         'no_active_checkin',
       );
     });

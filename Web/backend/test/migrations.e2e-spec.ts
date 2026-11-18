@@ -1289,3 +1289,156 @@ describe('schema guards (e2e)', () => {
     expect(report.applied).toEqual(ALL_FILES);
   });
 });
+
+// Migration 035: every way a session ends or an account changes is announced, once the
+// change commits, for the realtime gateway (AuthRevocationFeed)
+describe('auth revocation notifications (e2e)', () => {
+  let url: string;
+  let listener: Client;
+  let userId: string;
+  const received: Record<string, unknown>[] = [];
+
+  beforeAll(async () => {
+    url = await createDatabase();
+    await migrateDatabase({ connectionString: url, directory: MIGRATIONS_DIR });
+    userId = await withClient(url, async (c) => {
+      const { rows } = await c.query<{ id: string }>(
+        `INSERT INTO users (username, password_hash, full_name)
+         VALUES ('revocation_user', 'x', 'Revocation') RETURNING id`,
+      );
+      return rows[0].id;
+    });
+    listener = new Client({ connectionString: url });
+    await listener.connect();
+    listener.on('notification', (message) => {
+      if (message.channel === 'mms_auth_revocation') {
+        received.push(JSON.parse(message.payload ?? '{}') as never);
+      }
+    });
+    await listener.query('LISTEN mms_auth_revocation');
+  });
+
+  afterAll(async () => {
+    await listener?.end();
+  });
+
+  beforeEach(() => {
+    received.splice(0);
+  });
+
+  const openSession = () =>
+    withClient(url, async (c) => {
+      const { rows } = await c.query<{ id: string }>(
+        `INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
+         VALUES ($1, 'h', now() + interval '1 day') RETURNING id`,
+        [userId],
+      );
+      return rows[0].id;
+    });
+
+  // A notification is delivered after its transaction commits; a marker sent afterwards on
+  // its own transaction arrives after everything sent before it
+  const settled = async () => {
+    await withClient(url, (c) =>
+      c.query(`SELECT pg_notify('mms_auth_revocation', '{"kind":"marker"}')`),
+    );
+    const deadline = Date.now() + 10_000;
+    while (!received.some((event) => event.kind === 'marker')) {
+      if (Date.now() > deadline) throw new Error('no marker notification');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return received.filter((event) => event.kind !== 'marker');
+  };
+
+  it('announces a revoked session once, and not one revoked again', async () => {
+    const sid = await openSession();
+
+    await withClient(url, (c) =>
+      c.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [sid]),
+    );
+    await withClient(url, (c) =>
+      c.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [sid]),
+    );
+
+    await expect(settled()).resolves.toEqual([
+      { kind: 'session', userId, sessionId: sid },
+    ]);
+  });
+
+  it('does not announce a rotation, which continues the session', async () => {
+    const old = await openSession();
+    const next = await openSession();
+
+    await withClient(url, (c) =>
+      c.query(
+        `UPDATE sessions SET revoked_at = now(), replaced_by = $2 WHERE id = $1`,
+        [old, next],
+      ),
+    );
+
+    await expect(settled()).resolves.toEqual([]);
+  });
+
+  it('announces an open session that is deleted', async () => {
+    const sid = await openSession();
+
+    await withClient(url, (c) =>
+      c.query(`DELETE FROM sessions WHERE id = $1`, [sid]),
+    );
+
+    await expect(settled()).resolves.toEqual([
+      { kind: 'session', userId, sessionId: sid },
+    ]);
+  });
+
+  it("announces a change of the account's version or status", async () => {
+    await withClient(url, (c) =>
+      c.query(
+        `UPDATE users SET auth_version = auth_version + 1 WHERE id = $1`,
+        [userId],
+      ),
+    );
+    await withClient(url, (c) =>
+      c.query(`UPDATE users SET status = 'suspended' WHERE id = $1`, [userId]),
+    );
+    await withClient(url, (c) =>
+      c.query(`UPDATE users SET status = 'active' WHERE id = $1`, [userId]),
+    );
+    // Other columns are not announced
+    await withClient(url, (c) =>
+      c.query(`UPDATE users SET full_name = 'Renamed' WHERE id = $1`, [userId]),
+    );
+
+    const events = await settled();
+    const version = await withClient(url, async (c) => {
+      const { rows } = await c.query<{ v: string }>(
+        `SELECT auth_version AS v FROM users WHERE id = $1`,
+        [userId],
+      );
+      return Number(rows[0].v);
+    });
+    expect(events).toEqual([
+      { kind: 'account', userId, version, active: true },
+      { kind: 'account', userId, version, active: false },
+      { kind: 'account', userId, version, active: true },
+    ]);
+  });
+
+  it('announces nothing for a change that is rolled back', async () => {
+    const sid = await openSession();
+
+    await withClient(url, async (c) => {
+      await c.query('BEGIN');
+      await c.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [
+        sid,
+      ]);
+      await c.query(
+        `UPDATE users SET auth_version = auth_version + 1 WHERE id = $1`,
+        [userId],
+      );
+      await c.query('ROLLBACK');
+    });
+
+    await expect(settled()).resolves.toEqual([]);
+  });
+});

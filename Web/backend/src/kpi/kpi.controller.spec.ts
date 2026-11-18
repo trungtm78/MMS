@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { KpiController } from './kpi.controller';
+import { EvaluateDto, KpiController } from './kpi.controller';
 import { KpiService } from './kpi.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -46,7 +46,7 @@ describe('KpiController', () => {
   });
 
   describe('evaluate', () => {
-    const dto = {
+    const dto: EvaluateDto = {
       targetUserId: 'dqtv-1',
       criteria: ['a', 'b', 'c', 'd', 'e'],
       scores: [8, 7, 9, 6, 8],
@@ -57,7 +57,7 @@ describe('KpiController', () => {
       const result = { id: 'eval-1', totalScore: 7.6 };
       mockKpiService.submitEvaluation.mockResolvedValueOnce(result);
 
-      const response = await controller.evaluate(dto as any, caReq);
+      const response = await controller.evaluate(dto, caReq);
 
       expect(response).toEqual(result);
       // The whole caller is passed so the service can apply role, assignment and unit scope
@@ -72,7 +72,7 @@ describe('KpiController', () => {
         new Error('target_not_found'),
       );
 
-      await expect(controller.evaluate(dto as any, caReq)).rejects.toThrow(
+      await expect(controller.evaluate(dto, caReq)).rejects.toThrow(
         'target_not_found',
       );
     });

@@ -1,9 +1,10 @@
-import { HttpException, Logger } from '@nestjs/common';
+import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
 import {
   WebSocketGateway,
   WebSocketServer,
   OnGatewayInit,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
@@ -17,7 +18,12 @@ import {
   AuthStateService,
   type AccessClaims,
 } from '../auth/auth-state.service';
+import {
+  AuthRevocationFeed,
+  type AuthRevocation,
+} from '../auth/auth-revocation-feed';
 import { gpsRoomOf } from '../gps/gps-rooms';
+import { RecentRevocations, revocationEnds } from './recent-revocations';
 
 // Web clients send the bare conversation id, the mobile apps { conversationId }
 function conversationIdOf(
@@ -46,8 +52,18 @@ type SocketUser = AccessClaims & {
   exp?: number;
 };
 
-const userOf = (client: Socket): SocketUser | undefined =>
-  (client.data as { user?: SocketUser }).user;
+const userOf = (client: { data: unknown }): SocketUser | undefined =>
+  (client.data as { user?: SocketUser } | undefined)?.user;
+
+/** A local socket, or one another replica holds (fetchSockets): what closing it needs. */
+interface ClosableSocket {
+  data: unknown;
+  emit(event: 'session_expired', payload: { reason: SessionEnd }): unknown;
+  disconnect(close?: boolean): unknown;
+}
+
+// The longest delay setTimeout accepts (about 24.8 days); a longer wait is re-armed
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -60,29 +76,71 @@ const errorMessage = (error: unknown) =>
   path: '/socket.io/',
 })
 export class NotificationsGateway
-  implements OnGatewayInit, OnGatewayConnection
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(NotificationsGateway.name);
+  // Access-token expiry of each socket this replica holds, by socket id
+  private readonly expiryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly recentRevocations = new RecentRevocations();
+  private unsubscribeRevocations: (() => void) | null = null;
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly chatService: ChatService,
     private readonly authState: AuthStateService,
+    private readonly revocations: AuthRevocationFeed,
   ) {}
 
   // Every handshake is authenticated before a connection exists, so a refused client
   // learns why through connect_error instead of being accepted and dropped. The Redis
   // adapter is attached in main.ts.
+  //
+  // A connected socket sits in user:, unit: and GPS rooms and receives what the server
+  // pushes there without emitting anything, so its session is also ended from the server
+  // side: at its access token's expiry (a timer), and as soon as Postgres announces that
+  // its session ended or its account changed (AuthRevocationFeed). Each replica closes the
+  // sockets it holds; every replica receives every announcement.
   afterInit(server: Server) {
     server.use((client, next) => {
       void this.authenticate(client).then((refusal) =>
         next(refusal ? new Error(refusal) : undefined),
       );
     });
+    this.unsubscribeRevocations?.();
+    this.unsubscribeRevocations = this.revocations.subscribe({
+      revoked: (event) => {
+        this.closeRevoked(event).catch((error: unknown) =>
+          this.logger.warn(
+            `Could not close the sockets of a revoked session (${errorMessage(error)})`,
+          ),
+        );
+      },
+      resync: () => {
+        this.closeInvalid().catch((error: unknown) =>
+          this.logger.warn(
+            `Could not re-check the sessions of open sockets (${errorMessage(error)})`,
+          ),
+        );
+      },
+    });
+  }
+
+  onModuleDestroy() {
+    this.unsubscribeRevocations?.();
+    this.unsubscribeRevocations = null;
+    for (const timer of this.expiryTimers.values()) clearTimeout(timer);
+    this.expiryTimers.clear();
   }
 
   // Same rules as JwtAuthGuard: only access tokens, and only while their session is live
@@ -124,6 +182,12 @@ export class NotificationsGateway
       client.disconnect(true);
       return;
     }
+    // Its handshake may have read the session just before a revocation committed
+    if (this.recentRevocations.ends(user)) {
+      this.endSession(client, 'session_revoked');
+      return;
+    }
+    if (!this.scheduleExpiry(client, user)) return;
     void client.join(`user:${user.sub}`);
     if (user.unitScope) void client.join(`unit:${user.unitScope}`);
     // Live positions travel in staff-only rooms: members share the unit room
@@ -133,6 +197,62 @@ export class NotificationsGateway
       unitScope: user.unitScope ?? null,
     });
     if (gpsRoom) void client.join(gpsRoom);
+  }
+
+  handleDisconnect(client: Socket) {
+    const timer = this.expiryTimers.get(client.id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(client.id);
+  }
+
+  // Closes the socket when its access token expires; false when it already has
+  private scheduleExpiry(client: Socket, user: SocketUser): boolean {
+    if (typeof user.exp !== 'number') return true;
+    const remaining = user.exp * 1000 - Date.now();
+    if (remaining <= 0) {
+      this.expiryTimers.delete(client.id);
+      this.endSession(client, 'token_expired');
+      return false;
+    }
+    const timer = setTimeout(
+      () => {
+        this.expiryTimers.delete(client.id);
+        this.scheduleExpiry(client, user);
+      },
+      Math.min(remaining, MAX_TIMER_DELAY_MS),
+    );
+    timer.unref?.();
+    this.expiryTimers.set(client.id, timer);
+    return true;
+  }
+
+  // The sockets of this replica whose session the announced change ended
+  private async closeRevoked(event: AuthRevocation): Promise<void> {
+    this.recentRevocations.record(event);
+    const sockets = await this.server.local
+      .in(`user:${event.userId}`)
+      .fetchSockets();
+    for (const client of sockets) {
+      const user = userOf(client);
+      if (user && revocationEnds(event, user)) {
+        this.endSession(client, 'session_revoked');
+      }
+    }
+  }
+
+  // Announcements may have been missed: every socket of this replica is checked again
+  private async closeInvalid(): Promise<void> {
+    const held = (await this.server.local.fetchSockets()).flatMap((client) => {
+      const user = userOf(client);
+      return user ? [{ client, user }] : [];
+    });
+    if (held.length === 0) return;
+    const valid = await this.authState.validAccess(
+      held.map(({ user }) => user),
+    );
+    held.forEach(({ client }, index) => {
+      if (!valid[index]) this.endSession(client, 'session_revoked');
+    });
   }
 
   // One emit over several rooms: a socket in more than one of them receives it once
@@ -186,7 +306,7 @@ export class NotificationsGateway
 
   // The event is written before the disconnect packet, so it reaches the client; an
   // acknowledgement would not, since it is sent after the handler returns
-  private endSession(client: Socket, reason: SessionEnd) {
+  private endSession(client: ClosableSocket, reason: SessionEnd) {
     client.emit('session_expired', { reason });
     client.disconnect(true);
   }

@@ -38,8 +38,7 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
       .post(url('/auth/login'))
       .send({ username, password })
       .expect(200);
-    return (res.body as { tokens: { accessToken: string } }).tokens
-      .accessToken;
+    return (res.body as { tokens: { accessToken: string } }).tokens.accessToken;
   };
 
   const ensureUnit = (code: string) =>
@@ -156,7 +155,9 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
     it('shows an alert only to the responders of its reporter', async () => {
       const { id } = (await raise().expect(201)).body as { id: string };
       const read = (who: string) =>
-        api().get(url(`/sos/${id}`)).set(auth(who));
+        api()
+          .get(url(`/sos/${id}`))
+          .set(auth(who));
 
       await read('sos_staff_a').expect(200);
       await read('sos_ward').expect(200);
@@ -181,7 +182,10 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
     it('moves an alert through its lifecycle, keeping when it was resolved, and never reopens a closed one', async () => {
       const { id } = (await raise().expect(201)).body as { id: string };
       const move = (who: string, status: string) =>
-        api().patch(url(`/sos/${id}/status`)).set(auth(who)).send({ status });
+        api()
+          .patch(url(`/sos/${id}/status`))
+          .set(auth(who))
+          .send({ status });
 
       await move('sos_ward', 'acknowledged').expect(200);
       const resolved = (await move('sos_ward', 'resolved').expect(200))
@@ -226,8 +230,11 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
           ...body,
         });
     const newTask = async (body: Record<string, unknown> = {}) =>
-      ((await createTask('task_staff_a', body).expect(201)).body as { id: string })
-        .id;
+      (
+        (await createTask('task_staff_a', body).expect(201)).body as {
+          id: string;
+        }
+      ).id;
 
     // The controller never passed the caller's role, so no creator scope was ever checked
     it('lets staff give a task only to a member of their scope', async () => {
@@ -250,7 +257,9 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
     it('shows a task only inside the caller scope, one row per task', async () => {
       const id = await newTask();
       const read = (who: string) =>
-        api().get(url(`/tasks/${id}`)).set(auth(who));
+        api()
+          .get(url(`/tasks/${id}`))
+          .set(auth(who));
 
       await read('task_staff_a').expect(200);
       await read('task_member').expect(200);
@@ -278,7 +287,10 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
     it('moves a task only through the states that still apply', async () => {
       const id = await newTask();
       const act = (who: string, route: string, body?: object) =>
-        api().post(url(`/tasks/${id}${route}`)).set(auth(who)).send(body);
+        api()
+          .post(url(`/tasks/${id}${route}`))
+          .set(auth(who))
+          .send(body);
       const progress = (body: object) =>
         api()
           .patch(url(`/tasks/${id}/progress`))
@@ -358,7 +370,9 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
       expect(
         (listed.body as { data: { id: string; overdue: boolean }[] }).data,
       ).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id, overdue: true })]),
+        expect.arrayContaining([
+          expect.objectContaining({ id, overdue: true }),
+        ]),
       );
     });
   });

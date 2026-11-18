@@ -1,4 +1,11 @@
-import { IsString, IsNotEmpty, IsOptional, IsIn, IsDateString, Length } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsIn,
+  IsDateString,
+  Length,
+} from 'class-validator';
 
 export class CreateWeaponDto {
   @IsString() @IsNotEmpty() @Length(1, 100) serialNumber: string;

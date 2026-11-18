@@ -5,7 +5,12 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 const mockDs = { query: jest.fn() };
 
-const mockUser = { sub: 'user-1', username: 'testuser', role: 'dqtv_member', unitScope: null };
+const mockUser = {
+  sub: 'user-1',
+  username: 'testuser',
+  role: 'dqtv_member',
+  unitScope: null,
+};
 
 describe('DevicesController', () => {
   let controller: DevicesController;
@@ -72,10 +77,10 @@ describe('DevicesController', () => {
       await expect(
         controller.revokeSession('sess-other', { user: mockUser }),
       ).resolves.not.toThrow();
-      expect(mockDs.query).toHaveBeenCalledWith(
-        expect.anything(),
-        ['sess-other', 'user-1'],
-      );
+      expect(mockDs.query).toHaveBeenCalledWith(expect.anything(), [
+        'sess-other',
+        'user-1',
+      ]);
     });
   });
 });
