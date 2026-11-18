@@ -9,7 +9,6 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 const mockAuthService = {
-  resolveLoginTenant: jest.fn(),
   validateUser: jest.fn(),
   refreshTokens: jest.fn(),
   logout: jest.fn(),
@@ -65,6 +64,7 @@ describe('AuthController', () => {
       expect(mockAuthService.validateUser).toHaveBeenCalledWith(
         'admin',
         'pass',
+        undefined,
       );
       expect(mockMfaService.beginLogin).toHaveBeenCalledWith(
         { id: 'user-1', username: 'admin', mfaEnabled: false },
@@ -72,9 +72,9 @@ describe('AuthController', () => {
       );
     });
 
-    // The tenant is adopted into the request scope first, so the password check and
-    // everything after it run under that tenant
-    it('resolves the tenant of the sign-in before it checks the password', async () => {
+    // The tenant is resolved inside the sign-in attempt, after its lockout slot is taken
+    // (see AuthService.validateUser), so the controller only hands the code over
+    it('hands the tenant code to the credential check', async () => {
       mockAuthService.validateUser.mockResolvedValueOnce(mockUser);
       mockMfaService.beginLogin.mockResolvedValueOnce({ status: 'SUCCESS' });
 
@@ -83,17 +83,15 @@ describe('AuthController', () => {
         request,
       );
 
-      expect(mockAuthService.resolveLoginTenant).toHaveBeenCalledWith(
-        'phu-dinh',
+      expect(mockAuthService.validateUser).toHaveBeenCalledWith(
+        'admin',
         'pass',
+        'phu-dinh',
       );
-      expect(
-        mockAuthService.resolveLoginTenant.mock.invocationCallOrder[0],
-      ).toBeLessThan(mockAuthService.validateUser.mock.invocationCallOrder[0]);
     });
 
-    it('checks no password for a tenant that cannot be signed in to', async () => {
-      mockAuthService.resolveLoginTenant.mockRejectedValueOnce(
+    it('opens no MFA challenge for a tenant that cannot be signed in to', async () => {
+      mockAuthService.validateUser.mockRejectedValueOnce(
         new UnauthorizedException('invalid_credentials'),
       );
 
@@ -103,7 +101,6 @@ describe('AuthController', () => {
           request,
         ),
       ).rejects.toThrow('invalid_credentials');
-      expect(mockAuthService.validateUser).not.toHaveBeenCalled();
       expect(mockMfaService.beginLogin).not.toHaveBeenCalled();
     });
 

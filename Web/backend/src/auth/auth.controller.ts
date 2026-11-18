@@ -65,11 +65,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle(LOGIN_THROTTLE)
   async login(@Body() dto: LoginDto, @Req() req: ContextRequest) {
-    // Adopts the tenant into the request scope, so every query below runs under it
-    await this.authService.resolveLoginTenant(dto.tenantCode, dto.password);
     const user = await this.authService.validateUser(
       dto.username,
       dto.password,
+      dto.tenantCode,
     );
     return this.mfaService.beginLogin(
       { id: user.id, username: user.username, mfaEnabled: user.mfaEnabled },

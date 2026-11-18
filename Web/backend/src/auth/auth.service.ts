@@ -168,24 +168,35 @@ export class AuthService {
     return row.code;
   }
 
+  // The code the user typed: none in legacy mode, a 400 when enforced mode gets none. This
+  // is input validation, answered before any lockout slot is taken.
+  private requireTenantCode(tenantCode: string | undefined): string | null {
+    if (!isTenancyEnforced()) return null;
+    const code = (tenantCode ?? '').trim();
+    if (!code) throw new BadRequestException('tenant_code_required');
+    return code;
+  }
+
   /**
-   * The tenant a sign-in is for. Legacy mode has none. Enforced mode takes the code the
-   * user typed: an unknown or inactive tenant looks exactly like a wrong password (same
-   * answer, same work), so codes cannot be probed. The tenant is adopted into the request
-   * scope, so every later query of the sign-in runs under it.
+   * The tenant a sign-in is for. Legacy mode has none. Enforced mode resolves the code the
+   * user typed inside the sign-in attempt: an unknown or inactive tenant looks exactly like
+   * a wrong password (same answer, same bcrypt work, same failure counted against the
+   * name), so codes cannot be probed, not even through the lockout. The tenant is adopted
+   * into the request scope, so every later query of the sign-in runs under it.
    */
   async resolveLoginTenant(
     tenantCode: string | undefined,
     password: string,
+    attempt: LoginAttempt,
   ): Promise<string | null> {
-    if (!isTenancyEnforced()) return null;
-    const code = (tenantCode ?? '').trim();
-    if (!code) throw new BadRequestException('tenant_code_required');
+    const code = this.requireTenantCode(tenantCode);
+    if (code === null) return null;
     const [tenant] = await this.dataSource.query<
       { id: string; status: string }[]
     >('SELECT id, status FROM auth_tenant_by_code($1)', [code]);
     if (!tenant || tenant.status !== 'active') {
       await bcrypt.compare(password, DUMMY_HASH);
+      await attempt.failed();
       throw new UnauthorizedException('invalid_credentials');
     }
     TenantContext.adopt({ tenantId: tenant.id });
@@ -194,13 +205,17 @@ export class AuthService {
 
   // US-W001 AC-1: Validate credentials. BR-AUTH-02: the attempt takes a lockout slot first
   // (403 account_locked when none is left) and counts only when the name is unknown or the
-  // password wrong.
+  // password wrong. Under TENANCY_MODE=enforced the tenant is resolved inside the attempt,
+  // so an unknown tenant spends the slot like a wrong password.
   async validateUser(
     username: string,
     password: string,
+    tenantCode?: string,
   ): Promise<ValidatedUser> {
+    this.requireTenantCode(tenantCode);
     const attempt = await this.loginAttempts.begin(username);
     try {
+      await this.resolveLoginTenant(tenantCode, password, attempt);
       return await this.checkCredentials(username, password, attempt);
     } finally {
       // A no-op once settled; frees the slot when an unexpected error ended the attempt
@@ -335,11 +350,11 @@ export class AuthService {
   ): Promise<{ tokens: TokenPair; sessionId: string }> {
     const sessionId = randomUUID();
     // Both tokens name the tenant the session belongs to
-    const tid = isTenancyEnforced()
-      ? TenantContext.requireTenantId()
-      : undefined;
+    const tenantClaim: { tid?: string } = isTenancyEnforced()
+      ? { tid: TenantContext.requireTenantId() }
+      : {};
     const refreshToken = this.jwtService.sign(
-      { sub: user.id, type: 'refresh', sid: sessionId, ...(tid && { tid }) },
+      { sub: user.id, type: 'refresh', sid: sessionId, ...tenantClaim },
       {
         secret: this.config.get('jwt.refreshSecret'),
         expiresIn: this.config.get('jwt.refreshExpiresIn'),
@@ -375,7 +390,7 @@ export class AuthService {
       amr,
       sid: sessionId,
       ver: Number(session.auth_version),
-      ...(tid && { tid }),
+      ...tenantClaim,
     };
     const minutes = accessMinutes ?? (await this.accessTokenMinutes());
     const accessToken = this.jwtService.sign(payload, {

@@ -11,6 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/app.setup';
+import { LOGIN_FAILURE_LIMIT } from '../src/auth/login-attempts.service';
 import {
   ADMIN_PASSWORD,
   createTenantDatabase,
@@ -24,6 +25,9 @@ jest.setTimeout(240_000);
 interface SignedIn {
   tokens: { accessToken: string; refreshToken: string };
 }
+
+const withoutClaim = (claims: Record<string, unknown>, claim: string) =>
+  Object.fromEntries(Object.entries(claims).filter(([name]) => name !== claim));
 
 const claimsOf = (token: string) =>
   JSON.parse(
@@ -57,6 +61,22 @@ describe('tenant slice (e2e)', () => {
     password = ADMIN_PASSWORD,
   ) => api().post(url('/auth/login')).send({ tenantCode, username, password });
 
+  // A token signed with the real secret from the claims of an issued one, `change`d
+  const forge = (
+    issued: string,
+    secret: string | undefined,
+    change: (claims: Record<string, unknown>) => Record<string, unknown>,
+  ) => {
+    const claims = Object.fromEntries(
+      Object.entries(claimsOf(issued)).filter(
+        ([claim]) => !['iat', 'exp'].includes(claim),
+      ),
+    );
+    return app
+      .get(JwtService)
+      .sign(change(claims), { secret, expiresIn: '5m' });
+  };
+
   const signIn = async (tenantCode: string, username: string) =>
     (await login(tenantCode, username).expect(200)).body as SignedIn;
 
@@ -79,9 +99,16 @@ describe('tenant slice (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app?.close();
-    await db?.drop();
-    fs.rmSync(E2E_UPLOAD_DIR, { recursive: true, force: true });
+    // Whatever fails first, the database is dropped and the upload directory removed
+    try {
+      await app?.close();
+    } finally {
+      try {
+        await db?.drop();
+      } finally {
+        fs.rmSync(E2E_UPLOAD_DIR, { recursive: true, force: true });
+      }
+    }
   });
 
   describe('sign-in', () => {
@@ -144,21 +171,75 @@ describe('tenant slice (e2e)', () => {
     });
 
     it('refuses an access token that names no tenant', async () => {
-      const untenanted = app
-        .get(JwtService)
-        .sign(
-          Object.fromEntries(
-            Object.entries(claimsOf(tokens.a)).filter(
-              ([claim]) => !['tid', 'iat', 'exp'].includes(claim),
-            ),
-          ),
-          { secret: process.env.JWT_SECRET, expiresIn: '5m' },
-        );
+      const untenanted = forge(tokens.a, process.env.JWT_SECRET, (claims) =>
+        withoutClaim(claims, 'tid'),
+      );
 
       await api()
         .get(url('/auth/me'))
         .set({ Authorization: `Bearer ${untenanted}` })
         .expect(401);
+    });
+
+    // Replay across tenants: the session of tenant A's admin presented under tenant B.
+    // The guard adopts B before it looks the session up, and B holds no such session.
+    it('refuses the session of one tenant replayed under the tid of another', async () => {
+      const replayed = forge(tokens.a, process.env.JWT_SECRET, (claims) => ({
+        ...claims,
+        tid: b.id,
+      }));
+
+      const res = await api()
+        .get(url('/auth/me'))
+        .set({ Authorization: `Bearer ${replayed}` })
+        .expect(401);
+      expect((res.body as { message: string }).message).toBe('session_revoked');
+    });
+
+    it('refuses a refresh token that names no tenant', async () => {
+      const { tokens: issued } = await signIn('phu-dinh', a.adminUsername);
+      const untenanted = forge(
+        issued.refreshToken,
+        process.env.JWT_REFRESH_SECRET,
+        (claims) => withoutClaim(claims, 'tid'),
+      );
+
+      const res = await api()
+        .post(url('/auth/refresh'))
+        .send({ refreshToken: untenanted })
+        .expect(401);
+      expect((res.body as { message: string }).message).toBe(
+        'invalid_refresh_token',
+      );
+    });
+
+    // A tenant code that does not exist must cost an attacker exactly what a tenant that
+    // does exist costs: the same failures counted against the name, so the lock after five
+    // attempts shows up for both or for neither.
+    it('answers an unknown tenant code like a known one through the whole lockout sequence', async () => {
+      const attempts = LOGIN_FAILURE_LIMIT + 1;
+      const sequence = async (tenantCode: string, username: string) => {
+        const answers: { status: number; body: unknown }[] = [];
+        for (let n = 0; n < attempts; n++) {
+          const res = await login(tenantCode, username, 'Wrong@12345');
+          answers.push({
+            status: res.status,
+            body: withoutTimestamp(res.body),
+          });
+        }
+        return answers;
+      };
+
+      // Distinct names, so the two sequences do not share a counter
+      const known = await sequence('phu-dinh', 'probe-known-code');
+      const unknown = await sequence('no-such-tenant', 'probe-unknown-code');
+
+      expect(known.map((r) => r.status)).toEqual([
+        ...Array<number>(LOGIN_FAILURE_LIMIT).fill(401),
+        403,
+      ]);
+      expect(unknown.map((r) => r.status)).toEqual(known.map((r) => r.status));
+      expect(unknown.map((r) => r.body)).toEqual(known.map((r) => r.body));
     });
   });
 });

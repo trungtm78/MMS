@@ -712,35 +712,62 @@ describe('AuthService', () => {
       else process.env.TENANCY_MODE = previousMode;
     });
 
-    describe('resolveLoginTenant', () => {
+    // The tenant is looked up INSIDE the attempt, after its lockout slot is taken, and an
+    // unknown tenant settles that slot as a failure like a wrong password does. Otherwise
+    // the lockout (403 after five attempts) would tell which tenant codes exist.
+    describe('validateUser in enforced mode', () => {
       beforeEach(() => {
         process.env.TENANCY_MODE = 'enforced';
       });
 
-      test('asks for a tenant code when none is typed', async () => {
-        await expect(
-          TenantContext.start(() => service.resolveLoginTenant(undefined, PW)),
-        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
-        await expect(
-          TenantContext.start(() => service.resolveLoginTenant('   ', PW)),
-        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
+      const signIn = (tenantCode: string | undefined) =>
+        TenantContext.start(() =>
+          service.validateUser('caphuong', PW, tenantCode),
+        );
+
+      test('asks for a tenant code before it takes a slot', async () => {
+        await expect(signIn(undefined)).rejects.toThrow(
+          new BadRequestException('tenant_code_required'),
+        );
+        await expect(signIn('   ')).rejects.toThrow(
+          new BadRequestException('tenant_code_required'),
+        );
+        expect(mockLoginAttempts.begin).not.toHaveBeenCalled();
         expect(mockDataSource.query).not.toHaveBeenCalled();
       });
 
-      test('answers an unknown tenant like a wrong password, after the same bcrypt work', async () => {
+      test('takes the slot before it looks the tenant up', async () => {
+        mockDataSource.query.mockResolvedValueOnce([]);
+
+        await expect(signIn('nowhere')).rejects.toThrow(
+          new UnauthorizedException('invalid_credentials'),
+        );
+
+        expect(mockLoginAttempts.begin).toHaveBeenCalledWith('caphuong');
+        expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['nowhere']);
+        expect(
+          mockLoginAttempts.begin.mock.invocationCallOrder[0],
+        ).toBeLessThan(mockDataSource.query.mock.invocationCallOrder[0]);
+      });
+
+      test('settles an unknown tenant as a failure after the same bcrypt work as a wrong password', async () => {
         mockDataSource.query.mockResolvedValueOnce([]);
         const compare = jest.mocked(bcrypt.compare);
         compare.mockClear();
 
-        await expect(
-          TenantContext.start(() => service.resolveLoginTenant('nowhere', PW)),
-        ).rejects.toThrow(new UnauthorizedException('invalid_credentials'));
+        await expect(signIn('nowhere')).rejects.toThrow(
+          new UnauthorizedException('invalid_credentials'),
+        );
 
+        expect(mockDataSource.query).toHaveBeenCalledTimes(1);
         expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['nowhere']);
         expect(compare).toHaveBeenCalledTimes(1);
+        expect(mockAttempt.failed).toHaveBeenCalledTimes(1);
+        expect(mockAttempt.passed).not.toHaveBeenCalled();
+        expect(mockAttempt.release).toHaveBeenCalledTimes(1);
       });
 
-      test('answers a tenant that is not active like a wrong password', async () => {
+      test('settles a tenant that is not active as a failure and never adopts it', async () => {
         mockDataSource.query.mockResolvedValueOnce([
           { id: TID, status: 'suspended' },
         ]);
@@ -749,41 +776,119 @@ describe('AuthService', () => {
         await expect(
           TenantContext.start(async () => {
             try {
-              return await service.resolveLoginTenant('phu-dinh', PW);
+              return await service.validateUser('caphuong', PW, 'phu-dinh');
             } finally {
               adopted = TenantContext.current()?.tenantId;
             }
           }),
         ).rejects.toThrow(new UnauthorizedException('invalid_credentials'));
-        // A refused tenant is never adopted
+
+        expect(mockAttempt.failed).toHaveBeenCalledTimes(1);
+        expect(mockDataSource.query).toHaveBeenCalledTimes(1);
         expect(adopted).toBeUndefined();
       });
 
+      test('a locked name is refused before any tenant is looked up', async () => {
+        mockLoginAttempts.begin.mockRejectedValueOnce(
+          new ForbiddenException('account_locked'),
+        );
+
+        await expect(signIn('nowhere')).rejects.toThrow(
+          new ForbiddenException('account_locked'),
+        );
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+      });
+
+      test('checks the credentials under the tenant it adopted', async () => {
+        const scopeSeen: (string | undefined)[] = [];
+        mockDataSource.query.mockImplementation((sql: string) => {
+          scopeSeen.push(TenantContext.current()?.tenantId);
+          if (sql === LOOKUP) {
+            return Promise.resolve([{ id: TID, status: 'active' }]);
+          }
+          if (/FROM users/.test(sql)) return Promise.resolve([makeRawRow()]);
+          if (/FROM user_roles/.test(sql)) {
+            return Promise.resolve([{ code: 'police_ward' }]);
+          }
+          return Promise.resolve([]);
+        });
+
+        const result = await TenantContext.start(async () => ({
+          user: await service.validateUser('caphuong', PW, ' phu-dinh '),
+          adopted: TenantContext.current()?.tenantId,
+        }));
+
+        expect(result.user.username).toBe('caphuong');
+        expect(result.adopted).toBe(TID);
+        expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['phu-dinh']);
+        // The lookup itself runs before a tenant is known; every query after it runs
+        // under the tenant
+        expect(scopeSeen[0]).toBeUndefined();
+        expect(scopeSeen.slice(1).length).toBeGreaterThan(0);
+        expect(new Set(scopeSeen.slice(1))).toEqual(new Set([TID]));
+        expect(mockAttempt.passed).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('resolveLoginTenant', () => {
+      test('has no tenant in legacy mode and never looks one up', async () => {
+        delete process.env.TENANCY_MODE;
+
+        await expect(
+          service.resolveLoginTenant('phu-dinh', PW, mockAttempt),
+        ).resolves.toBeNull();
+        await expect(
+          service.resolveLoginTenant(undefined, PW, mockAttempt),
+        ).resolves.toBeNull();
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+        expect(mockAttempt.failed).not.toHaveBeenCalled();
+      });
+
+      test('asks for a tenant code in enforced mode', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+
+        await expect(
+          TenantContext.start(() =>
+            service.resolveLoginTenant(undefined, PW, mockAttempt),
+          ),
+        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+      });
+
       test('adopts the active tenant into the request scope and returns its id', async () => {
+        process.env.TENANCY_MODE = 'enforced';
         mockDataSource.query.mockResolvedValueOnce([
           { id: TID, status: 'active' },
         ]);
 
         const scoped = await TenantContext.start(async () => {
-          const id = await service.resolveLoginTenant(' phu-dinh ', PW);
+          const id = await service.resolveLoginTenant(
+            'phu-dinh',
+            PW,
+            mockAttempt,
+          );
           return { id, adopted: TenantContext.current()?.tenantId };
         });
 
         expect(scoped).toEqual({ id: TID, adopted: TID });
-        expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['phu-dinh']);
+        expect(mockAttempt.failed).not.toHaveBeenCalled();
       });
     });
 
-    test('has no tenant in legacy mode and never looks one up', async () => {
+    test('validateUser ignores a tenant code in legacy mode', async () => {
       delete process.env.TENANCY_MODE;
+      mockDataSource.query
+        .mockResolvedValueOnce([makeRawRow()])
+        .mockResolvedValueOnce([{ code: 'police_ward' }])
+        .mockResolvedValueOnce([]);
 
       await expect(
-        service.resolveLoginTenant('phu-dinh', PW),
-      ).resolves.toBeNull();
-      await expect(
-        service.resolveLoginTenant(undefined, PW),
-      ).resolves.toBeNull();
-      expect(mockDataSource.query).not.toHaveBeenCalled();
+        service.validateUser('caphuong', PW, 'phu-dinh'),
+      ).resolves.toMatchObject({ username: 'caphuong' });
+      expect(mockDataSource.query).not.toHaveBeenCalledWith(
+        LOOKUP,
+        expect.anything(),
+      );
     });
 
     describe('issueTokens', () => {
