@@ -1,6 +1,7 @@
 // Widget Tests: security screen (T15 Bearer routes)
 //   GET /auth/mfa/status, POST /auth/mfa/setup, POST /auth/mfa/confirm,
-//   POST /auth/mfa/recovery-codes/regenerate {code}, POST /auth/mfa/disable {method, code} → 204
+//   POST /auth/mfa/recovery-codes/regenerate {code}, POST /auth/mfa/disable {method, code} → {user, tokens}
+//   (disabling MFA ends every session; the answer is the caller's replacement, stored at once)
 //   (Web/backend/src/auth/mfa/mfa.controller.ts:133-186, mfa.service.ts:262-456)
 // Run: flutter test test/widget_security_screen_test.dart
 
@@ -21,7 +22,7 @@ class _Backend {
   _Backend({
     required this.enabled,
     required this.required,
-    this.disableStatus = 204,
+    this.disableStatus = 200,
     this.statusFailures = 0,
     this.setupStatus = 200,
     this.confirmStatus = 200,
@@ -78,9 +79,13 @@ class _Backend {
         if (regenerateStatus != 200) return _error(regenerateStatus, 'invalid_code');
         return jsonBody(200, {'recoveryCodes': _codes});
       case '/auth/mfa/disable':
-        if (disableStatus != 204) return _error(disableStatus, 'mfa_required_by_role');
+        if (disableStatus != 200) return _error(disableStatus, 'mfa_required_by_role');
         enabled = false;
-        return ResponseBody.fromString('', 204);
+        // Disabling MFA ends every session of the account; the answer is the caller's replacement
+        return jsonBody(200, {
+          'user': {'id': 'u1', 'username': 'ca01', 'fullName': 'CA', 'status': 'active', 'role': 'ca_officer'},
+          'tokens': {'accessToken': 'nomfa_access', 'refreshToken': 'nomfa_refresh', 'expiresIn': 900},
+        });
     }
     return jsonBody(404, {'message': 'not found'});
   }
@@ -139,8 +144,10 @@ void main() {
     expect(tester.widget<OutlinedButton>(disable).onPressed, isNull);
   });
 
-  testWidgets('WT-SEC-03: turning MFA off sends the method and code, then reloads the status', (tester) async {
-    final adapter = await _pump(tester, _Backend(enabled: true, required: false));
+  testWidgets('WT-SEC-03: turning MFA off sends the method and code, stores the replacement session, then '
+      'reloads the status', (tester) async {
+    final storage = MemoryStorage(role: 'ca');
+    final adapter = await _pump(tester, _Backend(enabled: true, required: false), storage: storage);
 
     await _tapText<OutlinedButton>(tester, viL10n.authSecurityDisableMfa);
     expect(find.text(viL10n.authSecurityDisableDialogTitle), findsOneWidget);
@@ -148,6 +155,9 @@ void main() {
     await _tapText<ElevatedButton>(tester, viL10n.commonConfirm);
 
     expect(_last(adapter, '/auth/mfa/disable').data, {'method': 'totp', 'code': '111111'});
+    expect(storage.access, 'nomfa_access');
+    expect(storage.refresh, 'nomfa_refresh');
+    expect(storage.role, 'ca');
     expect(find.text(viL10n.authSecurityMfaDisabledDone), findsOneWidget);
     expect(find.text(viL10n.authSecurityMfaDisabled), findsOneWidget);
   });

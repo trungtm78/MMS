@@ -293,12 +293,18 @@ void main() {
       );
     });
 
-    test('disableMfa posts method and code and accepts 204', () async {
-      final s = _Setup({'POST /auth/mfa/disable': noContent});
+    test('disableMfa posts method and code and returns the replacement session, left to AuthNotifier to store',
+        () async {
+      final s = _Setup({'POST /auth/mfa/disable': (_) => jsonBody(200, mfaDisableSession())});
 
-      await s.repo.disableMfa(method: 'recovery_code', code: 'ABCDE-FGHJK');
+      final session = await s.repo.disableMfa(method: 'recovery_code', code: 'ABCDE-FGHJK');
 
       expect(s.last.data, {'method': 'recovery_code', 'code': 'ABCDE-FGHJK'});
+      expect(session.accessToken, 'tok_access');
+      expect(session.refreshToken, 'tok_refresh');
+      expect(session.user?.username, 'user01');
+      expect(session.sessionRejection, isNull);
+      expect(s.storage.access, isNot('tok_access'));
     });
 
     test('disableMfa propagates mfa_required_by_role', () async {

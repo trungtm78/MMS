@@ -365,3 +365,8 @@ Map<String, dynamic> mfaConfirmSession([String role = 'dqtv']) {
   final session = backendSession(role)..remove('status');
   return {'recoveryCodes': testRecoveryCodes, ...session};
 }
+
+/// Bearer POST /auth/mfa/disable: {user, tokens}, no `status` (Web/backend/src/auth/mfa/mfa.controller.ts
+/// disable, mfa.service.ts disable). Disabling MFA ended every session of the account; this is the
+/// replacement for the caller.
+Map<String, dynamic> mfaDisableSession([String role = 'dqtv']) => backendSession(role)..remove('status');

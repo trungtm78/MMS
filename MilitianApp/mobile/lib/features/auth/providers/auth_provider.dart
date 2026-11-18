@@ -99,6 +99,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// during sign-in, or the replacement session of Bearer POST /auth/mfa/confirm.
   LoginResponse? _pendingSession;
 
+  /// Bearer POST /auth/mfa/disable is out: the server ends every earlier session and answers the
+  /// replacement, so the end of the earlier one is not a sign-out.
+  bool _replacingSession = false;
+
   /// Completes once the stored session has been checked on start: restored, discarded or absent (it
   /// completes with the storage error if the check failed). The splash screen waits for it instead of
   /// guessing how long secure storage takes.
@@ -119,7 +123,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// replacement session is held, the session that ended is the earlier one; acknowledging the
   /// recovery codes stores the new one.
   void _onSessionEnded(SessionEnd end) {
-    if (!mounted || _pendingSession != null || !state.isAuthenticated) return;
+    if (!mounted || _pendingSession != null || _replacingSession || !state.isAuthenticated) return;
     state = AuthState(notice: end.reason);
   }
 
@@ -241,6 +245,37 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
     _pendingSession = response;
     return MfaAttempt.succeeded(recoveryCodes: response.recoveryCodes);
+  }
+
+  /// Bearer POST /auth/mfa/disable while signed in. Disabling MFA ends every session of the account,
+  /// this one too, and the answer carries the caller's replacement (mfa.service.ts disable), stored at
+  /// once so the user stays signed in. Session ends reported while the call is out belong to the
+  /// earlier session and are ignored. Returns why it failed, or null once MFA is off.
+  Future<MfaError?> disableMfa({required String method, required String code}) async {
+    _replacingSession = true;
+    try {
+      final LoginResponse response;
+      try {
+        response = await _repo.disableMfa(method: method, code: code);
+      } catch (e) {
+        // Refused (wrong code, required by role): nothing changed and the current session stays
+        return MfaError.from(e);
+      }
+      final rejection = response.sessionRejection;
+      if (rejection != null) {
+        // MFA is off and every session gone, but this answer cannot start one here
+        return (await _endReplacedSession(AuthResponseError(rejection))).error;
+      }
+      try {
+        await _repo.persistSession(response);
+      } catch (e) {
+        return (await _endReplacedSession(_authError(e))).error;
+      }
+      _authenticate(response);
+      return null;
+    } finally {
+      _replacingSession = false;
+    }
   }
 
   Future<MfaAttempt> _endReplacedSession(AuthError error) async {

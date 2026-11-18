@@ -74,9 +74,12 @@ class MfaApi {
     return _recoveryCodes(res.data);
   }
 
-  /// POST /auth/mfa/disable {method, code} → 204 (403 mfa_required_by_role)
-  Future<void> disable({required String method, required String code}) async {
-    await _dio.post(ApiConstants.mfaDisable, data: {'method': method, 'code': code});
+  /// POST /auth/mfa/disable {method, code} → {user, tokens} (403 mfa_required_by_role). Disabling MFA
+  /// ends every session of the account, the caller's included; the returned tokens replace it
+  /// (Web/backend/src/auth/mfa/mfa.service.ts disable).
+  Future<LoginResponse> disable({required String method, required String code}) async {
+    final res = await _dio.post(ApiConstants.mfaDisable, data: {'method': method, 'code': code});
+    return LoginResponse.fromJson(_object(res.data));
   }
 
   static Map<String, dynamic> _object(Object? body) {

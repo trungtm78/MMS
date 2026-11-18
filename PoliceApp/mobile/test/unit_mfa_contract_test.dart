@@ -213,6 +213,9 @@ void main() {
             return jsonBody(200, {'recoveryCodes': ['ABCDE-12345', 'FGHJK-67890'], 'user': _user, 'tokens': _tokens});
           case '/auth/mfa/recovery-codes/regenerate':
             return jsonBody(200, {'recoveryCodes': ['ABCDE-12345', 'FGHJK-67890']});
+          // Disabling MFA ends every session and answers the caller's replacement (mfa.service.ts disable)
+          case '/auth/mfa/disable':
+            return jsonBody(200, {'user': _user, 'tokens': _tokens});
           default:
             return ResponseBody.fromString('', 204);
         }
@@ -226,7 +229,10 @@ void main() {
       expect(confirmed.refreshToken, 'tok_refresh');
       expect(confirmed.sessionRejection, isNull);
       expect(await api.regenerateRecoveryCodes('654321'), hasLength(2));
-      await api.disable(method: 'totp', code: '111111');
+      final disabled = await api.disable(method: 'totp', code: '111111');
+      expect(disabled.accessToken, 'tok_access');
+      expect(disabled.refreshToken, 'tok_refresh');
+      expect(disabled.sessionRejection, isNull);
 
       final calls = adapter.requests.map((r) => '${r.method} ${r.path} ${r.data}').toList();
       expect(calls, [

@@ -4,10 +4,14 @@
 //   - Bearer POST /auth/mfa/confirm → {recoveryCodes, user, tokens}: enabling MFA ended every earlier
 //     session, this one too (Web/backend/src/auth/mfa/mfa.controller.ts:142-153,
 //     mfa.service.ts:338-361); the new session is stored only once the codes are acknowledged
+//   - Bearer POST /auth/mfa/disable → {user, tokens}: disabling MFA ended every session of the account; the
+//     answer is the caller's replacement, stored at once (mfa.service.ts disable)
 //   - POST /users/me/change-password {currentPassword, newPassword} → 204 ends every session;
 //     400 invalid_credentials | password_complexity | password_reuse
 //     (users.controller.ts:15-23, 42-47; users.service.ts:180-229)
 // Run: flutter test test/unit_session_end_notifier_test.dart
+
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,8 +25,8 @@ import 'package:militian_app/features/auth/repositories/auth_repository_impl.dar
 import 'helpers/fakes.dart';
 
 class _App {
-  _App([Map<String, ResponseBody Function(RequestOptions)> routes = const {}])
-      : adapter = FakeAdapter(routeTable(routes));
+  _App([Map<String, ResponseBody Function(RequestOptions)> routes = const {}, Future<void>? Function(RequestOptions)? gate])
+      : adapter = FakeAdapter(routeTable(routes), gate: gate);
 
   /// A stored DQTV session, restored on start
   final storage = MemoryStorage(roles: ['dqtv']);
@@ -214,6 +218,86 @@ void main() {
 
       expect(attempt.error?.code, MfaError.sessionRejected);
       expect(attempt.error?.restartLogin, isTrue);
+      expect(app.state.isAuthenticated, isFalse);
+      expect(app.state.error, isA<AuthRequestError>());
+      expect(app.storage.access, isNull);
+      app.notifier.dispose();
+    });
+  });
+
+  group('Bearer POST /auth/mfa/disable', () {
+    test('UT-SEN-11: the replacement session is stored at once and the user stays signed in; the end of '
+        'the earlier session meanwhile is ignored', () async {
+      final held = Completer<void>();
+      final app = await _App(
+        {'POST /auth/mfa/disable': (_) => jsonBody(200, mfaDisableSession())},
+        (_) => held.future,
+      ).boot();
+
+      final pending = app.notifier.disableMfa(method: 'recovery_code', code: 'ABCDE-FGHJK');
+      await app.settle();
+      // The server already ended every session: the old one's refresh is refused while the answer is out
+      app.events.end(SessionEnd.forCode('refresh_token_revoked'));
+      await app.settle();
+      expect(app.state.isAuthenticated, isTrue);
+      held.complete();
+      final error = await pending;
+
+      expect(error, isNull);
+      expect(app.adapter.requests.single.data, {'method': 'recovery_code', 'code': 'ABCDE-FGHJK'});
+      expect(app.state.isAuthenticated, isTrue);
+      expect(app.state.notice, isNull);
+      expect(app.state.user?.username, 'user01');
+      expect(app.storage.access, 'tok_access');
+      expect(app.storage.refresh, 'tok_refresh');
+      expect(app.storage.roles, ['dqtv']);
+
+      // Nothing is replaced any more: a later end signs out
+      app.events.end(SessionEnd.forCode('refresh_token_revoked'));
+      await app.settle();
+      expect(app.state.isAuthenticated, isFalse);
+      app.notifier.dispose();
+    });
+
+    test('UT-SEN-12: a wrong code or a role that requires MFA keeps the current session', () async {
+      for (final (status, code, expected) in [
+        (401, 'invalid_code', MfaError.invalidCode),
+        (403, 'mfa_required_by_role', MfaError.requiredByRole),
+      ]) {
+        final app = await _App({'POST /auth/mfa/disable': (_) => jsonBody(status, backendError(status, code))}).boot();
+
+        final error = await app.notifier.disableMfa(method: 'totp', code: '000000');
+
+        expect(error?.code, expected, reason: code);
+        expect(error?.restartLogin, isFalse, reason: code);
+        expect(app.state.isAuthenticated, isTrue, reason: code);
+        expect(app.storage.access, 'old_access', reason: code);
+        app.notifier.dispose();
+      }
+    });
+
+    test('UT-SEN-13: a replacement this app may not use signs out; the earlier session already ended', () async {
+      final app = await _App({'POST /auth/mfa/disable': (_) => jsonBody(200, mfaDisableSession('ca_officer'))}).boot();
+
+      final error = await app.notifier.disableMfa(method: 'totp', code: '112233');
+
+      expect(error?.code, MfaError.sessionRejected);
+      expect(error?.issue, AuthResponseIssue.roleNotAllowed);
+      expect(error?.restartLogin, isTrue);
+      expect(app.state.isAuthenticated, isFalse);
+      expect(app.storage.access, isNull);
+      expect(app.storage.refresh, isNull);
+      app.notifier.dispose();
+    });
+
+    test('UT-SEN-14: a replacement that cannot be stored signs out', () async {
+      final app = await _App({'POST /auth/mfa/disable': (_) => jsonBody(200, mfaDisableSession())}).boot();
+      app.storage.failWrites = true;
+
+      final error = await app.notifier.disableMfa(method: 'totp', code: '112233');
+
+      expect(error?.code, MfaError.sessionRejected);
+      expect(error?.restartLogin, isTrue);
       expect(app.state.isAuthenticated, isFalse);
       expect(app.state.error, isA<AuthRequestError>());
       expect(app.storage.access, isNull);

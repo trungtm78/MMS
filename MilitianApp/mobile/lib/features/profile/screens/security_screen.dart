@@ -172,14 +172,9 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
         description: l10n.profileSecurityDisableDialogDescription,
         confirmLabel: l10n.profileSecurityDisableDialogConfirm,
         methods: MfaMethod.all,
-        onSubmit: (method, code) async {
-          try {
-            await _repo.disableMfa(method: method, code: code);
-            return null;
-          } catch (e) {
-            return MfaError.from(e);
-          }
-        },
+        // Disabling MFA ends every session; AuthNotifier stores the replacement the answer carries
+        onSubmit: (method, code) =>
+            ref.read(authStateProvider.notifier).disableMfa(method: method, code: code),
       ),
     );
     if (done != true || !mounted) return;

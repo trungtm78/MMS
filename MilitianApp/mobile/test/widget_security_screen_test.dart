@@ -3,7 +3,8 @@
 //     ends every earlier session; the answer {recoveryCodes, user, tokens} is the replacement, stored
 //     only when the codes are acknowledged, and the codes screen cannot be left before that
 //   - enabled + required by role: the disable button is disabled
-//   - disable: method + code → POST /auth/mfa/disable → reload
+//   - disable: method + code → POST /auth/mfa/disable → {user, tokens}: every session ended, the caller's
+//     replacement is stored at once → reload
 //   - regenerate: TOTP code → POST /auth/mfa/recovery-codes/regenerate → recovery codes
 // Contract: Web/backend/src/auth/mfa/mfa.controller.ts (setup, confirm :142-153, status,
 // recovery-codes/regenerate, disable), mfa.service.ts (status, disable, rejectCode, :338-361)
@@ -159,16 +160,18 @@ void main() {
     expect(_onPressed(tester, 'regenerate_codes'), isNotNull);
   });
 
-  testWidgets('WT-SEC-03: disabling sends the chosen method and code, then reloads',
-      (tester) async {
+  testWidgets('WT-SEC-03: disabling sends the chosen method and code, stores the replacement session, '
+      'then reloads', (tester) async {
     final account = _Account(enabled: true, remaining: 8);
+    final storage = MemoryStorage(roles: ['dqtv']);
     final adapter = await _pumpSecurity(tester, {
       'GET /auth/mfa/status': account.status,
-      'POST /auth/mfa/disable': (o) {
+      'POST /auth/mfa/disable': (_) {
         account.enabled = false;
-        return noContent(o);
+        // Disabling MFA ended every session of the account; the answer carries the caller's new one
+        return jsonBody(200, mfaDisableSession());
       },
-    });
+    }, storage: storage);
 
     expect(_onPressed(tester, 'disable_mfa'), isNotNull);
     await _tapKey(tester, 'disable_mfa');
@@ -185,6 +188,9 @@ void main() {
     expect(disable.data, {'method': 'recovery_code', 'code': 'ABCDE-FGHJK'});
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text(viL10n.profileSecurityDisabledSnack), findsOneWidget);
+    expect(storage.access, 'tok_access');
+    expect(storage.refresh, 'tok_refresh');
+    expect(storage.roles, ['dqtv']);
     expect(_calls(adapter).last, 'GET /auth/mfa/status');
     expect(find.text(viL10n.profileSecurityStatusDisabled), findsOneWidget);
   });

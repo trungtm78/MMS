@@ -48,8 +48,10 @@ abstract class AuthRepository {
   /// POST /auth/mfa/recovery-codes/regenerate with a TOTP code (409 mfa_not_enabled)
   Future<List<String>> regenerateRecoveryCodes(String code);
 
-  /// POST /auth/mfa/disable → 204 (403 mfa_required_by_role, 409 mfa_not_enabled)
-  Future<void> disableMfa({required String method, required String code});
+  /// POST /auth/mfa/disable (Bearer) → {user, tokens} (403 mfa_required_by_role, 409 mfa_not_enabled).
+  /// Disabling MFA ends every session of the account, the caller's too (mfa.service.ts disable); the
+  /// answer is the caller's replacement session. Nothing is checked or stored here.
+  Future<LoginResponse> disableMfa({required String method, required String code});
 
   /// POST /users/me/change-password {currentPassword, newPassword} → 204; ends every session of
   /// the account (users.controller.ts:15-23, 42-47; users.service.ts:180-229).

@@ -116,16 +116,17 @@ class _SecurityScreenState extends ConsumerState<SecurityScreen> {
     if (input == null || !mounted) return;
     final done = context.l10n.authSecurityMfaDisabledDone;
     setState(() => _busy = true);
-    try {
-      await _api.disable(method: input.method, code: input.code);
-      if (!mounted) return;
-      _snack(done, error: false);
-      await _load();
-    } catch (e) {
-      if (mounted) _snackFailure(e);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    // Disabling MFA ends every session; AuthNotifier stores the replacement the answer carries (a session
+    // the app cannot use sends it to the login screen)
+    final error = await ref.read(authStateProvider.notifier).disableMfa(method: input.method, code: input.code);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (error != null) {
+      _snack(failureText(context.l10n, error.failure));
+      return;
     }
+    _snack(done, error: false);
+    await _load();
   }
 
   @override

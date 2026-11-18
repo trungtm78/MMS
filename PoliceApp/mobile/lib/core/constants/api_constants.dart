@@ -50,7 +50,7 @@ class ApiConstants {
   static const String setupMfa = '/auth/mfa/setup';                   // POST
   static const String setupMfaConfirm = '/auth/mfa/confirm';          // POST {mfaToken, code}
   static const String mfaRegenerateRecoveryCodes = '/auth/mfa/recovery-codes/regenerate';  // POST {code}
-  static const String mfaDisable = '/auth/mfa/disable';               // POST {method, code} → 204
+  static const String mfaDisable = '/auth/mfa/disable';               // POST {method, code} → {user, tokens}
 
   // Users / Admin
   static const String profile = '/users/me';

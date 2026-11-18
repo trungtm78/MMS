@@ -2,8 +2,12 @@
 //   - a session ended by the interceptor signs the app out with a notice
 //   - Bearer POST /auth/mfa/confirm returns {recoveryCodes, user, tokens}; the old tokens are dead
 //     (Web/backend/src/auth/mfa/mfa.service.ts:338-361)
+//   - Bearer POST /auth/mfa/disable returns {user, tokens}: every session ended, the caller's replacement
+//     is stored at once (mfa.service.ts disable)
 //   - POST /users/me/change-password → 204 ends every session (Web/backend/src/users/users.service.ts:180-219)
 // Run: flutter test test/unit_auth_session_test.dart
+
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,10 +33,18 @@ Map<String, Object> _confirmed({String role = 'ca_officer'}) => {
 Map<String, Object> _error(int status, String message, [Map<String, Object>? details]) =>
     {'code': 'E004', 'message': message, 'statusCode': status, if (details != null) 'details': details};
 
+/// Storage that cannot keep new tokens (a locked keychain); clearing still works
+class _LockedStorage extends MemoryStorage {
+  _LockedStorage() : super(role: 'ca');
+
+  @override
+  Future<void> saveAccessToken(String token) async => throw StateError('keychain locked');
+}
+
 class _Session {
-  _Session(this.handler, {String role = 'ca'})
-      : storage = MemoryStorage(role: role),
-        adapter = FakeAdapter(handler);
+  _Session(this.handler, {String role = 'ca', MemoryStorage? storage, Future<void> Function(RequestOptions)? gate})
+      : storage = storage ?? MemoryStorage(role: role),
+        adapter = FakeAdapter(handler, gate: gate);
 
   final ResponseBody Function(RequestOptions) handler;
   final MemoryStorage storage;
@@ -159,6 +171,86 @@ void main() {
 
       expect(s.state.isAuthenticated, isFalse);
       expect(s.state.notice?.code, AppFailure.roleNotAllowed);
+      expect(s.storage.access, isNull);
+    });
+  });
+
+  group('Bearer MFA disable', () {
+    Map<String, Object> disabled({String role = 'ca_officer'}) => {
+          'user': _user(role),
+          'tokens': {'accessToken': 'nomfa_access', 'refreshToken': 'nomfa_refresh', 'expiresIn': 900},
+        };
+
+    test('UT-SESS-11: the replacement session is stored at once and the user stays signed in; the end of the '
+        'earlier session meanwhile is ignored', () async {
+      final held = Completer<void>();
+      final s = _Session(
+        (o) => o.path == '/auth/mfa/disable' ? jsonBody(200, disabled()) : jsonBody(404, {}),
+        gate: (_) => held.future,
+      );
+      await s.start();
+
+      final pending = s.notifier.disableMfa(method: 'recovery_code', code: 'ABCDE-12345');
+      await pumpEventQueue();
+      // The server already ended every session: the old one's refresh is refused while the answer is out
+      s.events.end('refresh_token_revoked');
+      await pumpEventQueue();
+      expect(s.state.isAuthenticated, isTrue);
+      held.complete();
+      final error = await pending;
+
+      expect(error, isNull);
+      expect(s.adapter.requests.single.data, {'method': 'recovery_code', 'code': 'ABCDE-12345'});
+      expect(s.storage.access, 'nomfa_access');
+      expect(s.storage.refresh, 'nomfa_refresh');
+      expect(s.storage.userId, 'u1');
+      expect(s.storage.role, 'ca');
+      expect(s.state.isAuthenticated, isTrue);
+      expect(s.state.notice, isNull);
+
+      // Nothing is replaced any more: a later end signs out
+      s.events.end('refresh_token_revoked');
+      await pumpEventQueue();
+      expect(s.state.isAuthenticated, isFalse);
+    });
+
+    test('UT-SESS-12: a wrong code or a role that requires MFA keeps the current session', () async {
+      for (final (status, code) in [(401, 'invalid_code'), (403, 'mfa_required_by_role')]) {
+        final s = _Session((_) => jsonBody(status, _error(status, code)));
+        await s.start();
+
+        final error = await s.notifier.disableMfa(method: 'totp', code: '000000');
+
+        expect(error?.code, code);
+        expect(error?.restartLogin, isFalse, reason: code);
+        expect(s.storage.access, 'old_access', reason: code);
+        expect(s.state.isAuthenticated, isTrue, reason: code);
+      }
+    });
+
+    test('UT-SESS-13: a replacement the app may not use signs out; the earlier session already ended', () async {
+      final s = _Session((_) => jsonBody(200, disabled(role: 'system_admin')));
+      await s.start();
+
+      final error = await s.notifier.disableMfa(method: 'totp', code: '123456');
+
+      expect(error?.code, AppFailure.roleNotAllowed);
+      expect(error?.restartLogin, isTrue);
+      expect(s.state.isAuthenticated, isFalse);
+      expect(s.state.notice?.code, AppFailure.roleNotAllowed);
+      expect(s.storage.access, isNull);
+    });
+
+    test('UT-SESS-14: a replacement that cannot be stored signs out', () async {
+      final s = _Session((_) => jsonBody(200, disabled()), storage: _LockedStorage());
+      await s.start();
+
+      final error = await s.notifier.disableMfa(method: 'totp', code: '123456');
+
+      expect(error?.code, AppFailure.sessionStartFailed);
+      expect(error?.restartLogin, isTrue);
+      expect(s.state.isAuthenticated, isFalse);
+      expect(s.state.notice?.code, AppFailure.sessionStartFailed);
       expect(s.storage.access, isNull);
     });
   });

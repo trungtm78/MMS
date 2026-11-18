@@ -154,11 +154,13 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> disableMfa({required String method, required String code}) async {
-    await _dio.post(
+  Future<LoginResponse> disableMfa({required String method, required String code}) async {
+    final response = await _dio.post(
       ApiConstants.mfaDisable,
       data: {'method': method, 'code': code},
     );
+    // {user, tokens}: AuthNotifier checks and stores the replacement session
+    return LoginResponse.fromJson(_body(response));
   }
 
   @override
