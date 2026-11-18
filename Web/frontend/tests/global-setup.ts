@@ -55,7 +55,7 @@ export default async function globalSetup() {
         await c.query(
           `INSERT INTO militia_profiles (militia_code, full_name, user_id, unit_id, gender, status, cccd, dob, join_date)
            VALUES ('QS-E2E-001', 'An E2E Dân Quân Test', $1, $2, 'male', 'active', '000000000001', '1990-01-01', '2020-01-01')
-           ON CONFLICT (militia_code) DO UPDATE SET user_id=$1, full_name='An E2E Dân Quân Test'`,
+           ON CONFLICT (tenant_id, militia_code) DO UPDATE SET user_id=$1, full_name='An E2E Dân Quân Test'`,
           [userId, unitId],
         )
         console.log(`[E2E Setup] Created militia profile QS-E2E-001 for ${u.username}`)
