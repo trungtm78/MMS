@@ -97,7 +97,11 @@ const closed = (stream: WriteStream) =>
  * that is not the allowed type it claims to be, leaving nothing behind.
  */
 export class ContentCheckingStorage implements StorageEngine {
-  constructor(private readonly directory: (req: Request) => string) {}
+  // The directory of a request, or nothing when it has none: the upload is then refused
+  // rather than written to some default place (it would be shared between tenants)
+  constructor(
+    private readonly directory: (req: Request) => string | undefined,
+  ) {}
 
   _handleFile(
     req: Request,
@@ -127,6 +131,7 @@ export class ContentCheckingStorage implements StorageEngine {
     file: Express.Multer.File,
   ): Promise<StoredFileInfo> {
     const directory = this.directory(req);
+    if (!directory) throw new Error('upload_directory_missing');
     await fsp.mkdir(directory, { recursive: true });
     const filename = randomUUID();
     const path = join(directory, filename);

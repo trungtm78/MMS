@@ -11,6 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { isUUID } from 'class-validator';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { holdsAnyRole, type ScopedActor } from '../common/access/unit-scope';
@@ -23,7 +24,10 @@ import {
 } from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { queryRows } from '../database/query-rows';
-import { TenantContext } from '../database/tenancy/tenant-context';
+import {
+  TenantContext,
+  TenantScopeError,
+} from '../database/tenancy/tenant-context';
 import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
 import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { MILITIA_STAFF_ROLE_SET } from '../militia/militia-roles';
@@ -178,8 +182,21 @@ export class FilesService {
       : this.uploadDir();
   }
 
-  /** Where the content of a stored file lives; the tenant defaults to the current scope. */
+  /**
+   * Where the content of a stored file lives; the tenant defaults to the current scope.
+   * Both parts of the path are checked here, so no caller can turn a value that is not a
+   * server-made storage key or a tenant UUID into a path outside the upload directory.
+   */
   contentPath(storageKey: string, tenantId?: string): string {
+    if (!STORAGE_KEY.test(storageKey)) {
+      throw new Error('invalid_storage_key');
+    }
+    if (tenantId !== undefined && !isUUID(tenantId)) {
+      throw new TenantScopeError(
+        'invalid_tenant_id',
+        'A content path needs a UUID tenant id',
+      );
+    }
     return isTenancyEnforced()
       ? join(
           this.uploadDir(),

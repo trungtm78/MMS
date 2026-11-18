@@ -162,7 +162,7 @@ describe('FilesService', () => {
     it('keeps one flat directory in legacy mode', () => {
       const flat = buildService({ UPLOAD_DIR: '/data/uploads' });
       expect(flat.tenantUploadDir()).toBe('/data/uploads');
-      expect(flat.contentPath('abc')).toBe(path.join('/data/uploads', 'abc'));
+      expect(flat.contentPath(KEY)).toBe(path.join('/data/uploads', KEY));
     });
 
     it('keeps each tenant in its own directory in enforced mode', () => {
@@ -170,8 +170,8 @@ describe('FilesService', () => {
       const tenants = buildService({ UPLOAD_DIR: '/data/uploads' });
       TenantContext.runAs({ tenantId: TID }, () => {
         expect(tenants.tenantUploadDir()).toBe(path.join('/data/uploads', TID));
-        expect(tenants.contentPath('abc')).toBe(
-          path.join('/data/uploads', TID, 'abc'),
+        expect(tenants.contentPath(KEY)).toBe(
+          path.join('/data/uploads', TID, KEY),
         );
       });
     });
@@ -179,8 +179,8 @@ describe('FilesService', () => {
     it('names the directory of another tenant when asked to, without any scope', () => {
       enforce();
       const tenants = buildService({ UPLOAD_DIR: '/data/uploads' });
-      expect(tenants.contentPath('abc', OTHER)).toBe(
-        path.join('/data/uploads', OTHER, 'abc'),
+      expect(tenants.contentPath(KEY, OTHER)).toBe(
+        path.join('/data/uploads', OTHER, KEY),
       );
     });
 
@@ -190,8 +190,38 @@ describe('FilesService', () => {
       expect(thrownBy(() => tenants.tenantUploadDir())).toMatchObject({
         code: 'no_tenant_scope',
       });
-      expect(thrownBy(() => tenants.contentPath('abc'))).toMatchObject({
+      expect(thrownBy(() => tenants.contentPath(KEY))).toMatchObject({
         code: 'no_tenant_scope',
+      });
+    });
+
+    // A storage key that is not a server-made UUID could climb out of the directory
+    it.each([
+      ['a path that climbs out of the directory', `../${KEY}`],
+      ['a nested path', `sub/${KEY}`],
+      ['a name that is not a UUID', 'abc'],
+      ['an empty name', ''],
+    ])('refuses %s as a storage key, in both modes', (_label, key) => {
+      const flat = buildService({ UPLOAD_DIR: '/d' });
+      expect(thrownBy(() => flat.contentPath(key))).toMatchObject({
+        message: 'invalid_storage_key',
+      });
+      enforce();
+      const tenants = buildService({ UPLOAD_DIR: '/d' });
+      expect(thrownBy(() => tenants.contentPath(key, TID))).toMatchObject({
+        message: 'invalid_storage_key',
+      });
+    });
+
+    it.each([
+      ['a path that climbs out of the directory', '../other'],
+      ['a name that is not a UUID', 'tenant-a'],
+      ['an empty id', ''],
+    ])('refuses %s as an explicit tenant id', (_label, tenantId) => {
+      enforce();
+      const tenants = buildService({ UPLOAD_DIR: '/d' });
+      expect(thrownBy(() => tenants.contentPath(KEY, tenantId))).toMatchObject({
+        code: 'invalid_tenant_id',
       });
     });
 

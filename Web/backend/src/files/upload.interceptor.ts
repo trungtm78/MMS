@@ -81,11 +81,10 @@ export class UploadInterceptor implements NestInterceptor {
     // passes on to busboy
     const options: MulterConfig = {
       // The directory was fixed in intercept(): multer's stream callbacks do not reliably
-      // keep the request's tenant context
+      // keep the request's tenant context. Without it the upload is refused, never stored
+      // in a default directory.
       storage: new ContentCheckingStorage(
-        (req) =>
-          (req as unknown as UploadRequest).uploadDirectory ??
-          files.uploadDir(),
+        (req) => (req as unknown as UploadRequest).uploadDirectory,
       ),
       // Browsers and Dio send the part's filename as raw UTF-8 (RFC 7578); busboy would
       // read it as latin1 and turn "ảnh.png" into "áº£nh.png"

@@ -20,6 +20,7 @@ import {
   ADMIN_PASSWORD,
   createTenantDatabase,
   seedTenant,
+  seededFilePath,
   writeSeededFile,
   type SeededTenant,
   type TenantDatabase,
@@ -634,6 +635,46 @@ describe('tenant slice (e2e)', () => {
         .expect(404);
     });
 
+    // With the content of each file also in the directory of the other tenant, the content
+    // path stops being a barrier: a row that leaked would be served. The 404 can then only
+    // come from Row-Level Security.
+    it('hides the file row of another tenant even where its content could be found', async () => {
+      writeSeededFile(uploadDir, a, b.id);
+      writeSeededFile(uploadDir, b, a.id);
+      try {
+        expect(fs.existsSync(seededFilePath(uploadDir, a, b.id))).toBe(true);
+        expect(fs.existsSync(seededFilePath(uploadDir, b, a.id))).toBe(true);
+        // Control: each tenant still opens its own file
+        const own = await api()
+          .get(url(`/files/${a.fileId}`))
+          .set(auth('a'))
+          .expect(200);
+        expect(own.text).toBe(a.fileBody);
+        await api()
+          .get(url(`/files/${b.fileId}`))
+          .set(auth('b'))
+          .expect(200);
+
+        const fromB = await api()
+          .get(url(`/files/${a.fileId}`))
+          .set(auth('b'))
+          .expect(404);
+        const fromA = await api()
+          .get(url(`/files/${b.fileId}`))
+          .set(auth('a'))
+          .expect(404);
+        expect(JSON.stringify(fromB.body) + fromB.text).not.toContain(
+          a.fileBody,
+        );
+        expect(JSON.stringify(fromA.body) + fromA.text).not.toContain(
+          b.fileBody,
+        );
+      } finally {
+        fs.rmSync(seededFilePath(uploadDir, a, b.id), { force: true });
+        fs.rmSync(seededFilePath(uploadDir, b, a.id), { force: true });
+      }
+    });
+
     it('purges abandoned uploads of every tenant with their content', async () => {
       const fa = (await upload('a', 'abandoned A')).body as { id: string };
       const fb = (await upload('b', 'abandoned B')).body as { id: string };
@@ -649,6 +690,12 @@ describe('tenant slice (e2e)', () => {
           )
         ).rows;
       });
+      // The content is there before the purge, so its absence afterwards proves a removal
+      rows.forEach((row) =>
+        expect(
+          fs.existsSync(path.join(uploadDir, row.tenant_id, row.storage_key)),
+        ).toBe(true),
+      );
       await app.get(FilesService).purgeAbandonedUploadsOnSchedule();
       const left = await db.admin(
         async (c) =>

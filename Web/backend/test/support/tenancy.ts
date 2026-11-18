@@ -266,13 +266,29 @@ export async function seedTenant(
 }
 
 /**
- * Puts the content of the seeded file where the backend looks for it, so that a download
- * answers with the content instead of "file not found". This is the one place that knows
- * the storage layout of enforced mode: one directory per tenant, upload dir / tenant id /
- * storage key.
+ * Where the content of the seeded file lives in the directory of `tenantId` (default: the
+ * tenant that owns the file). This is the one place that knows the storage layout of
+ * enforced mode: one directory per tenant, upload dir / tenant id / storage key.
  */
-export function writeSeededFile(uploadDir: string, seeded: SeededTenant): void {
-  const directory = path.join(uploadDir, seeded.id);
-  fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(path.join(directory, seeded.storageKey), seeded.fileBody);
+export function seededFilePath(
+  uploadDir: string,
+  seeded: SeededTenant,
+  tenantId: string = seeded.id,
+): string {
+  return path.join(uploadDir, tenantId, seeded.storageKey);
+}
+
+/**
+ * Puts the content of the seeded file where the backend looks for it, so that a download
+ * answers with the content instead of "file not found". `tenantId` names the directory of
+ * another tenant, for a test that plants a copy there so the content path is no barrier.
+ */
+export function writeSeededFile(
+  uploadDir: string,
+  seeded: SeededTenant,
+  tenantId: string = seeded.id,
+): void {
+  const target = seededFilePath(uploadDir, seeded, tenantId);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, seeded.fileBody);
 }

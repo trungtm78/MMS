@@ -84,6 +84,28 @@ describe('ContentCheckingStorage', () => {
     expect(fs.readFileSync(info.path).equals(PNG)).toBe(true);
   });
 
+  // Without a directory the upload would land in a place no tenant owns
+  it.each([
+    ['no directory', undefined],
+    ['an empty directory', ''],
+  ])(
+    'refuses an upload whose request names %s, and writes nothing',
+    async (_label, named) => {
+      const unnamed = new ContentCheckingStorage(() => named);
+      const stored = new Promise<StoredFileInfo>((resolve, reject) =>
+        unnamed._handleFile(
+          {} as Request,
+          part([PNG], 'image/png'),
+          (error, info) =>
+            error ? reject(error as Error) : resolve(info as StoredFileInfo),
+        ),
+      );
+
+      await expect(stored).rejects.toThrow('upload_directory_missing');
+      expect(fs.readdirSync(dir)).toEqual([]);
+    },
+  );
+
   it('recognises a signature split across chunks', async () => {
     const info = await handle(
       part(
