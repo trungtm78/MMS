@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
-import { memberScopeSql } from '../common/access/member-scope';
+import { memberReachSql } from '../common/access/member-scope';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import {
   GPS_OFFLINE_AFTER_MINUTES,
@@ -161,9 +161,11 @@ describe('GpsService', () => {
 
       const sql = sqlOf(0);
       expect(sql).toMatch(
-        /CASE WHEN gl\.last_seen_at >= now\(\) - make_interval\(mins => \$3\) THEN gl\.status ELSE 'offline' END AS status/,
+        /CASE WHEN gl\.last_seen_at >= now\(\) - make_interval\(mins => \$4\) THEN gl\.status ELSE 'offline' END AS status/,
       );
-      expect(sql).toContain(memberScopeSql(1, 2));
+      expect(sql).toContain(
+        memberReachSql({ everyone: '$1', unit: '$2', userIds: '$3' }),
+      );
       expect(sql).toMatch(/JOIN units u ON u\.id = mp\.unit_id/);
       expect(sql).toMatch(/u\.code\s+AS "unitCode"/);
       for (const alias of [
@@ -175,7 +177,12 @@ describe('GpsService', () => {
         expect(sql).toContain(alias);
       }
       expect(sql).toMatch(/ORDER BY gl\.last_seen_at DESC/);
-      expect(paramsOf(0)).toEqual([null, null, GPS_OFFLINE_AFTER_MINUTES]);
+      expect(paramsOf(0)).toEqual([
+        true,
+        null,
+        null,
+        GPS_OFFLINE_AFTER_MINUTES,
+      ]);
     });
 
     it('limits unit staff to their unit and a CA officer to the DQTV assigned to them', async () => {
@@ -185,17 +192,56 @@ describe('GpsService', () => {
       await service.getLive(areaOfficer);
       await service.getLive(caOfficer);
 
-      expect(paramsOf(0)).toEqual(['KV1', null, GPS_OFFLINE_AFTER_MINUTES]);
-      expect(paramsOf(1)).toEqual([null, ['dq-7'], GPS_OFFLINE_AFTER_MINUTES]);
+      expect(paramsOf(0)).toEqual([
+        false,
+        'KV1',
+        null,
+        GPS_OFFLINE_AFTER_MINUTES,
+      ]);
+      expect(paramsOf(1)).toEqual([
+        false,
+        null,
+        ['dq-7'],
+        GPS_OFFLINE_AFTER_MINUTES,
+      ]);
     });
 
-    // resolveMemberScope, as on every member route: a member sees only their own record
+    // Every role held counts, whatever its priority: a unit role and ca_officer reach the
+    // members of the unit and the DQTV assigned, whichever is the primary role
+    it.each(['police_area', 'ca_officer'])(
+      'gives police_area with ca_officer their unit and their DQTV (primary %s)',
+      async (primary) => {
+        mockQuery.mockResolvedValueOnce([]);
+        mockAssignments.getAssignedDqtvIds.mockResolvedValueOnce(['dq-7']);
+
+        await service.getLive({
+          sub: 'pc-1',
+          role: primary,
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV1',
+        });
+
+        expect(paramsOf(0)).toEqual([
+          false,
+          'KV1',
+          ['dq-7'],
+          GPS_OFFLINE_AFTER_MINUTES,
+        ]);
+      },
+    );
+
+    // As on every member route: a member sees only their own record
     it('limits a member to their own position', async () => {
       mockQuery.mockResolvedValueOnce([]);
 
       await service.getLive(member);
 
-      expect(paramsOf(0)).toEqual([null, ['dq-1'], GPS_OFFLINE_AFTER_MINUTES]);
+      expect(paramsOf(0)).toEqual([
+        false,
+        null,
+        ['dq-1'],
+        GPS_OFFLINE_AFTER_MINUTES,
+      ]);
     });
 
     it('refuses a role that reads no positions', async () => {
@@ -218,9 +264,34 @@ describe('GpsService', () => {
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       expect(sqlOf(0)).toMatch(/WHERE mp\.id = \$1 AND/);
-      expect(sqlOf(0)).toContain(memberScopeSql(2, 3));
-      expect(paramsOf(0)).toEqual(['m1', 'KV1', null]);
+      expect(sqlOf(0)).toContain(
+        memberReachSql({ everyone: '$2', unit: '$3', userIds: '$4' }),
+      );
+      expect(paramsOf(0)).toEqual(['m1', false, 'KV1', null]);
     });
+
+    it.each(['police_area', 'ca_officer'])(
+      'reads the history of an assigned DQTV outside the unit for police_area with ca_officer (primary %s)',
+      async (primary) => {
+        mockQuery
+          .mockResolvedValueOnce([{ id: 'm1' }])
+          .mockResolvedValueOnce([{ count: '0' }])
+          .mockResolvedValueOnce([]);
+        mockAssignments.getAssignedDqtvIds.mockResolvedValueOnce(['dq-7']);
+
+        await service.getHistory(
+          {
+            sub: 'pc-1',
+            role: primary,
+            roles: ['police_area', 'ca_officer'],
+            unitScope: 'KV1',
+          },
+          'm1',
+        );
+
+        expect(paramsOf(0)).toEqual(['m1', false, 'KV1', ['dq-7']]);
+      },
+    );
 
     it('pages the points of a member in scope within the date range', async () => {
       mockQuery

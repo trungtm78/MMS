@@ -9,9 +9,9 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import {
-  memberScopeSql,
-  resolveMemberScope,
-  type MemberScope,
+  memberReachSql,
+  resolveMemberReach,
+  type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
 import { holdsAnyRole } from '../common/access/unit-scope';
@@ -183,8 +183,9 @@ export class DisciplineService {
   private scopeOf(
     actor: MemberScopeActor,
     requestedUnit?: string,
-  ): Promise<MemberScope> {
-    return resolveMemberScope(actor, {
+  ): Promise<MemberReach> {
+    // Every role held counts: a user holding several reaches the union
+    return resolveMemberReach(actor, {
       staffRoles: REWARD_STAFF_ROLE_SET,
       assignments: this.assignments,
       requestedUnit,
@@ -216,7 +217,7 @@ export class DisciplineService {
     const scope = await this.scopeOf(actor, filters.unitCode);
     return this.ds.query<DisciplineRecord[]>(
       `${LIST_SELECT}
-       WHERE ${memberScopeSql(1, 2)}
+       WHERE ${memberReachSql({ everyone: '$8', unit: '$1', userIds: '$2' })}
          AND ($3::date IS NULL OR d.decision_date >= $3::date)
          AND ($4::date IS NULL OR d.decision_date <= $4::date)
          AND ($5::text IS NULL OR d.discipline_form = $5)
@@ -231,6 +232,7 @@ export class DisciplineService {
         filters.disciplineType ?? null,
         filters.status ?? null,
         filters.militiaId ?? null,
+        scope.everyone,
       ],
     );
   }
@@ -243,8 +245,8 @@ export class DisciplineService {
     const scope = await this.scopeOf(actor);
     const rows = await this.ds.query<DisciplineDetail[]>(
       `${DETAIL_SELECT}
-       WHERE d.id = $3 AND ${memberScopeSql(1, 2)}`,
-      [scope.unit, scope.userIds, id],
+       WHERE d.id = $3 AND ${memberReachSql({ everyone: '$4', unit: '$1', userIds: '$2' })}`,
+      [scope.unit, scope.userIds, id, scope.everyone],
     );
     if (!rows.length) {
       throw new NotFoundException('discipline_decision_not_found');
@@ -278,7 +280,7 @@ export class DisciplineService {
          SELECT mp.id, $4, $5, $6::date, $7::date, $8, $9, $10::uuid
          FROM militia_profiles mp
          JOIN units u ON u.id = mp.unit_id
-         WHERE mp.id = $1 AND ${memberScopeSql(2, 3)}
+         WHERE mp.id = $1 AND ${memberReachSql({ everyone: '$11', unit: '$2', userIds: '$3' })}
          RETURNING id`,
         [
           input.militiaId,
@@ -291,6 +293,7 @@ export class DisciplineService {
           decisionNumber,
           blankAsNull(input.issuedBy),
           actor.sub,
+          scope.everyone,
         ],
       );
       if (!inserted.length) throw new NotFoundException('militia_not_found');
@@ -348,9 +351,9 @@ export class DisciplineService {
          FROM discipline_decisions d
          JOIN militia_profiles mp ON mp.id = d.militia_id
          JOIN units u ON u.id = mp.unit_id
-         WHERE d.id = $1 AND ${memberScopeSql(2, 3)}
+         WHERE d.id = $1 AND ${memberReachSql({ everyone: '$4', unit: '$2', userIds: '$3' })}
          FOR UPDATE OF d FOR SHARE OF mp`,
-        [id, scope.unit, scope.userIds],
+        [id, scope.unit, scope.userIds, scope.everyone],
       );
       const decision = rows[0];
       if (!decision) {
@@ -445,9 +448,9 @@ export class DisciplineService {
          JOIN militia_profiles mp ON mp.id = d.militia_id
          JOIN units u ON u.id = mp.unit_id
          LEFT JOIN discipline_appeals a ON a.decision_id = d.id AND a.outcome IS NULL
-         WHERE d.id = $1 AND ${memberScopeSql(2, 3)}
+         WHERE d.id = $1 AND ${memberReachSql({ everyone: '$4', unit: '$2', userIds: '$3' })}
          FOR UPDATE OF d FOR SHARE OF mp`,
-        [id, scope.unit, scope.userIds],
+        [id, scope.unit, scope.userIds, scope.everyone],
       );
       const decision = rows[0];
       if (!decision) {

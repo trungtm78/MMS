@@ -1,9 +1,12 @@
 // SQL shared by the task routes and the task statistics, fixed placeholders only.
 //
-// Which tasks a caller reaches follows resolveMemberScope with the task staff roles:
+// Which tasks a caller reaches follows resolveMemberReach with the task staff roles, the
+// union of what every role held grants:
 // - unit staff: the tasks of their unit (the task's own unit, else its first assignee's)
 // - CA officers: the tasks assigned to their DQTV, and the tasks they created
 // - militia members: the tasks assigned to them
+// police_area and other roles outside TASK_STAFF_ROLES grant nothing here, also when held
+// beside ca_officer.
 
 // tasks.status (migration 003), in lifecycle order
 export const TASK_STATUSES = [
@@ -38,8 +41,12 @@ export const TASK_UNIT_JOIN = `LEFT JOIN LATERAL (
     LIMIT 1
   ) tu ON true`;
 
-/** Placeholders of a MemberScope: unit code (text), member user ids (uuid[]), the caller (uuid). */
+/**
+ * Placeholders of a MemberReach (everyone boolean, unit code text, member user ids uuid[])
+ * and of the caller (uuid).
+ */
 export interface TaskScopePlaceholders {
+  everyone: string;
   unit: string;
   userIds: string;
   caller: string;
@@ -47,25 +54,30 @@ export interface TaskScopePlaceholders {
 
 /** Tasks t (with TASK_UNIT_JOIN) inside the caller's scope. */
 export function taskScopeSql({
+  everyone,
   unit,
   userIds,
   caller,
 }: TaskScopePlaceholders): string {
-  return `(${unit}::text IS NULL OR tu.code = ${unit})
-    AND (${userIds}::uuid[] IS NULL OR t.created_by = ${caller}::uuid OR EXISTS (
+  return `(${everyone}::boolean
+    OR (${unit}::text IS NOT NULL AND tu.code = ${unit})
+    OR (${userIds}::uuid[] IS NOT NULL AND (t.created_by = ${caller}::uuid OR EXISTS (
       SELECT 1 FROM task_assignments sa
-      WHERE sa.task_id = t.id AND sa.assignee_id = ANY(${userIds}::uuid[])))`;
+      WHERE sa.task_id = t.id AND sa.assignee_id = ANY(${userIds}::uuid[])))))`;
 }
 
 /**
  * A task as GET /tasks and GET /tasks/:id return it: one row per task, whose assignee fields
- * come from its first assignment the caller may see (members see their own line, never a
- * co-assignee's), with the overdue flag and the unit it belongs to.
+ * come from its first assignment the caller may see (every line of a task their unit grant
+ * or their authorship covers; otherwise only the lines of the members they reach, so members
+ * see their own line, never a co-assignee's), with the overdue flag and the unit it belongs to.
  */
 export function taskRowSelect({
+  everyone,
+  unit,
   userIds,
   caller,
-}: Pick<TaskScopePlaceholders, 'userIds' | 'caller'>): string {
+}: TaskScopePlaceholders): string {
   return `SELECT t.id, t.code, t.title, t.description, t.type, t.priority, t.status,
        t.deadline, t.created_at AS "createdAt", t.updated_at AS "updatedAt",
        ${TASK_OVERDUE_SQL} AS overdue,
@@ -83,7 +95,9 @@ export function taskRowSelect({
     JOIN users u ON u.id = ta.assignee_id
     LEFT JOIN militia_profiles mp ON mp.user_id = ta.assignee_id
     WHERE ta.task_id = t.id
-      AND (${userIds}::uuid[] IS NULL OR t.created_by = ${caller}::uuid
+      AND (${everyone}::boolean
+           OR (${unit}::text IS NOT NULL AND tu.code = ${unit})
+           OR (${userIds}::uuid[] IS NOT NULL AND t.created_by = ${caller}::uuid)
            OR ta.assignee_id = ANY(${userIds}::uuid[]))
     ORDER BY ta.assigned_at, ta.id
     LIMIT 1

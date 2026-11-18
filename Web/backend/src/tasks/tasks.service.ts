@@ -20,9 +20,10 @@ import {
   type ViewRow,
 } from '../files/files.service';
 import {
-  memberScopeSql,
-  resolveMemberScope,
-  type MemberScope,
+  memberReachParams,
+  memberReachSql,
+  resolveMemberReach,
+  type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
 import {
@@ -49,11 +50,22 @@ const ACCEPTABLE_STATUSES: readonly string[] = [
 const CLOSED_STATUSES: readonly string[] = ['completed', 'cancelled'];
 const EDITABLE_STATUSES: readonly string[] = ['pending', 'assigned'];
 
-// The caller's scope as $1 unit, $2 member user ids, $3 caller
-const SCOPED_SQL = taskScopeSql({ unit: '$1', userIds: '$2', caller: '$3' });
-const TASK_ROW_SQL = taskRowSelect({ userIds: '$2', caller: '$3' });
-// $4: a stored status, or 'overdue' for the open tasks past their deadline
-const STATUS_FILTER_SQL = `($4::text IS NULL OR ($4 = 'overdue' AND ${TASK_OVERDUE_SQL}) OR ($4 <> 'overdue' AND t.status = $4))`;
+// The caller's MemberReach as $1 everyone, $2 unit, $3 member user ids, and $4 the caller
+const SCOPE_PLACEHOLDERS = {
+  everyone: '$1',
+  unit: '$2',
+  userIds: '$3',
+  caller: '$4',
+};
+const SCOPED_SQL = taskScopeSql(SCOPE_PLACEHOLDERS);
+const TASK_ROW_SQL = taskRowSelect(SCOPE_PLACEHOLDERS);
+// $5: a stored status, or 'overdue' for the open tasks past their deadline
+const STATUS_FILTER_SQL = `($5::text IS NULL OR ($5 = 'overdue' AND ${TASK_OVERDUE_SQL}) OR ($5 <> 'overdue' AND t.status = $5))`;
+
+const scopeParams = (scope: MemberReach, actor: MemberScopeActor) => [
+  ...memberReachParams(scope),
+  actor.sub,
+];
 
 export interface CreateTaskInput {
   title: string;
@@ -120,8 +132,9 @@ export class TasksService {
   private scopeOf(
     actor: MemberScopeActor,
     requestedUnit?: string,
-  ): Promise<MemberScope> {
-    return resolveMemberScope(actor, {
+  ): Promise<MemberReach> {
+    // Every role held counts: a user holding several reaches the union
+    return resolveMemberReach(actor, {
       staffRoles: TASK_STAFF_ROLES,
       assignments: this.assignmentsService,
       requestedUnit,
@@ -146,9 +159,9 @@ export class TasksService {
       `SELECT mp.id, mp.user_id AS "userId", mp.full_name AS "fullName", mp.militia_code AS "militiaCode"
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
-       WHERE mp.id = $1 AND ${memberScopeSql(2, 3)}
+       WHERE mp.id = $1 AND ${memberReachSql({ everyone: '$2', unit: '$3', userIds: '$4' })}
        LIMIT 1`,
-      [dto.assigneeMilitiaId, scope.unit, scope.userIds],
+      [dto.assigneeMilitiaId, ...memberReachParams(scope)],
     );
     if (!militia) throw new NotFoundException('militia_not_found');
     if (!militia.userId) {
@@ -241,7 +254,7 @@ export class TasksService {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
     const scope = await this.scopeOf(actor, params.unitCode);
-    const filter = [scope.unit, scope.userIds, actor.sub, status];
+    const filter = [...scopeParams(scope, actor), status];
 
     const [count] = await this.dataSource.query<{ total: number }[]>(
       `SELECT COUNT(*)::int AS total
@@ -254,7 +267,7 @@ export class TasksService {
       `${TASK_ROW_SQL}
        WHERE ${SCOPED_SQL} AND ${STATUS_FILTER_SQL}
        ORDER BY t.created_at DESC, t.id DESC
-       LIMIT $5 OFFSET $6`,
+       LIMIT $6 OFFSET $7`,
       [...filter, limit, (page - 1) * limit],
     );
 
@@ -269,8 +282,8 @@ export class TasksService {
     const scope = await this.scopeOf(actor);
     const [task] = await this.dataSource.query<TaskWithAssignee[]>(
       `${TASK_ROW_SQL}
-       WHERE ${SCOPED_SQL} AND t.id = $4`,
-      [scope.unit, scope.userIds, actor.sub, id],
+       WHERE ${SCOPED_SQL} AND t.id = $5`,
+      [...scopeParams(scope, actor), id],
     );
     if (!task) throw new NotFoundException('task_not_found');
     // Whoever reads the task reads its attachments (FilesService rule for tasks)
@@ -516,15 +529,9 @@ export class TasksService {
     const scope = await this.scopeOf(actor, params.unitCode);
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
-    const scopeParams = [
-      params.from,
-      params.to,
-      scope.unit,
-      scope.userIds,
-      actor.sub,
-    ];
+    const reportParams = [params.from, params.to, ...scopeParams(scope, actor)];
     const run = <T>(sql: string, extra: unknown[] = []) =>
-      this.dataSource.query<T>(sql, [...scopeParams, ...extra]);
+      this.dataSource.query<T>(sql, [...reportParams, ...extra]);
 
     type Counts = Omit<TaskReport['totals'], 'completionRate'> & {
       statusOverdue: number;
@@ -618,7 +625,7 @@ export class TasksService {
   // A task of the caller's scope, locked; anything outside it gets 404
   private async lockScopedTask(
     mgr: EntityManager,
-    scope: MemberScope,
+    scope: MemberReach,
     actor: MemberScopeActor,
     id: string,
   ): Promise<{ id: string; status: string }> {
@@ -626,9 +633,9 @@ export class TasksService {
       `SELECT t.id, t.status
        FROM tasks t
        ${TASK_UNIT_JOIN}
-       WHERE ${SCOPED_SQL} AND t.id = $4
+       WHERE ${SCOPED_SQL} AND t.id = $5
        FOR UPDATE OF t`,
-      [scope.unit, scope.userIds, actor.sub, id],
+      [...scopeParams(scope, actor), id],
     );
     if (!task) throw new NotFoundException('task_not_found');
     return task;

@@ -1,9 +1,11 @@
 import { ForbiddenException } from '@nestjs/common';
 import {
-  grantsReach,
-  memberScopeSql,
+  memberReachOf,
+  memberReachSql,
+  reachIncludes,
   resolveMemberGrants,
-  resolveMemberScope,
+  resolveMemberReach,
+  unitGrantOf,
 } from './member-scope';
 
 const STAFF: ReadonlySet<string> = new Set([
@@ -13,23 +15,23 @@ const STAFF: ReadonlySet<string> = new Set([
   'ca_officer',
 ]);
 
-describe('resolveMemberScope', () => {
+type Actor = {
+  sub: string;
+  role: string;
+  roles?: string[];
+  unitScope: string | null;
+};
+
+// The union of what every role held grants, in the one shape the SQL helpers take
+describe('resolveMemberReach', () => {
   const assignments = { getAssignedDqtvIds: jest.fn() };
 
   beforeEach(() => {
     assignments.getAssignedDqtvIds.mockReset();
   });
 
-  const resolve = (
-    actor: {
-      sub: string;
-      role: string;
-      roles?: string[];
-      unitScope: string | null;
-    },
-    requestedUnit?: string,
-  ) =>
-    resolveMemberScope(actor, {
+  const resolve = (actor: Actor, requestedUnit?: string) =>
+    resolveMemberReach(actor, {
       staffRoles: STAFF,
       assignments,
       requestedUnit,
@@ -39,10 +41,12 @@ describe('resolveMemberScope', () => {
     const admin = { sub: 'a', role: 'system_admin', unitScope: null };
 
     await expect(resolve(admin)).resolves.toEqual({
+      everyone: true,
       unit: null,
       userIds: null,
     });
     await expect(resolve(admin, 'KV1')).resolves.toEqual({
+      everyone: false,
       unit: 'KV1',
       userIds: null,
     });
@@ -52,6 +56,7 @@ describe('resolveMemberScope', () => {
     const staff = { sub: 's', role: 'office_staff', unitScope: 'KV2' };
 
     await expect(resolve(staff, 'KV1')).resolves.toEqual({
+      everyone: false,
       unit: 'KV2',
       userIds: null,
     });
@@ -62,6 +67,7 @@ describe('resolveMemberScope', () => {
     const officer = { sub: 'ca-1', role: 'ca_officer', unitScope: 'KV1' };
 
     await expect(resolve(officer)).resolves.toEqual({
+      everyone: false,
       unit: null,
       userIds: ['dqtv-1', 'dqtv-2'],
     });
@@ -73,19 +79,19 @@ describe('resolveMemberScope', () => {
 
     await expect(
       resolve({ sub: 'ca-1', role: 'ca_officer', unitScope: 'KV1' }),
-    ).resolves.toEqual({ unit: null, userIds: [] });
+    ).resolves.toEqual({ everyone: false, unit: null, userIds: [] });
   });
 
   it('limits DQTV members to their own records', async () => {
     await expect(
       resolve({ sub: 'me', role: 'dqtv', unitScope: null }),
-    ).resolves.toEqual({ unit: null, userIds: ['me'] });
+    ).resolves.toEqual({ everyone: false, unit: null, userIds: ['me'] });
     await expect(
       resolve({ sub: 'me', role: 'dqtv_member', unitScope: 'KV1' }),
-    ).resolves.toEqual({ unit: null, userIds: ['me'] });
+    ).resolves.toEqual({ everyone: false, unit: null, userIds: ['me'] });
   });
 
-  it('treats a staff role held besides a DQTV primary role as staff', async () => {
+  it('adds the staff grant of a staff role held besides a DQTV primary role', async () => {
     await expect(
       resolve({
         sub: 'x',
@@ -93,8 +99,47 @@ describe('resolveMemberScope', () => {
         roles: ['dqtv', 'police_ward'],
         unitScope: null,
       }),
-    ).resolves.toEqual({ unit: null, userIds: null });
+    ).resolves.toEqual({ everyone: true, unit: null, userIds: ['x'] });
   });
+
+  it.each(['police_area', 'ca_officer'])(
+    'unites the unit of a unit role and the DQTV of ca_officer (primary %s)',
+    async (primary) => {
+      assignments.getAssignedDqtvIds.mockResolvedValueOnce(['dqtv-1']);
+
+      await expect(
+        resolveMemberReach(
+          {
+            sub: 'u-1',
+            role: primary,
+            roles: ['police_area', 'ca_officer'],
+            unitScope: 'KV1',
+          },
+          {
+            staffRoles: new Set([...STAFF, 'police_area']),
+            assignments,
+          },
+        ),
+      ).resolves.toEqual({ everyone: false, unit: 'KV1', userIds: ['dqtv-1'] });
+    },
+  );
+
+  // police_area is no staff role here: held beside ca_officer it grants nothing more
+  it.each(['police_area', 'ca_officer'])(
+    'gives police_area with ca_officer only what ca_officer grants where police_area reads nothing (primary %s)',
+    async (primary) => {
+      assignments.getAssignedDqtvIds.mockResolvedValueOnce(['dqtv-1']);
+
+      await expect(
+        resolve({
+          sub: 'u-1',
+          role: primary,
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV1',
+        }),
+      ).resolves.toEqual({ everyone: false, unit: null, userIds: ['dqtv-1'] });
+    },
+  );
 
   it('refuses any other role', async () => {
     await expect(
@@ -103,21 +148,126 @@ describe('resolveMemberScope', () => {
   });
 });
 
-describe('memberScopeSql', () => {
-  it('filters on the unit code and the owner user id with the given parameters', () => {
-    expect(memberScopeSql(3, 4)).toBe(
-      '($3::text IS NULL OR u.code = $3) AND ($4::uuid[] IS NULL OR mp.user_id = ANY($4::uuid[]))',
+describe('memberReachOf', () => {
+  it('collapses grants into one reach, merging member lists', () => {
+    expect(
+      memberReachOf([
+        { unit: 'KV1', userIds: null },
+        { unit: null, userIds: ['a', 'b'] },
+        { unit: null, userIds: ['b', 'c'] },
+      ]),
+    ).toEqual({ everyone: false, unit: 'KV1', userIds: ['a', 'b', 'c'] });
+    expect(memberReachOf([{ unit: null, userIds: null }])).toEqual({
+      everyone: true,
+      unit: null,
+      userIds: null,
+    });
+    expect(memberReachOf([])).toEqual({
+      everyone: false,
+      unit: null,
+      userIds: null,
+    });
+  });
+});
+
+// The GPS room of a connected user follows the unit grant (gps-rooms.ts)
+describe('unitGrantOf', () => {
+  const unitOf = (actor: Actor, requested?: string) =>
+    unitGrantOf(actor, STAFF, requested);
+
+  it('gives wide staff every unit, or the one requested', () => {
+    expect(unitOf({ sub: 'a', role: 'system_admin', unitScope: 'KV1' })).toBe(
+      null,
+    );
+    expect(
+      unitOf({ sub: 'a', role: 'system_admin', unitScope: null }, 'KV3'),
+    ).toBe('KV3');
+  });
+
+  it('gives scoped staff their unit', () => {
+    expect(unitOf({ sub: 's', role: 'office_staff', unitScope: 'KV2' })).toBe(
+      'KV2',
+    );
+  });
+
+  it('grants no unit through ca_officer, DQTV or an area role without a scope', () => {
+    expect(
+      unitOf({ sub: 'c', role: 'ca_officer', unitScope: 'KV1' }),
+    ).toBeUndefined();
+    expect(
+      unitOf({ sub: 'd', role: 'dqtv', unitScope: 'KV1' }),
+    ).toBeUndefined();
+    expect(
+      unitGrantOf(
+        { role: 'police_area', unitScope: null },
+        new Set(['police_area']),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('takes the unit role held beside a primary ca_officer role', () => {
+    expect(
+      unitGrantOf(
+        {
+          role: 'ca_officer',
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV1',
+        },
+        new Set(['police_area', 'ca_officer']),
+      ),
+    ).toBe('KV1');
+  });
+});
+
+describe('reachIncludes', () => {
+  const reach = { everyone: false, unit: 'KV1', userIds: ['dqtv-9'] };
+
+  it('includes a record any part of the reach covers', () => {
+    expect(reachIncludes(reach, { unitCode: 'KV1', ownerId: 'x' })).toBe(true);
+    expect(reachIncludes(reach, { unitCode: 'KV7', ownerId: 'dqtv-9' })).toBe(
+      true,
+    );
+    expect(
+      reachIncludes(
+        { everyone: true, unit: null, userIds: null },
+        { unitCode: 'KV7', ownerId: null },
+      ),
+    ).toBe(true);
+  });
+
+  it('excludes a record nothing covers, and an ownerless one outside the unit', () => {
+    expect(reachIncludes(reach, { unitCode: 'KV7', ownerId: 'x' })).toBe(false);
+    expect(reachIncludes(reach, { unitCode: 'KV7', ownerId: null })).toBe(
+      false,
+    );
+    expect(
+      reachIncludes(
+        { everyone: false, unit: null, userIds: null },
+        { unitCode: 'KV1', ownerId: 'x' },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('memberReachSql', () => {
+  it('ORs every member, the unit code and the owner ids, with the given placeholders', () => {
+    expect(memberReachSql({ everyone: '$3', unit: '$4', userIds: '$5' })).toBe(
+      '($3::boolean OR ($4::text IS NOT NULL AND u.code = $4) OR ($5::uuid[] IS NOT NULL AND mp.user_id = ANY($5::uuid[])))',
     );
   });
 
   it('accepts other table aliases', () => {
-    expect(memberScopeSql(1, 2, { unit: 'mu', profile: 'm' })).toBe(
-      '($1::text IS NULL OR mu.code = $1) AND ($2::uuid[] IS NULL OR m.user_id = ANY($2::uuid[]))',
+    expect(
+      memberReachSql(
+        { everyone: '$1', unit: '$2', userIds: '$3' },
+        { unit: 'mu', profile: 'm' },
+      ),
+    ).toBe(
+      '($1::boolean OR ($2::text IS NOT NULL AND mu.code = $2) OR ($3::uuid[] IS NOT NULL AND m.user_id = ANY($3::uuid[])))',
     );
   });
 });
 
-// Each role held grants what it grants whatever its priority: the actor reaches the union
 describe('resolveMemberGrants', () => {
   const assignments = { getAssignedDqtvIds: jest.fn() };
   const AREA_STAFF: ReadonlySet<string> = new Set([
@@ -228,32 +378,5 @@ describe('resolveMemberGrants', () => {
     await expect(
       grantsOf({ sub: 'x', role: 'ubnd_leader', unitScope: null }),
     ).rejects.toThrow(new ForbiddenException('insufficient_role'));
-  });
-});
-
-describe('grantsReach', () => {
-  const grants = [
-    { unit: 'KV1', userIds: null },
-    { unit: null, userIds: ['dqtv-9'] },
-  ];
-
-  it('reaches a record any one grant covers', () => {
-    expect(grantsReach(grants, { unitCode: 'KV1', ownerId: 'x' })).toBe(true);
-    expect(grantsReach(grants, { unitCode: 'KV7', ownerId: 'dqtv-9' })).toBe(
-      true,
-    );
-  });
-
-  it('misses a record no grant covers, and an ownerless one outside the unit', () => {
-    expect(grantsReach(grants, { unitCode: 'KV7', ownerId: 'x' })).toBe(false);
-    expect(grantsReach(grants, { unitCode: 'KV7', ownerId: null })).toBe(false);
-    expect(grantsReach([], { unitCode: 'KV1', ownerId: 'x' })).toBe(false);
-  });
-
-  it('requires both the unit and the owner of a grant naming both', () => {
-    const both = [{ unit: 'KV1', userIds: ['a'] }];
-    expect(grantsReach(both, { unitCode: 'KV1', ownerId: 'a' })).toBe(true);
-    expect(grantsReach(both, { unitCode: 'KV2', ownerId: 'a' })).toBe(false);
-    expect(grantsReach(both, { unitCode: 'KV1', ownerId: 'b' })).toBe(false);
   });
 });

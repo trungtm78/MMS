@@ -540,11 +540,13 @@ describe('FilesService', () => {
         const sql = sqlOf(mockDs.query, 1);
         expect(sql).toMatch(/FROM tasks t/);
         expect(sql).toMatch(/WHERE t\.id = \$1/);
-        expect(sql).toMatch(/tu\.code = \$2/);
-        expect(sql).toMatch(/t\.created_by = \$4::uuid/);
-        expect(sql).toMatch(/sa\.assignee_id = ANY\(\$3::uuid\[\]\)/);
+        expect(sql).toMatch(/\$2::boolean/);
+        expect(sql).toMatch(/tu\.code = \$3/);
+        expect(sql).toMatch(/t\.created_by = \$5::uuid/);
+        expect(sql).toMatch(/sa\.assignee_id = ANY\(\$4::uuid\[\]\)/);
         expect(paramsOf(mockDs.query, 1)).toEqual([
           't-1',
+          false,
           null,
           ['dq-2'],
           'dq-2',
@@ -566,13 +568,20 @@ describe('FilesService', () => {
             'f-1',
           ),
         ).rejects.toThrow(notFound);
-        expect(paramsOf(mockDs.query, 1)).toEqual(['t-1', 'KV1', null, 's']);
+        expect(paramsOf(mockDs.query, 1)).toEqual([
+          't-1',
+          false,
+          'KV1',
+          null,
+          's',
+        ]);
 
         await expect(
           service.openForDownload(caOfficer, 'f-1'),
         ).resolves.toMatchObject({ file: { id: 'f-1' } });
         expect(paramsOf(mockDs.query, 3)).toEqual([
           't-1',
+          false,
           null,
           ['dq-7'],
           'ca-1',
@@ -601,6 +610,7 @@ describe('FilesService', () => {
         expect(mockDs.query).toHaveBeenCalledTimes(2);
         expect(paramsOf(mockDs.query, 1)).toEqual([
           't-1',
+          false,
           null,
           ['dq-7'],
           'pc-1',

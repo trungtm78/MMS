@@ -99,6 +99,7 @@ describe('TasksService.getTaskReport', () => {
       expect(paramsOf(call)).toEqual([
         '2026-01-01',
         '2026-10-01',
+        false,
         'KV-B',
         null,
         'admin-1',
@@ -107,6 +108,7 @@ describe('TasksService.getTaskReport', () => {
     expect(paramsOf(6)).toEqual([
       '2026-01-01',
       '2026-10-01',
+      false,
       'KV-B',
       null,
       'admin-1',
@@ -205,7 +207,7 @@ describe('TasksService.getTaskReport', () => {
       { sub: 'staff-1', role: 'office_staff', unitScope: 'KV-A' },
       { ...range, unitCode: 'KV-B' },
     );
-    expect(paramsOf(0).slice(2, 4)).toEqual(['KV-A', null]);
+    expect(paramsOf(0).slice(2, 5)).toEqual([false, 'KV-A', null]);
   });
 
   it('limits a CA officer to tasks of their assigned DQTV and tasks they created', async () => {
@@ -218,10 +220,32 @@ describe('TasksService.getTaskReport', () => {
     );
 
     expect(assignments.getAssignedDqtvIds).toHaveBeenCalledWith('ca-1');
-    expect(paramsOf(0).slice(2)).toEqual([null, ['d-1', 'd-2'], 'ca-1']);
-    expect(sqlOf(0)).toContain('t.created_by = $5::uuid');
-    expect(sqlOf(0)).toContain('sa.assignee_id = ANY($4::uuid[])');
+    expect(paramsOf(0).slice(2)).toEqual([false, null, ['d-1', 'd-2'], 'ca-1']);
+    expect(sqlOf(0)).toContain('t.created_by = $6::uuid');
+    expect(sqlOf(0)).toContain('sa.assignee_id = ANY($5::uuid[])');
   });
+
+  // police_area reads no tasks: held beside ca_officer it must not lend its unit scope
+  it.each(['police_area', 'ca_officer'])(
+    'limits police_area with ca_officer to what ca_officer reads, never the unit (primary %s)',
+    async (primary) => {
+      assignments.getAssignedDqtvIds.mockResolvedValueOnce(['d-1']);
+      respond();
+
+      const report = await service.getTaskReport(
+        {
+          sub: 'pc-1',
+          role: primary,
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV-A',
+        },
+        { ...range, unitCode: 'KV-A' },
+      );
+
+      expect(paramsOf(0).slice(2)).toEqual([false, null, ['d-1'], 'pc-1']);
+      expect(report.unitCode).toBeNull();
+    },
+  );
 
   it('limits a militia member to their own tasks, and the assignee breakdown to themselves', async () => {
     respond();
@@ -229,14 +253,13 @@ describe('TasksService.getTaskReport', () => {
       { sub: 'dqtv-1', role: 'dqtv', unitScope: 'KV-A' },
       { ...range, unitCode: 'KV-B' },
     );
-    expect(paramsOf(0).slice(2)).toEqual([null, ['dqtv-1'], 'dqtv-1']);
+    expect(paramsOf(0).slice(2)).toEqual([false, null, ['dqtv-1'], 'dqtv-1']);
     // co-assignees of a shared task are not listed to a member
-    expect(sqlOf(5)).toContain(
-      '($4::uuid[] IS NULL OR ta.assignee_id = ANY($4::uuid[]))',
-    );
-    expect(sqlOf(6)).toContain(
-      '($4::uuid[] IS NULL OR ta.assignee_id = ANY($4::uuid[]))',
-    );
+    for (const call of [5, 6]) {
+      expect(sqlOf(call)).toContain(
+        '($3::boolean OR ($4::text IS NOT NULL AND s.unit_code = $4) OR ta.assignee_id = ANY($5::uuid[]))',
+      );
+    }
   });
 
   it('refuses a role outside the task readers', async () => {
@@ -255,7 +278,7 @@ describe('TasksService.getTaskReport', () => {
       { sub: 'admin-1', role: 'system_admin', unitScope: null },
       { ...range, page: -3, limit: 1000 },
     );
-    expect(paramsOf(6).slice(5)).toEqual([100, 0]);
+    expect(paramsOf(6).slice(6)).toEqual([100, 0]);
     expect(report.byAssignee).toMatchObject({ page: 1, limit: 100 });
   });
 });

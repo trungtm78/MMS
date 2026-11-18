@@ -12,7 +12,10 @@ import type { JwtPayload } from '../auth/auth.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { businessDate, isIsoDate } from '../common/time/business-date';
 import { holdsAnyRole } from '../common/access/unit-scope';
-import { resolveMemberGrants } from '../common/access/member-scope';
+import {
+  resolveMemberReach,
+  type MemberReach,
+} from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { AssignmentsService } from '../assignments/assignments.service';
 
@@ -193,7 +196,7 @@ export class LeaveService {
 
   /**
    * Whose requests the caller reaches. Every role held counts, whatever its priority
-   * (resolveMemberGrants): unit reviewers reach the people of their effective unit, CA
+   * (resolveMemberReach): unit reviewers reach the people of their effective unit, CA
    * officers the DQTV assigned to them, and a user holding both reaches both.
    * - review: the requests the caller may decide; refused (403) when no reviewer role
    *   grants anything, e.g. an area reviewer without a unit scope
@@ -203,16 +206,17 @@ export class LeaveService {
     user: JwtPayload,
     purpose: 'read' | 'review',
   ): Promise<RequesterScope> {
+    const own = purpose === 'read' ? [user.sub] : [];
     const scope: RequesterScope = {
       everyone: false,
       unit: null,
-      requesterIds: purpose === 'read' ? [user.sub] : [],
+      requesterIds: own,
     };
     if (!holdsAnyRole(user, REVIEWER_ROLES)) return scope;
 
-    let grants: Awaited<ReturnType<typeof resolveMemberGrants>>;
+    let reach: MemberReach;
     try {
-      grants = await resolveMemberGrants(user, {
+      reach = await resolveMemberReach(user, {
         staffRoles: REVIEWER_ROLES,
         assignments: this.assignments,
       });
@@ -222,18 +226,11 @@ export class LeaveService {
       }
       throw error;
     }
-    for (const grant of grants) {
-      if (grant.userIds !== null) {
-        scope.requesterIds = [
-          ...new Set([...scope.requesterIds, ...grant.userIds]),
-        ];
-      } else if (grant.unit === null) {
-        scope.everyone = true;
-      } else {
-        scope.unit = grant.unit;
-      }
-    }
-    return scope;
+    return {
+      everyone: reach.everyone,
+      unit: reach.unit,
+      requesterIds: [...new Set([...own, ...(reach.userIds ?? [])])],
+    };
   }
 
   async listLeaveRequests(

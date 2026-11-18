@@ -16,9 +16,10 @@ import { AssignmentsService } from '../assignments/assignments.service';
 import { holdsAnyRole, type ScopedActor } from '../common/access/unit-scope';
 import { REVIEWER_ROLES, WIDE_SCOPE_ROLES } from '../common/constants/roles';
 import {
-  grantsReach,
-  resolveMemberGrants,
-  type MemberScope,
+  memberReachParams,
+  reachIncludes,
+  resolveMemberReach,
+  type MemberReach,
 } from '../common/access/member-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 import { queryRows } from '../database/query-rows';
@@ -249,7 +250,7 @@ export class FilesService {
    *    assigned to them, others the members of their effective unit (ward-level roles
    *    without a unit scope: everyone). The author is the owner: only the uploader can
    *    attach a file (attach), and only to their own report.
-   * Rules 6 to 8 take every role the actor holds (resolveMemberGrants): a user holding a
+   * Rules 6 to 8 take every role the actor holds (resolveMemberReach): a user holding a
    * unit role and ca_officer reaches the union of both, whichever is the primary role.
    * 7. attached to a task: whoever the task routes let read the task (taskScopeSql): its
    *    assignees, the CA officer who created it or whose DQTV it is assigned to, and the
@@ -281,35 +282,33 @@ export class FilesService {
     actor: FileActor,
     taskId: string | null,
   ): Promise<boolean> {
-    const grants = await this.grantsOf(actor, TASK_STAFF_ROLES);
-    for (const grant of grants) {
-      const rows = await this.ds.query<{ readable: boolean }[]>(
-        `SELECT EXISTS (
-           SELECT 1 FROM tasks t
-           ${TASK_UNIT_JOIN}
-           WHERE t.id = $1
-             AND ${taskScopeSql({ unit: '$2', userIds: '$3', caller: '$4' })}
-         ) AS readable`,
-        [taskId, grant.unit, grant.userIds, actor.sub],
-      );
-      if (rows[0]?.readable === true) return true;
-    }
-    return false;
+    const reach = await this.reachOf(actor, TASK_STAFF_ROLES);
+    if (!reach) return false;
+    const rows = await this.ds.query<{ readable: boolean }[]>(
+      `SELECT EXISTS (
+         SELECT 1 FROM tasks t
+         ${TASK_UNIT_JOIN}
+         WHERE t.id = $1
+           AND ${taskScopeSql({ everyone: '$2', unit: '$3', userIds: '$4', caller: '$5' })}
+       ) AS readable`,
+      [taskId, ...memberReachParams(reach), actor.sub],
+    );
+    return rows[0]?.readable === true;
   }
 
-  // What the actor's roles grant over members' records; none when they grant nothing (a
-  // role outside `staffRoles`, or an area role without a unit scope), concealed as 404
-  private async grantsOf(
+  // What the actor's roles reach of members' records; null when they grant nothing (a role
+  // outside `staffRoles`, or an area role without a unit scope), concealed as 404
+  private async reachOf(
     actor: FileActor,
     staffRoles: ReadonlySet<string>,
-  ): Promise<MemberScope[]> {
+  ): Promise<MemberReach | null> {
     try {
-      return await resolveMemberGrants(actor, {
+      return await resolveMemberReach(actor, {
         staffRoles,
         assignments: this.assignments,
       });
     } catch (error) {
-      if (error instanceof ForbiddenException) return [];
+      if (error instanceof ForbiddenException) return null;
       throw error;
     }
   }
@@ -331,10 +330,14 @@ export class FilesService {
     // A member reads their own profile
     if (profile.userId !== null && profile.userId === actor.sub) return true;
     if (!holdsAnyRole(actor, MILITIA_STAFF_ROLE_SET)) return false;
-    return grantsReach(await this.grantsOf(actor, MILITIA_STAFF_ROLE_SET), {
-      unitCode: profile.unitCode,
-      ownerId: profile.userId,
-    });
+    const reach = await this.reachOf(actor, MILITIA_STAFF_ROLE_SET);
+    return (
+      reach !== null &&
+      reachIncludes(reach, {
+        unitCode: profile.unitCode,
+        ownerId: profile.userId,
+      })
+    );
   }
 
   private async managesAuthor(
@@ -342,21 +345,16 @@ export class FilesService {
     authorId: string,
   ): Promise<boolean> {
     if (!holdsAnyRole(actor, RECORD_MANAGER_ROLES)) return false;
-    const grants = await this.grantsOf(actor, RECORD_MANAGER_ROLES);
-    // Members lists first: they need no query
-    if (grants.some((g) => g.userIds?.includes(authorId) && g.unit === null)) {
-      return true;
-    }
-    for (const grant of grants) {
-      if (grant.userIds !== null) continue;
-      if (grant.unit === null) return true;
-      const rows = await this.ds.query<{ inUnit: boolean }[]>(
-        `SELECT ${userInUnit('$1::uuid', '$2')} AS "inUnit"`,
-        [authorId, grant.unit],
-      );
-      if (rows[0]?.inUnit === true) return true;
-    }
-    return false;
+    const reach = await this.reachOf(actor, RECORD_MANAGER_ROLES);
+    if (!reach) return false;
+    // Every member, or one of the members listed: no query needed
+    if (reach.everyone || reach.userIds?.includes(authorId)) return true;
+    if (reach.unit === null) return false;
+    const rows = await this.ds.query<{ inUnit: boolean }[]>(
+      `SELECT ${userInUnit('$1::uuid', '$2')} AS "inUnit"`,
+      [authorId, reach.unit],
+    );
+    return rows[0]?.inUnit === true;
   }
 
   /**

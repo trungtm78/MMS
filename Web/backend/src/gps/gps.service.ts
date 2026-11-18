@@ -3,9 +3,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import {
-  memberScopeSql,
-  resolveMemberScope,
-  type MemberScope,
+  memberReachParams,
+  memberReachSql,
+  resolveMemberReach,
+  type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
@@ -70,9 +71,10 @@ export class GpsService {
     private readonly gateway: NotificationsGateway,
   ) {}
 
-  // CA officers see the DQTV assigned to them, unit staff their unit, ward-wide staff all
-  private scopeOf(actor: MemberScopeActor): Promise<MemberScope> {
-    return resolveMemberScope(actor, {
+  // CA officers see the DQTV assigned to them, unit staff their unit, ward-wide staff all;
+  // a user holding several of these roles sees the union (resolveMemberReach)
+  private scopeOf(actor: MemberScopeActor): Promise<MemberReach> {
+    return resolveMemberReach(actor, {
       staffRoles: GPS_STAFF_ROLE_SET,
       assignments: this.assignments,
     });
@@ -129,9 +131,9 @@ export class GpsService {
   async getLive(actor: MemberScopeActor): Promise<GpsLiveDto[]> {
     const scope = await this.scopeOf(actor);
     return this.ds.query<GpsLiveDto[]>(
-      `${liveRowsSql(memberScopeSql(1, 2), '$3')}
+      `${liveRowsSql(memberReachSql({ everyone: '$1', unit: '$2', userIds: '$3' }), '$4')}
        ORDER BY gl.last_seen_at DESC`,
-      [scope.unit, scope.userIds, GPS_OFFLINE_AFTER_MINUTES],
+      [...memberReachParams(scope), GPS_OFFLINE_AFTER_MINUTES],
     );
   }
 
@@ -149,8 +151,8 @@ export class GpsService {
       `SELECT mp.id
        FROM militia_profiles mp
        JOIN units u ON u.id = mp.unit_id
-       WHERE mp.id = $1 AND ${memberScopeSql(2, 3)}`,
-      [militiaId, scope.unit, scope.userIds],
+       WHERE mp.id = $1 AND ${memberReachSql({ everyone: '$2', unit: '$3', userIds: '$4' })}`,
+      [militiaId, ...memberReachParams(scope)],
     );
     if (!members.length) throw new NotFoundException('militia_not_found');
 

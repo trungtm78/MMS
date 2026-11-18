@@ -2,12 +2,9 @@
 // position never goes there: it goes to staff-only GPS rooms and to the CA officers the
 // member is assigned to. No imports beyond role constants, so the gateway and GpsService can
 // both use it without depending on each other.
-import { holdsAnyRole, type ScopedActor } from '../common/access/unit-scope';
-import {
-  AREA_SCOPED_ROLES,
-  WIDE_SCOPE_ROLES,
-  type RoleCode,
-} from '../common/constants/roles';
+import { unitGrantOf } from '../common/access/member-scope';
+import type { ScopedActor } from '../common/access/unit-scope';
+import type { RoleCode } from '../common/constants/roles';
 
 // Event a client receives with one GET /gps/live row after POST /gps/record
 export const GPS_UPDATE_EVENT = 'gps:update';
@@ -27,25 +24,20 @@ export const GPS_STAFF_ROLES = [
 
 export const GPS_STAFF_ROLE_SET: ReadonlySet<string> = new Set(GPS_STAFF_ROLES);
 
-// Staff whose GPS audience is a whole unit or the ward; CA officers see only the DQTV
-// assigned to them and so receive positions in their own user room
-const GPS_AREA_STAFF_ROLES: ReadonlySet<string> = new Set(
-  GPS_STAFF_ROLES.filter((role) => role !== 'ca_officer'),
-);
-
 export const GPS_WARD_ROOM = 'gps:ward';
 
 export const gpsUnitRoom = (unitCode: string) => `gps:unit:${unitCode}`;
 
 /**
- * The GPS room a connected user joins, following resolveMemberScope and effectiveUnit: none
- * for members and CA officers, none for an area role without a unit scope (refused rather
- * than given the ward), the ward room for ward-wide staff, else the room of their unit.
+ * The GPS room a connected user joins: the room of the unit their GPS staff roles other
+ * than ca_officer grant (unitGrantOf, whatever role is primary), the ward room when that
+ * grant is every unit, none when no role grants a unit (members, CA officers, an area role
+ * without a unit scope, refused rather than given the ward). CA officers receive the
+ * positions of the DQTV assigned to them in their own user room, so a user holding a unit
+ * role and ca_officer receives both.
  */
 export function gpsRoomOf(user: ScopedActor): string | null {
-  if (user.role === 'ca_officer') return null;
-  if (!holdsAnyRole(user, GPS_AREA_STAFF_ROLES)) return null;
-  if (holdsAnyRole(user, WIDE_SCOPE_ROLES)) return GPS_WARD_ROOM;
-  if (user.unitScope) return gpsUnitRoom(user.unitScope);
-  return AREA_SCOPED_ROLES.has(user.role) ? null : GPS_WARD_ROOM;
+  const unit = unitGrantOf(user, GPS_STAFF_ROLE_SET);
+  if (unit === undefined) return null;
+  return unit === null ? GPS_WARD_ROOM : gpsUnitRoom(unit);
 }

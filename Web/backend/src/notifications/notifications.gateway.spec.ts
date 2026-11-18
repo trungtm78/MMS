@@ -216,7 +216,7 @@ describe('NotificationsGateway', () => {
       ['unit staff', { role: 'police_area', unitScope: 'KV1' }, 'gps:unit:KV1'],
       ['CA area staff', { role: 'ca_area', unitScope: 'KV2' }, 'gps:unit:KV2'],
       ['ward-wide staff', { role: 'police_ward', unitScope: null }, 'gps:ward'],
-      // resolveMemberScope gives a ward-level role without a unit scope the whole ward
+      // The unit grant of a ward-level role without a unit scope is the whole ward
       [
         'ward CA staff without a unit',
         { role: 'ca_ward', unitScope: null },
@@ -226,6 +226,26 @@ describe('NotificationsGateway', () => {
         'administrators',
         { role: 'system_admin', unitScope: 'KV1' },
         'gps:ward',
+      ],
+      // Every role held counts: a unit role beside ca_officer joins the unit's room, and
+      // the positions of the assigned DQTV still reach the user room
+      [
+        'police_area with ca_officer (primary police_area)',
+        {
+          role: 'police_area',
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV1',
+        },
+        'gps:unit:KV1',
+      ],
+      [
+        'police_area with ca_officer (primary ca_officer)',
+        {
+          role: 'ca_officer',
+          roles: ['police_area', 'ca_officer'],
+          unitScope: 'KV1',
+        },
+        'gps:unit:KV1',
       ],
     ])('joins %s to the GPS room of their scope', (_label, claims, room) => {
       const client = connected({ sub: 'u1', typ: 'access', ...claims });

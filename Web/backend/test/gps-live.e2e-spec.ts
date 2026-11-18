@@ -43,6 +43,7 @@ describe('Live GPS (e2e)', () => {
   const clients: ClientSocket[] = [];
   const tokens: Record<string, string> = {};
   const ids: Record<string, string> = {};
+  const passwords: Record<string, string> = {};
   const members: Record<string, string> = {};
 
   const api = () => request(app.getHttpServer() as Server);
@@ -69,6 +70,7 @@ describe('Live GPS (e2e)', () => {
       .expect(201);
     const body = created.body as { id: string; temporaryPassword: string };
     ids[username] = body.id;
+    passwords[username] = body.temporaryPassword;
     tokens[username] = await login(username, body.temporaryPassword);
   };
 
@@ -284,5 +286,69 @@ describe('Live GPS (e2e)', () => {
     ).body as { data: Body[]; total: number };
     expect(history.total).toBeGreaterThanOrEqual(1);
     expect(typeof history.data[0].lat).toBe('number');
+  });
+
+  // Every role an account holds counts, whatever its priority: police_area of unit B with
+  // ca_officer reaches the members of unit B and the DQTV assigned to them in unit A
+  describe('police_area held with ca_officer', () => {
+    beforeAll(async () => {
+      await account('gps_dqtv_b', 'dqtv', UNIT_B);
+      members.b = await member(
+        'DQ-GPS-B1',
+        '079200031003',
+        UNIT_B,
+        ids.gps_dqtv_b,
+      );
+      await account('gps_dual', 'police_area', UNIT_B);
+      await db(async (c) => {
+        await c.query(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE code = 'ca_officer'`,
+          [ids.gps_dual],
+        );
+        await c.query(
+          `INSERT INTO ca_dqtv_assignments (ca_user_id, dqtv_user_id, assigned_by)
+           VALUES ($1, $2, $3)`,
+          [ids.gps_dual, ids.gps_dqtv_a, ids.admin],
+        );
+      });
+      // Roles travel in the token: sign in again to carry both
+      tokens.gps_dual = await login('gps_dual', passwords.gps_dual);
+    });
+
+    it('lists and reads the positions of the unit and of the DQTV assigned, and no others', async () => {
+      await record('gps_dqtv_a', 10.3, 106.3);
+      await record('gps_dqtv_b', 10.4, 106.4);
+
+      const rows = (
+        await api().get(url('/gps/live')).set(auth('gps_dual')).expect(200)
+      ).body as Body[];
+      expect(rows.map((row) => row.militiaId).sort()).toEqual(
+        [members.a, members.b].sort(),
+      );
+      await api()
+        .get(url(`/gps/history/${members.a}`))
+        .set(auth('gps_dual'))
+        .expect(200);
+      await api()
+        .get(url(`/gps/history/${members.a2}`))
+        .set(auth('gps_dual'))
+        .expect(404);
+    });
+
+    it('pushes the positions of both, once each, and not those of anyone else', async () => {
+      const socket = await open('gps_dual');
+      const received = updatesOf(socket);
+
+      await record('gps_dqtv_a', 10.5, 106.5);
+      await record('gps_dqtv_b', 10.6, 106.6);
+      await record('gps_dqtv_a2', 10.7, 106.7);
+      await drained(socket);
+
+      expect(received.map((row) => row.militiaId)).toEqual([
+        members.a,
+        members.b,
+      ]);
+    });
   });
 });

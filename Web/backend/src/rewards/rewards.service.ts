@@ -8,9 +8,9 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import {
-  memberScopeSql,
-  resolveMemberScope,
-  type MemberScope,
+  memberReachSql,
+  resolveMemberReach,
+  type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
 import { holdsAnyRole } from '../common/access/unit-scope';
@@ -105,8 +105,9 @@ export class RewardsService {
   private scopeOf(
     actor: MemberScopeActor,
     requestedUnit?: string,
-  ): Promise<MemberScope> {
-    return resolveMemberScope(actor, {
+  ): Promise<MemberReach> {
+    // Every role held counts: a user holding several reaches the union
+    return resolveMemberReach(actor, {
       staffRoles: REWARD_STAFF_ROLE_SET,
       assignments: this.assignments,
       requestedUnit,
@@ -121,7 +122,7 @@ export class RewardsService {
     const scope = await this.scopeOf(actor, filters.unitCode);
     return this.ds.query<RewardRecord[]>(
       `${RECORD_SELECT}
-       WHERE ${memberScopeSql(1, 2)}
+       WHERE ${memberReachSql({ everyone: '$7', unit: '$1', userIds: '$2' })}
          AND ($3::date IS NULL OR rd.issued_date >= $3::date)
          AND ($4::date IS NULL OR rd.issued_date <= $4::date)
          AND ($5::text IS NULL OR rd.reward_form = $5)
@@ -134,6 +135,7 @@ export class RewardsService {
         filters.to ?? null,
         filters.rewardType ?? null,
         filters.militiaId ?? null,
+        scope.everyone,
       ],
     );
   }
@@ -143,8 +145,8 @@ export class RewardsService {
     const scope = await this.scopeOf(actor);
     const rows = await this.ds.query<RewardRecord[]>(
       `${RECORD_SELECT}
-       WHERE rd.id = $3 AND ${memberScopeSql(1, 2)}`,
-      [scope.unit, scope.userIds, id],
+       WHERE rd.id = $3 AND ${memberReachSql({ everyone: '$4', unit: '$1', userIds: '$2' })}`,
+      [scope.unit, scope.userIds, id, scope.everyone],
     );
     if (!rows.length) throw new NotFoundException('reward_not_found');
     return rows[0];
@@ -184,7 +186,7 @@ export class RewardsService {
          SELECT mp.id, $4, $5, $6, $7, $8, $9::date, $10::uuid
          FROM militia_profiles mp
          JOIN units u ON u.id = mp.unit_id
-         WHERE mp.id = $1 AND ${memberScopeSql(2, 3)}
+         WHERE mp.id = $1 AND ${memberReachSql({ everyone: '$11', unit: '$2', userIds: '$3' })}
          RETURNING id`,
         [
           input.militiaId,
@@ -197,6 +199,7 @@ export class RewardsService {
           decisionNumber,
           input.issuedDate,
           actor.sub,
+          scope.everyone,
         ],
       );
       if (!inserted.length) throw new NotFoundException('militia_not_found');

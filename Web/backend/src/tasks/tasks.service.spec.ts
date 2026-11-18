@@ -8,7 +8,7 @@ import {
 import { TasksService } from './tasks.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { FilesService } from '../files/files.service';
-import { memberScopeSql } from '../common/access/member-scope';
+import { memberReachSql } from '../common/access/member-scope';
 import { useUtcServerClock, VN_1_OCTOBER_0130 } from '../../test/support/clock';
 import { TASK_OVERDUE_SQL } from './task-report';
 
@@ -143,8 +143,10 @@ describe('TasksService', () => {
         new NotFoundException('militia_not_found'),
       );
 
-      expect(sqlOf(0)).toContain(memberScopeSql(2, 3));
-      expect(paramsOf(0)).toEqual(['militia-1', 'KV-A', null]);
+      expect(sqlOf(0)).toContain(
+        memberReachSql({ everyone: '$2', unit: '$3', userIds: '$4' }),
+      );
+      expect(paramsOf(0)).toEqual(['militia-1', false, 'KV-A', null]);
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
@@ -159,7 +161,7 @@ describe('TasksService', () => {
       expect(mockAssignmentsService.getAssignedDqtvIds).toHaveBeenCalledWith(
         'ca-1',
       );
-      expect(paramsOf(0)).toEqual(['militia-1', null, []]);
+      expect(paramsOf(0)).toEqual(['militia-1', false, null, []]);
     });
 
     it('refuses a member without an account', async () => {
@@ -241,8 +243,16 @@ describe('TasksService', () => {
       expect(sqlOf(0)).toMatch(
         /SELECT COUNT\(\*\)::int AS total\s+FROM tasks t/,
       );
-      expect(paramsOf(0)).toEqual(['KV-A', null, 'staff-1', null]);
-      expect(paramsOf(1)).toEqual(['KV-A', null, 'staff-1', null, 10, 10]);
+      expect(paramsOf(0)).toEqual([false, 'KV-A', null, 'staff-1', null]);
+      expect(paramsOf(1)).toEqual([
+        false,
+        'KV-A',
+        null,
+        'staff-1',
+        null,
+        10,
+        10,
+      ]);
       // The first assignment in the caller's view stands for the task
       expect(sqlOf(1)).toMatch(/LEFT JOIN LATERAL \(\s*SELECT ta\.assignee_id/);
       expect(sqlOf(1)).toMatch(/ORDER BY ta\.assigned_at, ta\.id\s+LIMIT 1/);
@@ -256,11 +266,58 @@ describe('TasksService', () => {
       page();
       await service.listTasksPaginated(caOfficer, {});
 
-      expect(paramsOf(0)).toEqual([null, ['dqtv-1'], 'dqtv-1', null]);
-      expect(paramsOf(2)).toEqual([null, ['d-1'], 'ca-1', null]);
-      expect(sqlOf(2)).toContain('t.created_by = $3::uuid');
-      expect(sqlOf(2)).toContain('sa.assignee_id = ANY($2::uuid[])');
+      expect(paramsOf(0)).toEqual([false, null, ['dqtv-1'], 'dqtv-1', null]);
+      expect(paramsOf(2)).toEqual([false, null, ['d-1'], 'ca-1', null]);
+      expect(sqlOf(2)).toContain('t.created_by = $4::uuid');
+      expect(sqlOf(2)).toContain('sa.assignee_id = ANY($3::uuid[])');
     });
+
+    // Every role held counts, whatever its priority: a unit staff role and ca_officer reach
+    // the tasks of the unit and those of the DQTV assigned
+    it.each(['office_staff', 'ca_officer'])(
+      'gives office_staff with ca_officer the unit and the assigned DQTV (primary %s)',
+      async (primary) => {
+        mockAssignmentsService.getAssignedDqtvIds.mockResolvedValueOnce([
+          'd-1',
+        ]);
+        page();
+
+        await service.listTasksPaginated(
+          {
+            sub: 'sc-1',
+            role: primary,
+            roles: ['office_staff', 'ca_officer'],
+            unitScope: 'KV-A',
+          },
+          {},
+        );
+
+        expect(paramsOf(0)).toEqual([false, 'KV-A', ['d-1'], 'sc-1', null]);
+      },
+    );
+
+    // police_area reads no tasks: held beside ca_officer it must not lend its unit scope
+    it.each(['police_area', 'ca_officer'])(
+      'limits police_area with ca_officer to what ca_officer reads, never the unit (primary %s)',
+      async (primary) => {
+        mockAssignmentsService.getAssignedDqtvIds.mockResolvedValueOnce([
+          'd-1',
+        ]);
+        page();
+
+        await service.listTasksPaginated(
+          {
+            sub: 'pc-1',
+            role: primary,
+            roles: ['police_area', 'ca_officer'],
+            unitScope: 'KV-A',
+          },
+          { unitCode: 'KV-A' },
+        );
+
+        expect(paramsOf(0)).toEqual([false, null, ['d-1'], 'pc-1', null]);
+      },
+    );
 
     // Flutter agent: nothing ever stores "overdue", so the stored status never matched it
     it('reads the overdue filter as open tasks past their deadline, and flags every row', async () => {
@@ -268,8 +325,8 @@ describe('TasksService', () => {
 
       await service.listTasksPaginated(admin, { status: 'overdue' });
 
-      expect(paramsOf(0)[3]).toBe('overdue');
-      expect(sqlOf(0)).toContain(`($4 = 'overdue' AND ${TASK_OVERDUE_SQL})`);
+      expect(paramsOf(0)[4]).toBe('overdue');
+      expect(sqlOf(0)).toContain(`($5 = 'overdue' AND ${TASK_OVERDUE_SQL})`);
       expect(sqlOf(1)).toContain(`${TASK_OVERDUE_SQL} AS overdue`);
     });
 
@@ -288,7 +345,7 @@ describe('TasksService', () => {
         limit: 500,
       });
 
-      expect(paramsOf(1).slice(4)).toEqual([100, 0]);
+      expect(paramsOf(1).slice(5)).toEqual([100, 0]);
       expect(result).toMatchObject({ page: 1, limit: 100 });
     });
   });
@@ -314,8 +371,14 @@ describe('TasksService', () => {
         attachments: [attachmentView],
       });
 
-      expect(paramsOf(0)).toEqual([null, ['dqtv-1'], 'dqtv-1', 'task-1']);
-      expect(sqlOf(0)).toMatch(/AND t\.id = \$4/);
+      expect(paramsOf(0)).toEqual([
+        false,
+        null,
+        ['dqtv-1'],
+        'dqtv-1',
+        'task-1',
+      ]);
+      expect(sqlOf(0)).toMatch(/AND t\.id = \$5/);
       expect(sqlOf(1)).toMatch(
         /FROM files f\s+WHERE f\.related_type = 'task' AND f\.related_id = \$1/,
       );
@@ -580,8 +643,8 @@ describe('TasksService', () => {
       ).resolves.toEqual({ id: 'task-1', title: 'New Title' });
 
       expect(sqlOf(0)).toMatch(/FOR UPDATE OF t/);
-      expect(sqlOf(0)).toMatch(/AND t\.id = \$4/);
-      expect(paramsOf(0)).toEqual(['KV-A', null, 'staff-1', 'task-1']);
+      expect(sqlOf(0)).toMatch(/AND t\.id = \$5/);
+      expect(paramsOf(0)).toEqual([false, 'KV-A', null, 'staff-1', 'task-1']);
       expect(paramsOf(1)).toEqual(['New Title', 'high', 'task-1']);
     });
 
@@ -626,7 +689,7 @@ describe('TasksService', () => {
         service.cancelTask(admin, 'task-1', 'Lý do hủy'),
       ).resolves.toBeUndefined();
 
-      expect(paramsOf(0)).toEqual([null, null, 'admin-1', 'task-1']);
+      expect(paramsOf(0)).toEqual([true, null, null, 'admin-1', 'task-1']);
       expect(sqlOf(1)).toMatch(
         /UPDATE tasks\s+SET status = 'cancelled', cancelled_at = now\(\), cancelled_by = \$2, cancel_reason = \$3, updated_at = now\(\)\s+WHERE id = \$1/,
       );
@@ -651,7 +714,7 @@ describe('TasksService', () => {
       await expect(
         service.cancelTask(caOfficer, 'task-9', 'reason'),
       ).rejects.toThrow(new NotFoundException('task_not_found'));
-      expect(paramsOf(0)).toEqual([null, ['d-1'], 'ca-1', 'task-9']);
+      expect(paramsOf(0)).toEqual([false, null, ['d-1'], 'ca-1', 'task-9']);
     });
   });
 });

@@ -18,7 +18,9 @@ const paramsOf = (mock: jest.Mock, call: number) =>
   callsOf(mock)[call][1] as unknown[];
 
 const SCOPE_SQL =
-  '($1::text IS NULL OR u.code = $1) AND ($2::uuid[] IS NULL OR mp.user_id = ANY($2::uuid[]))';
+  '($7::boolean OR ($1::text IS NOT NULL AND u.code = $1) OR ($2::uuid[] IS NOT NULL AND mp.user_id = ANY($2::uuid[])))';
+const FIND_SCOPE_SQL =
+  '($4::boolean OR ($1::text IS NOT NULL AND u.code = $1) OR ($2::uuid[] IS NOT NULL AND mp.user_id = ANY($2::uuid[])))';
 
 const admin = { sub: 'admin-1', role: 'system_admin', unitScope: null };
 const staffKv1 = { sub: 'staff-1', role: 'office_staff', unitScope: 'KV1' };
@@ -101,6 +103,7 @@ describe('RewardsService', () => {
         '2026-12-31',
         'giay_khen',
         'mp-1',
+        true,
       ]);
     });
 
@@ -150,6 +153,49 @@ describe('RewardsService', () => {
       ]);
     });
 
+    // Every role held counts, whatever its priority. Neither police_area nor ca_officer
+    // manages rewards or discipline: holding both grants nothing, whichever is primary
+    it.each(['police_area', 'ca_officer'])(
+      'refuses police_area with ca_officer, which manage no decisions (primary %s)',
+      async (primary) => {
+        await expect(
+          service.list(
+            {
+              sub: 'pc-1',
+              role: primary,
+              roles: ['police_area', 'ca_officer'],
+              unitScope: 'KV1',
+            },
+            {},
+          ),
+        ).rejects.toThrow(new ForbiddenException('insufficient_role'));
+        expect(mockDataSource.query).not.toHaveBeenCalled();
+        expect(mockAssignments.getAssignedDqtvIds).not.toHaveBeenCalled();
+      },
+    );
+
+    // A staff member who is also a militia member reaches their unit and their own records
+    it.each(['office_staff', 'dqtv'])(
+      'gives office_staff with dqtv their unit and themselves (primary %s)',
+      async (primary) => {
+        mockDataSource.query.mockResolvedValueOnce([]);
+
+        await service.list(
+          {
+            sub: 'sd-1',
+            role: primary,
+            roles: ['office_staff', 'dqtv'],
+            unitScope: 'KV1',
+          },
+          {},
+        );
+
+        const params = paramsOf(mockDataSource.query, 0);
+        expect(params.slice(0, 2)).toEqual(['KV1', ['sd-1']]);
+        expect(params[6]).toBe(false);
+      },
+    );
+
     it('refuses other roles before reading anything', async () => {
       await expect(service.list(leader, {})).rejects.toThrow(
         new ForbiddenException('insufficient_role'),
@@ -172,8 +218,13 @@ describe('RewardsService', () => {
       await expect(service.findOne(staffKv1, 'rd-1')).resolves.toEqual(record);
 
       expect(sqlOf(mockDataSource.query, 0)).toMatch(/rd\.id = \$3/);
-      expect(sqlOf(mockDataSource.query, 0)).toContain(SCOPE_SQL);
-      expect(paramsOf(mockDataSource.query, 0)).toEqual(['KV1', null, 'rd-1']);
+      expect(sqlOf(mockDataSource.query, 0)).toContain(FIND_SCOPE_SQL);
+      expect(paramsOf(mockDataSource.query, 0)).toEqual([
+        'KV1',
+        null,
+        'rd-1',
+        false,
+      ]);
     });
 
     it('answers 404 for a missing decision and for one outside the scope alike', async () => {
@@ -205,7 +256,7 @@ describe('RewardsService', () => {
         /FROM militia_profiles mp\s+JOIN units u ON u\.id = mp\.unit_id/,
       );
       expect(insert).toContain(
-        'WHERE mp.id = $1 AND ($2::text IS NULL OR u.code = $2) AND ($3::uuid[] IS NULL OR mp.user_id = ANY($3::uuid[]))',
+        'WHERE mp.id = $1 AND ($11::boolean OR ($2::text IS NOT NULL AND u.code = $2) OR ($3::uuid[] IS NOT NULL AND mp.user_id = ANY($3::uuid[])))',
       );
       expect(paramsOf(mockManager.query, 0)).toEqual([
         'mp-1',
@@ -218,6 +269,7 @@ describe('RewardsService', () => {
         null,
         '2026-09-01',
         'staff-1',
+        false,
       ]);
 
       expect(sqlOf(mockManager.query, 1)).toMatch(/INSERT INTO audit_logs/);

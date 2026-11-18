@@ -50,6 +50,7 @@ describe('Features T18 (e2e)', () => {
   let app: INestApplication;
   const tokens: Record<string, string> = {};
   const userIds: Record<string, string> = {};
+  const passwords: Record<string, string> = {};
   // Militia profile ids: a1 and a2 in unit A (a1 is t18_dqtv_a), b1 in unit B (t18_dqtv_b)
   const members: Record<string, string> = {};
 
@@ -82,6 +83,7 @@ describe('Features T18 (e2e)', () => {
       .expect(201);
     const body = bodyOf<{ id: string; temporaryPassword: string }>(created);
     userIds[username] = body.id;
+    passwords[username] = body.temporaryPassword;
     tokens[username] = await login(username, body.temporaryPassword);
   }
 
@@ -333,6 +335,65 @@ describe('Features T18 (e2e)', () => {
         .get(url(`/rewards/${rewardA1}`))
         .set(auth('t18_dqtv_a'))
         .expect(200);
+    });
+
+    // Every role an account holds counts, whatever its priority
+    it('gives a staff member who is also a militia member their unit and their own decisions', async () => {
+      await account('t18_staff_member', 'office_staff', 'KV-T18-B');
+      const ownProfile = await insertMember(
+        'DQ-T18-SM',
+        'Cán bộ kiêm dân quân',
+        '079200018099',
+        'KV-T18-A',
+        userIds.t18_staff_member,
+      );
+      await db((c) =>
+        c.query(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE code = 'dqtv'`,
+          [userIds.t18_staff_member],
+        ),
+      );
+      // Roles travel in the token: sign in again to carry both
+      tokens.t18_staff_member = await login(
+        't18_staff_member',
+        passwords.t18_staff_member,
+      );
+      const own = bodyOf<{ id: string }>(
+        await api()
+          .post(url('/rewards'))
+          .set(auth('t18_ward'))
+          .send(reward(ownProfile))
+          .expect(201),
+      ).id;
+
+      const listed = await ids('t18_staff_member');
+      expect(listed).toEqual(expect.arrayContaining([rewardB1, own]));
+      expect(listed).not.toContain(rewardA1);
+      await api()
+        .get(url(`/rewards/${own}`))
+        .set(auth('t18_staff_member'))
+        .expect(200);
+      await api()
+        .get(url(`/rewards/${rewardA1}`))
+        .set(auth('t18_staff_member'))
+        .expect(404);
+    });
+
+    // Neither role manages rewards: together they grant nothing
+    it('refuses police_area held with ca_officer', async () => {
+      await account('t18_area_ca', 'police_area', 'KV-T18-A');
+      await db((c) =>
+        c.query(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE code = 'ca_officer'`,
+          [userIds.t18_area_ca],
+        ),
+      );
+      tokens.t18_area_ca = await login('t18_area_ca', passwords.t18_area_ca);
+
+      await api().get(url('/rewards')).set(auth('t18_area_ca')).expect(403);
+      await api().get(url('/discipline')).set(auth('t18_area_ca')).expect(403);
     });
 
     it('refuses roles outside the rewards staff and readers', async () => {

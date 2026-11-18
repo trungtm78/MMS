@@ -4,11 +4,14 @@
 // - CA officers: alerts from the DQTV assigned to them, and their own
 // - unit staff: alerts from reporters of their unit (a militia profile or an account scope
 //   in it); ward-wide roles see every unit and may narrow to one
-import { ForbiddenException } from '@nestjs/common';
+// Every role held counts, whatever its priority (resolveMemberReach): a user holding a unit
+// role and ca_officer reaches the alerts of both.
 import type { JwtPayload } from '../auth/auth.service';
-import type { AssignedDqtvSource } from '../common/access/member-scope';
-import { effectiveUnit, holdsAnyRole } from '../common/access/unit-scope';
-import { DQTV_ROLES } from '../common/constants/roles';
+import {
+  resolveMemberReach,
+  type AssignedDqtvSource,
+} from '../common/access/member-scope';
+import { holdsAnyRole } from '../common/access/unit-scope';
 import { userInUnit } from '../common/sql/user-access.sql';
 
 export type SosActor = Pick<JwtPayload, 'sub' | 'role' | 'roles' | 'unitScope'>;
@@ -24,10 +27,14 @@ export const SOS_STAFF_ROLES: ReadonlySet<string> = new Set([
   'office_staff',
 ]);
 
+const CA_OFFICER_ROLE: ReadonlySet<string> = new Set(['ca_officer']);
+
+/**
+ * Whose alerts the caller reaches: the reporters listed, and those of the unit. Both null
+ * means every alert; a field that is null otherwise grants nothing.
+ */
 export interface SosScope {
-  /** Reporters whose alerts the caller reaches; null means no reporter restriction */
   reporterIds: string[] | null;
-  /** The unit of those reporters; null means every unit */
   unit: string | null;
 }
 
@@ -36,25 +43,24 @@ export async function resolveSosScope(
   assignments: AssignedDqtvSource,
   requestedUnit?: string,
 ): Promise<SosScope> {
-  if (holdsAnyRole(actor, SOS_STAFF_ROLES)) {
-    if (actor.role === 'ca_officer') {
-      const assigned = await assignments.getAssignedDqtvIds(actor.sub);
-      return {
-        reporterIds: [...new Set([...assigned, actor.sub])],
-        unit: null,
-      };
-    }
-    return {
-      reporterIds: null,
-      unit: effectiveUnit(actor, requestedUnit || undefined),
-    };
-  }
-  if (holdsAnyRole(actor, DQTV_ROLES)) {
-    return { reporterIds: [actor.sub], unit: null };
-  }
-  throw new ForbiddenException('insufficient_role');
+  const reach = await resolveMemberReach(actor, {
+    staffRoles: SOS_STAFF_ROLES,
+    assignments,
+    requestedUnit: requestedUnit || undefined,
+  });
+  if (reach.everyone) return { reporterIds: null, unit: null };
+  // CA officers also reach the alerts they raised themselves
+  const own = holdsAnyRole(actor, CA_OFFICER_ROLE) ? [actor.sub] : [];
+  const listed = reach.userIds === null ? null : [...reach.userIds, ...own];
+  return {
+    reporterIds: listed && [...new Set(listed)],
+    unit: reach.unit,
+  };
 }
 
-/** Incidents `i` inside a SosScope passed as $1 reporter ids (uuid[]) and $2 unit code (text) */
-export const SOS_SCOPE_SQL = `($1::uuid[] IS NULL OR i.reporter_id = ANY($1::uuid[]))
-    AND ($2::text IS NULL OR ${userInUnit('i.reporter_id', '$2')})`;
+/**
+ * Incidents `i` inside a SosScope passed as $1 reporter ids (uuid[]) and $2 unit code (text):
+ * every incident when both are null, else those of a listed reporter or of a reporter of
+ * the unit.
+ */
+export const SOS_SCOPE_SQL = `(($1::uuid[] IS NULL AND $2::text IS NULL) OR i.reporter_id = ANY($1::uuid[]) OR ($2::text IS NOT NULL AND ${userInUnit('i.reporter_id', '$2')}))`;

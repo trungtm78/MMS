@@ -26,6 +26,7 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
   let app: INestApplication;
   const tokens: Record<string, string> = {};
   const userIds: Record<string, string> = {};
+  const passwords: Record<string, string> = {};
 
   const api = () => request(app.getHttpServer() as Server);
   const url = (route: string) => `/${E2E_API_PREFIX}${route}`;
@@ -64,6 +65,7 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
       .expect(201);
     const body = created.body as { id: string; temporaryPassword: string };
     userIds[username] = body.id;
+    passwords[username] = body.temporaryPassword;
     tokens[username] = await login(username, body.temporaryPassword);
   };
 
@@ -374,6 +376,145 @@ describe('Scoped SOS alerts and tasks (e2e)', () => {
           expect.objectContaining({ id, overdue: true }),
         ]),
       );
+    });
+  });
+
+  // Every role an account holds grants what it grants, whatever its priority: a user holding
+  // police_area and ca_officer reaches the alerts of both, while police_area, which reads no
+  // tasks, must not lend its unit scope to the tasks ca_officer lets them read
+  describe('roles held together', () => {
+    const tasksOf = async (who: string) =>
+      (
+        (await api().get(url('/tasks')).set(auth(who)).expect(200)).body as {
+          data: { id: string }[];
+        }
+      ).data.map((t) => t.id);
+
+    beforeAll(async () => {
+      await account('dual_staff_a', 'office_staff', 'KV-DUAL-A');
+      await account('dual_staff_b', 'office_staff', 'KV-DUAL-B');
+      await account('dual_member_a', 'dqtv', 'KV-DUAL-A');
+      await account('dual_member_b', 'dqtv', 'KV-DUAL-B');
+      await account('dual_other_b', 'dqtv', 'KV-DUAL-B');
+      await profileOf(
+        'dual_member_a',
+        'DQ-DUAL-A',
+        '079202900001',
+        'KV-DUAL-A',
+      );
+      await profileOf(
+        'dual_member_b',
+        'DQ-DUAL-B',
+        '079202900002',
+        'KV-DUAL-B',
+      );
+      await profileOf('dual_other_b', 'DQ-DUAL-C', '079202900003', 'KV-DUAL-B');
+      await account('dual_pc', 'police_area', 'KV-DUAL-A');
+      // A second role beside police_area, and a DQTV of another unit assigned to it
+      await db(async (c) => {
+        await c.query(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE code = 'ca_officer'`,
+          [userIds.dual_pc],
+        );
+        await c.query(
+          `INSERT INTO ca_dqtv_assignments (ca_user_id, dqtv_user_id, assigned_by)
+           SELECT $1, $2, id FROM users WHERE username = 'admin'`,
+          [userIds.dual_pc, userIds.dual_member_b],
+        );
+      });
+      // Roles travel in the token: sign in again to carry both
+      const res = await api()
+        .post(url('/auth/login'))
+        .send({ username: 'dual_pc', password: passwords.dual_pc })
+        .expect(200);
+      const signedIn = res.body as {
+        tokens: { accessToken: string };
+        user: { roles: string[] };
+      };
+      expect(signedIn.user.roles).toEqual(['police_area', 'ca_officer']);
+      tokens.dual_pc = signedIn.tokens.accessToken;
+    });
+
+    const militiaIdOf = (username: string) =>
+      db(async (c) => {
+        const { rows } = await c.query<{ id: string }>(
+          `SELECT id FROM militia_profiles WHERE user_id = $1`,
+          [userIds[username]],
+        );
+        return rows[0].id;
+      });
+    const taskFor = async (creator: string, member: string) =>
+      (
+        (
+          await api()
+            .post(url('/tasks'))
+            .set(auth(creator))
+            .send({
+              title: 'Tuần tra',
+              assigneeMilitiaId: await militiaIdOf(member),
+            })
+            .expect(201)
+        ).body as { id: string }
+      ).id;
+
+    it('reads the tasks of the DQTV assigned, never the tasks of the police_area unit', async () => {
+      const assigned = await taskFor('dual_staff_b', 'dual_member_b');
+      const ofTheUnit = await taskFor('dual_staff_a', 'dual_member_a');
+
+      await api()
+        .get(url(`/tasks/${assigned}`))
+        .set(auth('dual_pc'))
+        .expect(200);
+      await api()
+        .get(url(`/tasks/${ofTheUnit}`))
+        .set(auth('dual_pc'))
+        .expect(404);
+      const listed = await tasksOf('dual_pc');
+      expect(listed).toContain(assigned);
+      expect(listed).not.toContain(ofTheUnit);
+      // Nor can they give a task to a member of the unit: only to their DQTV
+      await api()
+        .post(url('/tasks'))
+        .set(auth('dual_pc'))
+        .send({
+          title: 'Ngoài phạm vi',
+          assigneeMilitiaId: await militiaIdOf('dual_member_a'),
+        })
+        .expect(404);
+    });
+
+    it('reaches the alerts of the police_area unit and of the DQTV assigned, and no others', async () => {
+      const raiseAs = async (who: string) =>
+        (
+          (
+            await api()
+              .post(url('/sos'))
+              .set(auth(who))
+              .send({ incidentType: 'sos', severity: 'high', title: 'SOS' })
+              .expect(201)
+          ).body as { id: string }
+        ).id;
+      const ofTheUnit = await raiseAs('dual_member_a');
+      const assigned = await raiseAs('dual_member_b');
+      const outside = await raiseAs('dual_other_b');
+
+      for (const id of [ofTheUnit, assigned]) {
+        await api()
+          .get(url(`/sos/${id}`))
+          .set(auth('dual_pc'))
+          .expect(200);
+      }
+      await api()
+        .get(url(`/sos/${outside}`))
+        .set(auth('dual_pc'))
+        .expect(404);
+      const listed = (
+        (await api().get(url('/sos')).set(auth('dual_pc')).expect(200))
+          .body as { data: { id: string }[] }
+      ).data.map((a) => a.id);
+      expect(listed).toEqual(expect.arrayContaining([ofTheUnit, assigned]));
+      expect(listed).not.toContain(outside);
     });
   });
 });

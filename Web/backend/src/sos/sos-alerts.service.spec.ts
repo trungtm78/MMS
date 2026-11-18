@@ -81,6 +81,46 @@ describe('SosAlertsService', () => {
       expect(paramsOf(0).slice(0, 2)).toEqual([null, 'KV-B']);
     });
 
+    // Every role held counts, whatever its priority: a unit role and ca_officer reach the
+    // reporters of the unit and the DQTV assigned (and their own alerts), the union
+    it.each(['police_area', 'ca_officer'])(
+      'gives police_area with ca_officer their unit and their DQTV (primary %s)',
+      async (primary) => {
+        assignments.getAssignedDqtvIds.mockResolvedValueOnce(['d-1']);
+        respond();
+
+        await service.list(
+          {
+            sub: 'pc-1',
+            role: primary,
+            roles: ['police_area', 'ca_officer'],
+            unitScope: 'KV-A',
+          },
+          {},
+        );
+
+        expect(paramsOf(0).slice(0, 2)).toEqual([['d-1', 'pc-1'], 'KV-A']);
+        // The grants are ORed: a reporter of the unit or one listed
+        expect(sqlOf(0)).toContain(
+          `(($1::uuid[] IS NULL AND $2::text IS NULL) OR i.reporter_id = ANY($1::uuid[]) OR ($2::text IS NOT NULL AND ${userInUnit('i.reporter_id', '$2')}))`,
+        );
+      },
+    );
+
+    it('treats a wide role with a militia role as reaching every alert', async () => {
+      respond();
+      await service.list(
+        {
+          sub: 'w-1',
+          role: 'police_ward',
+          roles: ['police_ward', 'dqtv'],
+          unitScope: null,
+        },
+        {},
+      );
+      expect(paramsOf(0).slice(0, 2)).toEqual([null, null]);
+    });
+
     it('refuses an area role without a unit scope', async () => {
       await expect(
         service.list({ sub: 'a-1', role: 'police_area', unitScope: null }, {}),

@@ -1,6 +1,7 @@
 // Task statistics (GET /tasks/report): the SQL, fixed placeholders only, and the
 // arithmetic around it. Every statement starts from the same scoped set of tasks:
-// $1 from, $2 to (business days of creation), $3 unit, $4 member user ids, $5 the caller.
+// $1 from, $2 to (business days of creation), the caller's MemberReach as $3 everyone, $4 unit,
+// $5 member user ids, and $6 the caller.
 import {
   BUSINESS_TZ,
   businessDayEndSql,
@@ -19,8 +20,9 @@ export { TASK_OVERDUE_SQL, TASK_STATUSES, TASK_UNIT_JOIN };
 // A year and a day, so a report can run from one date to the same date a year later
 export const TASK_REPORT_MAX_DAYS = 366;
 
-// Tasks created in the range, in the caller's scope: the unit ($3), and for CA officers
-// and members the tasks assigned to the member ids ($4) or created by the caller ($5)
+// Tasks created in the range, in the caller's scope: every task ($3), the unit ($4), and for
+// CA officers and members the tasks assigned to the member ids ($5) or created by the
+// caller ($6)
 const SCOPED_TASKS = `WITH scoped AS (
   SELECT t.id, t.type, t.priority, t.status, t.created_at,
          tu.code AS unit_code, tu.name AS unit_name,
@@ -29,11 +31,12 @@ const SCOPED_TASKS = `WITH scoped AS (
   ${TASK_UNIT_JOIN}
   WHERE t.created_at >= ${businessDayStartSql('$1')}
     AND t.created_at < ${businessDayEndSql('$2')}
-    AND ${taskScopeSql({ unit: '$3', userIds: '$4', caller: '$5' })}
+    AND ${taskScopeSql({ everyone: '$3', unit: '$4', userIds: '$5', caller: '$6' })}
 )`;
 
-// Members see their own line only, never a co-assignee's
-const ASSIGNEES_IN_SCOPE = `($4::uuid[] IS NULL OR ta.assignee_id = ANY($4::uuid[]))`;
+// Every line of a task the caller's unit grant covers; otherwise only the lines of the
+// members they reach, so members see their own line only, never a co-assignee's
+const ASSIGNEES_IN_SCOPE = `($3::boolean OR ($4::text IS NOT NULL AND s.unit_code = $4) OR ta.assignee_id = ANY($5::uuid[]))`;
 
 export const TASK_REPORT_SQL = {
   totals: `${SCOPED_TASKS}
@@ -80,7 +83,7 @@ export const TASK_REPORT_SQL = {
     FROM scoped s
     JOIN task_assignments ta ON ta.task_id = s.id
     WHERE ${ASSIGNEES_IN_SCOPE}`,
-  // $6 limit, $7 offset
+  // $7 limit, $8 offset
   assigneePage: `${SCOPED_TASKS}
     SELECT ta.assignee_id AS "userId", u.full_name AS "fullName",
            mp.militia_code AS "militiaCode", mu.code AS "unitCode",
@@ -100,7 +103,7 @@ export const TASK_REPORT_SQL = {
     WHERE ${ASSIGNEES_IN_SCOPE}
     GROUP BY ta.assignee_id, u.full_name, mp.militia_code, mu.code
     ORDER BY total DESC, u.full_name, ta.assignee_id
-    LIMIT $6 OFFSET $7`,
+    LIMIT $7 OFFSET $8`,
 } as const;
 
 export interface TaskReportTotals {
