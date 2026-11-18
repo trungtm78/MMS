@@ -68,9 +68,10 @@ export interface SeedContext {
 
 export interface SeedOptions extends SeedContext {
   /**
-   * Only the rows a row of this table can point at: its parents, theirs in turn, and the
-   * table itself when it references itself. No row of the table is planted, so a row built
-   * for it afterwards meets no unique key of an earlier one.
+   * Only the rows a row of this table can point at: its parents, theirs in turn. A table that
+   * references itself is its own parent, so it does get one row (the target of that key); any
+   * other table gets none, so a row built for it afterwards meets no unique key of an
+   * earlier one.
    */
   ancestorsOf?: string;
 }
@@ -439,9 +440,16 @@ export async function seedCanaryRows(
     current = 'COMMIT (deferred constraint triggers)';
     await c.query('COMMIT');
   } catch (error) {
-    await c.query('ROLLBACK');
+    const reason = error instanceof Error ? error.message : String(error);
+    // A failing ROLLBACK must not hide why the seeding failed
+    let rollback = '';
+    try {
+      await c.query('ROLLBACK');
+    } catch (rollbackError) {
+      rollback = `; ROLLBACK also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
+    }
     throw new Error(
-      `Seeding ${current} of tenant ${options.label} failed: ${error instanceof Error ? error.message : String(error)}`,
+      `Seeding ${current} of tenant ${options.label} failed: ${reason}${rollback}`,
     );
   }
   return seeded;

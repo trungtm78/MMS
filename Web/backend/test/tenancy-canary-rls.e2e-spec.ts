@@ -123,8 +123,14 @@ describe('tenant isolation of every tenant table (e2e)', () => {
           await insertRow(c, shape.name, row);
           found.push(`${shape.name}: accepted`);
         } catch (error) {
-          const { code } = error as { code?: string };
-          if (code !== '42501') found.push(`${shape.name}: ${code}`);
+          const { code, message } = error as {
+            code?: string;
+            message?: string;
+          };
+          // 42501 is also a missing INSERT grant: only the policy's own refusal counts
+          if (code !== '42501' || !/row-level security/.test(message ?? '')) {
+            found.push(`${shape.name}: ${code} ${message ?? ''}`);
+          }
         } finally {
           await c.query('ROLLBACK');
         }
@@ -138,6 +144,21 @@ describe('tenant isolation of every tenant table (e2e)', () => {
     // Per table, two fresh tenants hold only the parents a row of that table can point at.
     // The table has no row of its own, so no unique key (task_assignments: task and
     // assignee) answers before the foreign key does
+    // The foreign keys between tenant tables, counted from the catalog
+    const expected = await db.admin(async (c) =>
+      Number(
+        (
+          await c.query<{ n: string }>(
+            `SELECT count(*) AS n FROM pg_constraint f
+               JOIN pg_class c ON c.oid = f.conrelid
+               JOIN pg_class p ON p.oid = f.confrelid
+              WHERE f.contype = 'f' AND c.relnamespace = 'public'::regnamespace
+                AND c.relname = ANY ($1) AND p.relname = ANY ($1)`,
+            [tables],
+          )
+        ).rows[0].n,
+      ),
+    );
     let checked = 0;
     const wrong: string[] = [];
     for (const [index, shape] of shapes.entries()) {
@@ -201,7 +222,9 @@ describe('tenant isolation of every tenant table (e2e)', () => {
       });
     }
     expect(wrong).toEqual([]);
-    expect(checked).toBe(114);
+    // Every key was tried, and the schema still has at least the 114 of migrations 001-037
+    expect(checked).toBe(expected);
+    expect(expected).toBeGreaterThanOrEqual(114);
   });
 
   it('keeps the record-keeping triggers of migration 026 on tenant rows', async () => {
