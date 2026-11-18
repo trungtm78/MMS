@@ -13,6 +13,7 @@ import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 import type { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
 import { getMetadataStorage } from 'class-validator';
+import { isListed } from './tenancy-catalog';
 import { AttendanceEntryDto } from '../../src/training/dto/training-plan.dto';
 import { InventoryItemDto } from '../../src/weapons/dto/record-inventory.dto';
 
@@ -31,6 +32,14 @@ export interface SweptRoute {
   bodyFields: string[];
   queryDto: DtoClass | null;
   queryFields: string[];
+  /**
+   * @Body() / @Query() parameters whose design type is not a class (Partial<...>, Record<...>,
+   * an interface, an inline type), so no validation metadata can be read from it. Each one
+   * fails the coverage test unless UNTYPED_PARAMETERS covers it.
+   */
+  uninspected: string[];
+  /** The kinds ('body' | 'query') of the untyped parameters UNTYPED_PARAMETERS covers */
+  untyped: string[];
 }
 
 export interface IdField {
@@ -40,6 +49,8 @@ export interface IdField {
   /** The DTO class declaring it */
   dto: string;
   array: boolean;
+  /** A string naming a row by its code (*Code, *Codes), not by its id */
+  code: boolean;
 }
 
 // Path parameter -> tenant table, per route. Checked against each service's query.
@@ -118,6 +129,26 @@ export const PATH_PARAMS: Readonly<
   'PUT /approvals/:id/reject': { id: 'leave_requests' },
 };
 
+// A body or query parameter that is not typed as a class, so its fields cannot be read from
+// metadata. Key: `${route key} body` or `${route key} query`. Without `sameAs` the parameter
+// holds no id or code field (the reason says why). With `sameAs` (the key of a route whose
+// parameter of the same kind is the real DTO) the sweep inspects that DTO's fields instead.
+export interface UntypedParameter {
+  reason: string;
+  sameAs?: string;
+}
+export const UNTYPED_PARAMETERS: Readonly<Record<string, UntypedParameter>> = {
+  'PATCH /admin/system-settings body': {
+    reason:
+      'Record<string, string>: setting name -> value, only the six EDITABLE_KEYS of admin.controller.ts (numbers and rates); no row id or code',
+  },
+  'PATCH /official-documents/:id body': {
+    reason:
+      'Partial<CreateDocDto>: the same fields as the create route, relatedMilitiaId and relatedUnitId among them',
+    sameAs: 'POST /official-documents',
+  },
+};
+
 // Id field of a body or query DTO -> tenant table. `Dto.field` wins over `field`.
 export const FIELD_TABLES: Readonly<Record<string, string>> = {
   caUserId: 'users',
@@ -154,14 +185,17 @@ export const FIELD_TABLES: Readonly<Record<string, string>> = {
   'UpdateUnitDto.parentId': 'organization_units',
 };
 
-// Fields that match the id-name rule but hold free text, not a reference to any row. Keyed
-// `Dto.field`, with the reason: organization_units.ward_id is a varchar(50) label with no
-// foreign key, and no query joins it to a table.
+// Fields that match the id or code name rule but hold free text, not a reference to any row.
+// Keyed `Dto.field` (or `field` for a single @Body('x') / @Query('x')), with the reason.
 export const FREE_TEXT_FIELDS: Readonly<Record<string, string>> = {
   'CreateUnitDto.wardId':
-    'organization_units.ward_id is a free-text varchar(50) label',
+    'organization_units.ward_id is a free-text varchar(50) label with no foreign key',
   'UpdateUnitDto.wardId':
-    'organization_units.ward_id is a free-text varchar(50) label',
+    'organization_units.ward_id is a free-text varchar(50) label with no foreign key',
+  'LoginDto.tenantCode':
+    'names the tenant itself in the global registry; the pre-auth lookup (auth_tenant_by_code) resolves it, it is no row of a tenant table',
+  'QuickCreateMilitiaDto.militiaCode':
+    "the new row's own militia_code (an attribute it is created with), not a reference to an existing row",
 };
 
 // String fields naming a row by its code: the sweep sends the other tenant's code
@@ -193,25 +227,50 @@ const isDtoClass = (value: unknown): value is DtoClass =>
   typeof value === 'function' &&
   ![Object, String, Number, Boolean, Array].includes(value as never);
 
-const isListed = (record: object, key: string): boolean =>
-  Object.keys(record).includes(key);
+const isIdName = (name: string): boolean => /Ids?$/.test(name);
+const isCodeName = (name: string): boolean => /[a-z]Codes?$/.test(name);
+
+type ControllerClass = abstract new (...args: never[]) => object;
+
+/** What discovery reads of a Nest controller: its class. */
+export interface ControllerRef {
+  metatype: ControllerClass | null | undefined;
+}
+
+export interface Discovery {
+  routes: SweptRoute[];
+  /** Controllers or parameters the discovery could not read: each one fails the sweep */
+  problems: string[];
+}
 
 interface Argument {
+  index: number;
   data: unknown;
   type: unknown;
 }
 
-export function discoverRoutes(app: INestApplication): SweptRoute[] {
-  const discovery = app.get(DiscoveryService);
-  const scanner = app.get(MetadataScanner);
+type Kind = 'body' | 'query';
+
+const bySort = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
+
+/**
+ * The routes of controller classes, read from their metadata. The class is read, not the
+ * instance: a request- or transient-scoped controller has no usable instance and its routes
+ * are routes all the same, so none is dropped for lacking one. A controller with no class at
+ * all cannot be read and is reported.
+ */
+export function routesOfControllers(controllers: ControllerRef[]): Discovery {
+  const scanner = new MetadataScanner();
   const routes: SweptRoute[] = [];
-  for (const wrapper of discovery.getControllers() as InstanceWrapper<object>[]) {
-    const { instance, metatype } = wrapper;
-    if (!instance || !metatype) continue;
-    const prototype = Object.getPrototypeOf(instance) as Record<
-      string,
-      unknown
-    >;
+  const problems: string[] = [];
+  for (const { metatype } of controllers) {
+    if (!metatype) {
+      problems.push(
+        'a controller without a class: its routes cannot be listed',
+      );
+      continue;
+    }
+    const prototype = metatype.prototype as Record<string, unknown>;
     const controllerPaths = toPaths(
       Reflect.getMetadata(PATH_METADATA, metatype),
     );
@@ -234,45 +293,106 @@ export function discoverRoutes(app: INestApplication): SweptRoute[] {
       const of = (kind: RouteParamtypes): Argument[] =>
         Object.entries(declared)
           .filter(([key]) => key.split(':')[0] === String(kind))
-          .map(([, arg]) => ({ data: arg.data, type: types[arg.index] }));
-      const bodies = of(RouteParamtypes.BODY);
-      const queries = of(RouteParamtypes.QUERY);
-      const dtoOf = (args: Argument[]): DtoClass | null => {
-        const whole = args.find(
+          .map(([, arg]) => ({
+            index: arg.index,
+            data: arg.data,
+            type: types[arg.index],
+          }));
+      const args: Record<Kind, Argument[]> = {
+        body: of(RouteParamtypes.BODY),
+        query: of(RouteParamtypes.QUERY),
+      };
+      const dtoOf = (kind: Kind): DtoClass | null => {
+        const whole = args[kind].find(
           (arg) => arg.data === undefined && isDtoClass(arg.type),
         );
         return whole && isDtoClass(whole.type) ? whole.type : null;
       };
-      const fieldsOf = (args: Argument[]): string[] =>
-        args.flatMap((arg) => (typeof arg.data === 'string' ? [arg.data] : []));
+      const fieldsOf = (kind: Kind): string[] =>
+        args[kind].flatMap((arg) =>
+          typeof arg.data === 'string' ? [arg.data] : [],
+        );
+      const untypedOf = (kind: Kind): Argument[] =>
+        args[kind].filter(
+          (arg) => arg.data === undefined && !isDtoClass(arg.type),
+        );
       for (const controllerPath of controllerPaths) {
         for (const methodPath of toPaths(
           Reflect.getMetadata(PATH_METADATA, handler),
         )) {
           const path = joinPath(controllerPath, methodPath);
           const verb = RequestMethod[method];
-          routes.push({
+          const key = `${verb} ${path}`;
+          const route: SweptRoute = {
             method: verb,
             path,
-            key: `${verb} ${path}`,
+            key,
             pathParams: [...path.matchAll(/:(\w+)/g)].map((m) => m[1]),
-            bodyDto: dtoOf(bodies),
-            bodyFields: fieldsOf(bodies),
-            queryDto: dtoOf(queries),
-            queryFields: fieldsOf(queries),
-          });
+            bodyDto: dtoOf('body'),
+            bodyFields: fieldsOf('body'),
+            queryDto: dtoOf('query'),
+            queryFields: fieldsOf('query'),
+            uninspected: [],
+            untyped: [],
+          };
+          for (const kind of ['body', 'query'] as const) {
+            for (const arg of untypedOf(kind)) {
+              if (isListed(UNTYPED_PARAMETERS, `${key} ${kind}`)) {
+                route.untyped.push(kind);
+              } else {
+                const type = (arg.type as { name?: string } | undefined)?.name;
+                route.uninspected.push(
+                  `${kind} argument #${arg.index} (${type ?? 'no type'}) is not typed as a class: no id field can be read from it`,
+                );
+              }
+            }
+          }
+          routes.push(route);
         }
       }
     }
   }
-  return routes.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  // An untyped parameter that stands for another route's DTO is inspected as that DTO
+  for (const route of routes) {
+    for (const kind of route.untyped as Kind[]) {
+      const { sameAs } = UNTYPED_PARAMETERS[`${route.key} ${kind}`];
+      if (sameAs === undefined) continue;
+      const donor = routes.find((other) => other.key === sameAs);
+      const dto = donor && (kind === 'body' ? donor.bodyDto : donor.queryDto);
+      if (!dto) {
+        problems.push(
+          `${route.key} ${kind}: sameAs ${sameAs} has no ${kind} DTO`,
+        );
+      } else if (kind === 'body') {
+        route.bodyDto = dto;
+      } else {
+        route.queryDto = dto;
+      }
+    }
+  }
+  return { routes: routes.sort((x, y) => bySort(x.key, y.key)), problems };
 }
 
-/** The id fields of a DTO (validated as UUID, or named *Id / *Ids), nested DTOs included. */
+/** Every route of the running application, and what could not be read. */
+export function discover(app: INestApplication): Discovery {
+  const wrappers = app
+    .get(DiscoveryService)
+    .getControllers() as InstanceWrapper<object>[];
+  return routesOfControllers(
+    wrappers.map((wrapper) => ({
+      metatype: wrapper.metatype as ControllerClass | null,
+    })),
+  );
+}
+
+export const discoverRoutes = (app: INestApplication): SweptRoute[] =>
+  discover(app).routes;
+
+/** The id and code fields of a DTO (validated as UUID, or named *Id / *Ids / *Code), nested DTOs included. */
 export function idFieldsOf(
   dto: DtoClass,
   prefix = '',
-): { fields: IdField[]; problems: string[] } {
+): { fields: IdField[]; problems: string[]; nested: string[] } {
   const metadata = getMetadataStorage().getTargetValidationMetadatas(
     dto,
     '',
@@ -288,17 +408,26 @@ export function idFieldsOf(
   }
   const fields: IdField[] = [];
   const problems: string[] = [];
+  const nestedKeys: string[] = [];
   for (const [property, entries] of byProperty) {
     const path = prefix ? `${prefix}.${property}` : property;
-    if (entries.some((e) => e.name === 'isUuid') || /Ids?$/.test(property)) {
+    const code = isCodeName(property);
+    if (
+      entries.some((e) => e.name === 'isUuid') ||
+      isIdName(property) ||
+      code
+    ) {
       fields.push({
         path,
         name: property,
         dto: dto.name,
-        array: entries.some((e) => e.each === true) || /Ids$/.test(property),
+        array:
+          entries.some((e) => e.each === true) || /(Ids|Codes)$/.test(property),
+        code,
       });
     }
     if (entries.some((e) => e.type === 'nestedValidation')) {
+      nestedKeys.push(`${dto.name}.${property}`);
       const declaredType: unknown = Reflect.getMetadata(
         'design:type',
         dto.prototype as object,
@@ -315,23 +444,53 @@ export function idFieldsOf(
         const inner = idFieldsOf(nested, path);
         fields.push(...inner.fields);
         problems.push(...inner.problems);
+        nestedKeys.push(...inner.nested);
       }
     }
   }
-  return { fields, problems };
+  return { fields, problems, nested: nestedKeys };
 }
 
-export const isFreeText = (field: IdField): boolean =>
-  isListed(FREE_TEXT_FIELDS, `${field.dto}.${field.name}`);
-
-export const tableOfField = (field: IdField): string | undefined =>
-  isListed(FIELD_TABLES, `${field.dto}.${field.name}`)
-    ? FIELD_TABLES[`${field.dto}.${field.name}`]
-    : isListed(FIELD_TABLES, field.name)
-      ? FIELD_TABLES[field.name]
+const lookup = <T>(
+  record: Readonly<Record<string, T>>,
+  field: IdField,
+): T | undefined =>
+  isListed(record, `${field.dto}.${field.name}`)
+    ? record[`${field.dto}.${field.name}`]
+    : isListed(record, field.name)
+      ? record[field.name]
       : undefined;
 
-/** Every route parameter or id field that is not mapped to a tenant table. */
+export const isFreeText = (field: IdField): boolean =>
+  lookup(FREE_TEXT_FIELDS, field) !== undefined;
+
+export const tableOfField = (field: IdField): string | undefined =>
+  lookup(FIELD_TABLES, field);
+
+export const codeOfField = (
+  field: IdField,
+): { table: string; column: string } | undefined => lookup(CODE_FIELDS, field);
+
+/** A single @Body('x') / @Query('x') as a field, for the same lookups as a DTO field. */
+const singleField = (name: string): IdField => ({
+  path: name,
+  name,
+  dto: '',
+  array: false,
+  code: isCodeName(name),
+});
+
+const fieldsOfRoute = (
+  route: SweptRoute,
+): { kind: Kind; dto: DtoClass | null; singles: string[] }[] => [
+  { kind: 'body', dto: route.bodyDto, singles: route.bodyFields },
+  { kind: 'query', dto: route.queryDto, singles: route.queryFields },
+];
+
+/**
+ * Every route parameter, id field or code field that is not mapped to a tenant table, and
+ * every body or query that cannot be read.
+ */
 export function unmappedParameters(
   routes: SweptRoute[],
   tenantTableSet: ReadonlySet<string>,
@@ -345,6 +504,16 @@ export function unmappedParameters(
       );
     }
   };
+  const checkField = (where: string, field: IdField) => {
+    if (isFreeText(field)) return;
+    if (field.code) {
+      const entry = codeOfField(field);
+      if (entry === undefined) problems.push(`${where}: code field not mapped`);
+      else check(where, entry.table);
+    } else {
+      check(where, tableOfField(field));
+    }
+  };
   for (const route of routes) {
     const params = isListed(PATH_PARAMS, route.key)
       ? PATH_PARAMS[route.key]
@@ -355,34 +524,75 @@ export function unmappedParameters(
         isListed(params, param) ? params[param] : undefined,
       );
     }
-    const parts = [
-      ['body', route.bodyDto, route.bodyFields],
-      ['query', route.queryDto, route.queryFields],
-    ] as const;
-    for (const [kind, dto, singles] of parts) {
+    problems.push(...route.uninspected.map((u) => `${route.key} ${u}`));
+    for (const { kind, dto, singles } of fieldsOfRoute(route)) {
       if (dto) {
         const { fields, problems: nested } = idFieldsOf(dto);
         problems.push(...nested.map((p) => `${route.key} ${kind}: ${p}`));
-        for (const field of fields.filter((f) => !isFreeText(f))) {
-          check(`${route.key} ${kind}.${field.path}`, tableOfField(field));
+        for (const field of fields) {
+          checkField(`${route.key} ${kind}.${field.path}`, field);
         }
       }
-      for (const name of singles.filter((field) => /Ids?$/.test(field))) {
-        check(
-          `${route.key} ${kind}.${name}`,
-          isListed(FIELD_TABLES, name) ? FIELD_TABLES[name] : undefined,
-        );
+      for (const name of singles.filter((n) => isIdName(n) || isCodeName(n))) {
+        checkField(`${route.key} ${kind}.${name}`, singleField(name));
       }
     }
   }
   return problems;
 }
 
-/** PATH_PARAMS entries of routes that no longer exist. */
-export const staleParameterEntries = (routes: SweptRoute[]): string[] => {
-  const keys = new Set(routes.map((route) => route.key));
-  return Object.keys(PATH_PARAMS).filter((key) => !keys.has(key));
-};
+/** Map entries that nothing in the application uses any more. */
+export function staleParameterEntries(routes: SweptRoute[]): string[] {
+  const stale: string[] = [];
+  const byKey = new Map(routes.map((route) => [route.key, route]));
+  for (const [key, params] of Object.entries(PATH_PARAMS)) {
+    const route = byKey.get(key);
+    if (!route) {
+      stale.push(`PATH_PARAMS['${key}']: no such route`);
+      continue;
+    }
+    for (const param of Object.keys(params)) {
+      if (!route.pathParams.includes(param)) {
+        stale.push(
+          `PATH_PARAMS['${key}'].${param}: the route has no such path parameter`,
+        );
+      }
+    }
+  }
+  const used = new Set<string>();
+  const nested = new Set<string>();
+  for (const route of routes) {
+    for (const { dto, singles } of fieldsOfRoute(route)) {
+      if (dto) {
+        const read = idFieldsOf(dto);
+        for (const field of read.fields) {
+          used.add(`${field.dto}.${field.name}`);
+          used.add(field.name);
+        }
+        read.nested.forEach((entry) => nested.add(entry));
+      }
+      singles.forEach((name) => used.add(name));
+    }
+  }
+  const unused = (name: string, record: object, seen: Set<string>) =>
+    Object.keys(record)
+      .filter((key) => !seen.has(key))
+      .map((key) => `${name}['${key}']: nothing uses it`);
+  stale.push(
+    ...unused('FIELD_TABLES', FIELD_TABLES, used),
+    ...unused('CODE_FIELDS', CODE_FIELDS, used),
+    ...unused('FREE_TEXT_FIELDS', FREE_TEXT_FIELDS, used),
+    ...unused('NESTED_DTOS', NESTED_DTOS, nested),
+  );
+  for (const key of Object.keys(UNTYPED_PARAMETERS)) {
+    const at = key.lastIndexOf(' ');
+    const route = byKey.get(key.slice(0, at));
+    if (!route?.untyped.includes(key.slice(at + 1))) {
+      stale.push(`UNTYPED_PARAMETERS['${key}']: no such untyped parameter`);
+    }
+  }
+  return stale;
+}
 
 /** Every table a mapped parameter or field names. */
 export const mappedTables = (): string[] =>
@@ -393,3 +603,36 @@ export const mappedTables = (): string[] =>
       ...Object.values(CODE_FIELDS).map((field) => field.table),
     ]),
   ].sort();
+
+interface ExpressLayer {
+  route?: { path: unknown; methods: Record<string, boolean> };
+}
+interface ExpressApp {
+  router?: { stack: ExpressLayer[] };
+  _router?: { stack: ExpressLayer[] };
+}
+
+/**
+ * The routes the HTTP server itself serves, read from the Express router stack: `${METHOD}
+ * ${path}` without the global prefix. A route registered for every method is 'ALL'. This is
+ * the independent view that the discovery from Nest's metadata is checked against.
+ */
+export function routerRoutes(
+  app: INestApplication,
+  apiPrefix: string,
+): string[] {
+  const express = app.getHttpAdapter().getInstance() as ExpressApp;
+  const stack = (express.router ?? express._router)?.stack;
+  if (!stack) throw new Error('The HTTP adapter exposes no router stack');
+  const prefix = '/' + apiPrefix.replace(/^[/]+|[/]+$/g, '');
+  return stack
+    .flatMap((layer) => (layer.route ? [layer.route] : []))
+    .flatMap((route) => {
+      const path = String(route.path);
+      const methods = Object.keys(route.methods).map((m) => m.toUpperCase());
+      const verbs = methods.length > 10 ? ['ALL'] : methods;
+      const local = path.startsWith(prefix) ? path.slice(prefix.length) : path;
+      return verbs.map((verb) => `${verb} ${local === '' ? '/' : local}`);
+    })
+    .sort(bySort);
+}
