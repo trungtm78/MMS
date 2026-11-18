@@ -822,9 +822,13 @@ describe('tenant slice (e2e)', () => {
       expect(gotB).toEqual([{ for: 'B' }]);
     });
 
-    it('runs a socket event under the tenant of the socket', async () => {
-      // The handler checks the session in the users table; with no tenant scope that read
-      // would return nothing and the socket would be told it is unauthenticated
+    // This is the session check that precedes a handler, which scopes itself through
+    // inTenant: it passes even without WsTenantScopeInterceptor, so it does NOT prove the
+    // interceptor. The proof that handlers run under the tenant of the socket is the
+    // chat:send test of "chat events" below (it reads a table under RLS inside the handler).
+    it('keeps the socket session valid under its own tenant while an event is handled', async () => {
+      // The check reads the users table; with no tenant scope that read would return
+      // nothing and the socket would be told it is unauthenticated
       const sa = await open('a');
       const ended = received(sa, 'session_expired');
       const ack = await drained(sa);
