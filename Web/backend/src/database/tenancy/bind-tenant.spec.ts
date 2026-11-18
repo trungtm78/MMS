@@ -124,6 +124,82 @@ describe('bindTenantToConnections', () => {
     expect(released[0]).toBeInstanceOf(Error);
   });
 
+  it('hands back a connection that met no scope mismatch without an error', async () => {
+    const client = new FakeClient();
+    const released: unknown[] = [];
+    const { driver, dataSource } = fakeDataSource(client, released);
+    bindTenantToConnections(dataSource);
+    const [pg, release] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    await TenantContext.runAs({ tenantId: A }, () => pg.query('SELECT 1'));
+    release();
+    expect(released).toEqual(['ok']);
+  });
+
+  // A transaction opened under one scope whose COMMIT or ROLLBACK runs under another is
+  // refused, so it stays open; TypeORM swallows the failed rollback and releases without an
+  // error. Going back to the pool idle in transaction would let the next tenant write inside
+  // it and lose those writes at the next rollback.
+  it('destroys, not recycles, a connection whose query was refused for its scope', async () => {
+    const client = new FakeClient();
+    const released: unknown[] = [];
+    const { driver, dataSource } = fakeDataSource(client, released);
+    bindTenantToConnections(dataSource);
+    const [pg, release] = await checkout({ driver });
+    // The request had no scope when it took the connection and adopted a tenant later
+    TenantContext.start(() => {
+      TenantContext.adopt({ tenantId: A });
+      expect(thrownBy(() => pg.query('COMMIT'))).toMatchObject({
+        code: 'tenant_scope_mismatch',
+      });
+    });
+    release();
+    expect(released).toHaveLength(1);
+    expect(released[0]).toBeInstanceOf(Error);
+    expect(released[0]).toMatchObject({ message: 'tenant_scope_mismatch' });
+  });
+
+  it('keeps a given release error when the connection is also poisoned', async () => {
+    const client = new FakeClient();
+    const released: unknown[] = [];
+    const { driver, dataSource } = fakeDataSource(client, released);
+    bindTenantToConnections(dataSource);
+    const [pg, release] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    expect(thrownBy(() => pg.query('SELECT 1'))).toMatchObject({
+      code: 'tenant_scope_mismatch',
+    });
+    const reason = new Error('the transaction failed');
+    release(reason);
+    expect(released).toEqual([reason]);
+  });
+
+  it('releases once: a stale second release neither reaches the pool nor wipes a new owner binding', async () => {
+    const client = new FakeClient();
+    const released: unknown[] = [];
+    const { driver, dataSource } = fakeDataSource(client, released);
+    bindTenantToConnections(dataSource);
+    const [, firstRelease] = await TenantContext.runAs({ tenantId: A }, () =>
+      checkout({ driver }),
+    );
+    firstRelease();
+    // The connection now belongs to tenant B
+    const [pg] = await TenantContext.runAs({ tenantId: B }, () =>
+      checkout({ driver }),
+    );
+
+    firstRelease();
+
+    expect(released).toEqual(['ok']);
+    expect(
+      thrownBy(() =>
+        TenantContext.runAs({ tenantId: A }, () => pg.query('SELECT 4')),
+      ),
+    ).toMatchObject({ code: 'tenant_scope_mismatch' });
+  });
+
   it('forgets the binding on release', async () => {
     const client = new FakeClient();
     const { driver, dataSource } = fakeDataSource(client, []);
