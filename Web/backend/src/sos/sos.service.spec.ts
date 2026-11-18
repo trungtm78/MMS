@@ -70,7 +70,7 @@ describe('SosService', () => {
       expect(sqlOf(0)).toMatch(
         /INSERT INTO incidents\s*\(code, reporter_id, incident_type, severity, title, message, lat, lng, status\)/,
       );
-      expect(sqlOf(0)).toMatch(/ON CONFLICT \(code\) DO NOTHING/);
+      expect(sqlOf(0)).toMatch(/ON CONFLICT \(tenant_id, code\) DO NOTHING/);
       const [code, reporter, type, severity, title, message, lat, lng] =
         paramsOf(0);
       expect(code).toMatch(/^SOS-20261001-[0-9A-HJKMNP-TV-Z]{6}$/);

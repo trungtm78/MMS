@@ -1311,7 +1311,7 @@ describe('Client gaps T20 (e2e)', () => {
       const periodId = await db(async (c) => {
         const { rows } = await c.query<{ id: string }>(
           `INSERT INTO payroll_periods (year, month) VALUES (2026, 3)
-           ON CONFLICT (year, month) DO UPDATE SET updated_at = now()
+           ON CONFLICT (tenant_id, year, month) DO UPDATE SET updated_at = now()
            RETURNING id`,
         );
         return rows[0].id;

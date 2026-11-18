@@ -33,7 +33,8 @@ export function generateRecordCode(
 
 /**
  * Runs `insert` with fresh codes until one is not taken. `insert` answers null when the code
- * already exists, as INSERT ... ON CONFLICT (code) DO NOTHING RETURNING does.
+ * already exists, as INSERT ... ON CONFLICT (tenant_id, code) DO NOTHING RETURNING does: codes
+ * are unique per tenant (migration 039).
  */
 export async function insertWithRecordCode<T>(
   prefix: string,

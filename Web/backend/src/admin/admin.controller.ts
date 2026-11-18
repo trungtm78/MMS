@@ -132,7 +132,7 @@ export class AdminController {
       await this.dataSource.query(
         `INSERT INTO system_settings(key, value, updated_by, updated_at)
          VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
         [key, String(dto[key]), req.user.sub],
       );
     }

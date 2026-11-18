@@ -245,7 +245,7 @@ describe('ChatService', () => {
       });
 
       expect(sqlOf(mockManager.query, 1)).toMatch(
-        /ON CONFLICT \(direct_key\) WHERE direct_key IS NOT NULL DO NOTHING/,
+        /ON CONFLICT \(tenant_id, direct_key\) WHERE direct_key IS NOT NULL DO NOTHING/,
       );
       expect(paramsOf(mockManager.query, 1)).toEqual([
         null,

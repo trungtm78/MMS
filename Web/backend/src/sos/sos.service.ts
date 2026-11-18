@@ -49,7 +49,7 @@ export class SosService {
       const rows = await this.ds.query<Record<string, unknown>[]>(
         `INSERT INTO incidents (code, reporter_id, incident_type, severity, title, message, lat, lng, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open')
-         ON CONFLICT (code) DO NOTHING
+         ON CONFLICT (tenant_id, code) DO NOTHING
          RETURNING id, code, incident_type AS "incidentType", severity, title, message,
                    lat::float8 AS lat, lng::float8 AS lng, status, created_at AS "createdAt"`,
         [

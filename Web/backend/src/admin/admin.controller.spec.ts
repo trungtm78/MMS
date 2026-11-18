@@ -238,7 +238,9 @@ describe('AdminController', () => {
 
       expect(result).toEqual({ updated: 1 });
       expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO system_settings'),
+        expect.stringMatching(
+          /INSERT INTO system_settings[\s\S]*ON CONFLICT \(tenant_id, key\) DO UPDATE/,
+        ),
         ['session_timeout_minutes', '120', 'admin-1'],
       );
     });

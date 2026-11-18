@@ -203,7 +203,7 @@ export class ChatService {
     const inserted = await mgr.query<{ id: string }[]>(
       `INSERT INTO conversations (name, type, created_by, direct_key)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (direct_key) WHERE direct_key IS NOT NULL DO NOTHING
+       ON CONFLICT (tenant_id, direct_key) WHERE direct_key IS NOT NULL DO NOTHING
        RETURNING id`,
       [input.title, input.type, input.creatorId, input.directKey],
     );

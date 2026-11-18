@@ -1294,6 +1294,7 @@ describe('schema guards (e2e)', () => {
 // Migration 035: every way a session ends or an account changes is announced, once the
 // change commits, for the realtime gateway (AuthRevocationFeed)
 describe('auth revocation notifications (e2e)', () => {
+  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
   let url: string;
   let listener: Client;
   let userId: string;
@@ -1362,7 +1363,7 @@ describe('auth revocation notifications (e2e)', () => {
     );
 
     await expect(settled()).resolves.toEqual([
-      { kind: 'session', userId, sessionId: sid },
+      { kind: 'session', userId, sessionId: sid, tenantId: FIRST_TENANT },
     ]);
   });
 
@@ -1388,7 +1389,7 @@ describe('auth revocation notifications (e2e)', () => {
     );
 
     await expect(settled()).resolves.toEqual([
-      { kind: 'session', userId, sessionId: sid },
+      { kind: 'session', userId, sessionId: sid, tenantId: FIRST_TENANT },
     ]);
   });
 
@@ -1419,9 +1420,27 @@ describe('auth revocation notifications (e2e)', () => {
       return Number(rows[0].v);
     });
     expect(events).toEqual([
-      { kind: 'account', userId, version, active: true },
-      { kind: 'account', userId, version, active: false },
-      { kind: 'account', userId, version, active: true },
+      {
+        kind: 'account',
+        userId,
+        version,
+        active: true,
+        tenantId: FIRST_TENANT,
+      },
+      {
+        kind: 'account',
+        userId,
+        version,
+        active: false,
+        tenantId: FIRST_TENANT,
+      },
+      {
+        kind: 'account',
+        userId,
+        version,
+        active: true,
+        tenantId: FIRST_TENANT,
+      },
     ]);
   });
 
@@ -1969,5 +1988,108 @@ describe('online tenant preparation (038)', () => {
     });
     expect(report.applied).toEqual(['038_tenant_columns_online.sql']);
     expect(await xmins()).toEqual(xminBefore);
+  });
+});
+
+describe('tenant isolation cutover (039)', () => {
+  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  let url: string;
+
+  beforeAll(async () => {
+    url = await createDatabase();
+    await migrateDatabase({ connectionString: url, directory: MIGRATIONS_DIR });
+  });
+
+  it('scopes the natural keys per tenant: once in each of two tenants, never twice in one', async () => {
+    await withClient(url, async (c) => {
+      const second = (
+        await c.query<{ id: string }>(
+          `INSERT INTO tenants (code, name) VALUES ('second-39', 'Second') RETURNING id`,
+        )
+      ).rows[0].id;
+      const inserts = [
+        `INSERT INTO leave_types (tenant_id, code, name) VALUES ($1, 'k39', 'x')`,
+        `INSERT INTO system_settings (tenant_id, key, value) VALUES ($1, 'k39', 'x')`,
+        `INSERT INTO payroll_periods (tenant_id, year, month) VALUES ($1, 2039, 1)`,
+        `INSERT INTO weapons (tenant_id, type, serial_number, acquired_at, storage_location)
+         VALUES ($1, 'AK', 'S39', '2020-01-01', 'Kho')`,
+      ];
+      for (const tenant of [FIRST_TENANT, second]) {
+        for (const sql of inserts) await c.query(sql, [tenant]);
+      }
+      for (const sql of inserts) {
+        await expect(c.query(sql, [second])).rejects.toMatchObject({
+          code: '23505',
+        });
+      }
+    });
+  });
+
+  it('announces the tenant with every revocation', async () => {
+    const listener = new Client({ connectionString: url });
+    await listener.connect();
+    try {
+      const payloads: string[] = [];
+      listener.on('notification', (message) =>
+        payloads.push(message.payload ?? ''),
+      );
+      await listener.query('LISTEN mms_auth_revocation');
+      await withClient(url, async (c) => {
+        const { id } = (
+          await c.query<{ id: string }>(
+            `INSERT INTO users (username, password_hash, full_name) VALUES ('rev39', 'x', 'x') RETURNING id`,
+          )
+        ).rows[0];
+        await c.query(
+          `UPDATE users SET auth_version = auth_version + 1 WHERE id = $1`,
+          [id],
+        );
+      });
+      await eventually(
+        () => Promise.resolve(payloads.length > 0),
+        'the revocation announcement',
+      );
+      expect(JSON.parse(payloads[0])).toMatchObject({
+        kind: 'account',
+        tenantId: FIRST_TENANT,
+      });
+    } finally {
+      await listener.end();
+    }
+  });
+
+  it('refuses the cutover when a foreign key it was not written for joins two tenant tables', async () => {
+    const other = await createDatabase();
+    await migrateDatabase({
+      connectionString: other,
+      directory: migrationsThrough('038_tenant_columns_online.sql'),
+    });
+    await withClient(other, (c) =>
+      c.query(
+        `ALTER TABLE alerts ADD COLUMN probe_user uuid REFERENCES users (id)`,
+      ),
+    );
+
+    await expect(
+      migrateDatabase({ connectionString: other, directory: MIGRATIONS_DIR }),
+    ).rejects.toMatchObject({
+      name: 'MigrationFailedError',
+      fileName: '039_tenant_isolation_cutover.sql',
+      message: expect.stringContaining('expected 114 foreign keys') as unknown,
+    });
+  });
+
+  it('keeps a session without a tenant on the first tenant while the legacy default exists', async () => {
+    const tenant = await withClient(
+      url,
+      async (c) =>
+        (
+          await c.query<{ tenant: string }>(
+            `INSERT INTO kpi_criteria (code, name, category, max_score, weight)
+           VALUES ('legacy39', 'x', 'task', 10, 0.5) RETURNING tenant_id::text AS tenant`,
+          )
+        ).rows[0].tenant,
+    );
+    expect(tenant).toBe(FIRST_TENANT);
   });
 });
