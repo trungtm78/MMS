@@ -1,25 +1,30 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm'
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+} from 'typeorm';
 
 @Entity('weapon_allocations')
 export class WeaponAllocation {
   @PrimaryGeneratedColumn('uuid')
-  id: string
+  id: string;
 
-  @Column({ type: 'uuid' })
-  weaponId: string
+  @Column({ name: 'weapon_id', type: 'uuid' })
+  weaponId: string;
 
-  @Column({ type: 'uuid' })
-  recipientId: string
+  @Column({ name: 'recipient_id', type: 'uuid' })
+  recipientId: string;
 
-  @Column({ type: 'timestamp' })
-  issuedAt: Date
+  @Column({ name: 'issued_at', type: 'timestamptz' })
+  issuedAt: Date;
 
   @Column({ type: 'varchar', length: 500 })
-  purpose: string
+  purpose: string;
 
-  @Column({ type: 'timestamp', nullable: true })
-  returnedAt: Date | null
+  @Column({ name: 'returned_at', type: 'timestamptz', nullable: true })
+  returnedAt: Date | null;
 
-  @CreateDateColumn()
-  createdAt: Date
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }

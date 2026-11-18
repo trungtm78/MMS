@@ -11,7 +11,9 @@ const mockChatService = {
   getMessages: jest.fn(),
 };
 
-const userReq = { user: { sub: 'user-1', role: 'dqtv_member', unitScope: 'UNIT_001' } };
+const userReq = {
+  user: { sub: 'user-1', role: 'dqtv_member', unitScope: 'UNIT_001' },
+};
 
 describe('ChatController', () => {
   let controller: ChatController;
@@ -36,7 +38,7 @@ describe('ChatController', () => {
       const convs = [{ id: 'c1', title: 'Team Chat' }];
       mockChatService.listConversations.mockReturnValueOnce(convs);
 
-      const result = controller.listConversations(userReq as any);
+      const result = controller.listConversations(userReq as never);
 
       expect(result).toEqual(convs);
       expect(mockChatService.listConversations).toHaveBeenCalledWith('user-1');
@@ -45,44 +47,88 @@ describe('ChatController', () => {
     it('returns empty array when user has no conversations', () => {
       mockChatService.listConversations.mockReturnValueOnce([]);
 
-      const result = controller.listConversations(userReq as any);
+      const result = controller.listConversations(userReq as never);
 
       expect(result).toHaveLength(0);
     });
   });
 
   describe('createConversation', () => {
-    it('creates conversation and returns it', () => {
-      const dto = { participantIds: ['user-2'], conversationType: 'direct' };
-      const created = { id: 'c-new', ...dto };
-      mockChatService.createConversation.mockReturnValueOnce(created);
+    const dto = {
+      participantIds: ['user-2'],
+      conversationType: 'direct' as const,
+    };
+    const summary = { id: 'c-1', conversationType: 'direct', participants: [] };
+    const response = () => ({ status: jest.fn() });
 
-      const result = controller.createConversation(userReq as any, dto as any);
+    it('answers 201 with the conversation it opened', async () => {
+      mockChatService.createConversation.mockResolvedValueOnce({
+        conversation: summary,
+        created: true,
+      });
+      const res = response();
 
-      expect(result).toEqual(created);
-      expect(mockChatService.createConversation).toHaveBeenCalledWith('user-1', dto);
+      await expect(
+        controller.createConversation(userReq as never, dto, res as never),
+      ).resolves.toEqual(summary);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      // The creator's contact scope decides who may be added, so the service gets the caller
+      expect(mockChatService.createConversation).toHaveBeenCalledWith(
+        userReq.user,
+        dto,
+      );
     });
 
-    it('propagates error from service', () => {
-      mockChatService.createConversation.mockImplementationOnce(() => {
-        throw new Error('participant_not_found');
+    // Opening a direct conversation that already exists returns it, as messaging apps do
+    it('answers 200 with the existing direct conversation of the pair', async () => {
+      mockChatService.createConversation.mockResolvedValueOnce({
+        conversation: summary,
+        created: false,
       });
+      const res = response();
 
-      expect(() => controller.createConversation(userReq as any, { participantIds: [] } as any)).toThrow(
-        'participant_not_found',
+      await expect(
+        controller.createConversation(userReq as never, dto, res as never),
+      ).resolves.toEqual(summary);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('propagates error from service', async () => {
+      mockChatService.createConversation.mockRejectedValueOnce(
+        new Error('participant_not_found'),
       );
+
+      await expect(
+        controller.createConversation(
+          userReq as never,
+          { participantIds: [] },
+          response() as never,
+        ),
+      ).rejects.toThrow('participant_not_found');
     });
   });
 
   describe('getMessages', () => {
     it('returns paginated messages for conversation', () => {
-      const msgs = { data: [{ id: 'm1', content: 'Hello' }], total: 1, page: 1, limit: 50 };
+      const msgs = {
+        data: [{ id: 'm1', content: 'Hello' }],
+        total: 1,
+        page: 1,
+        limit: 50,
+      };
       mockChatService.getMessages.mockReturnValueOnce(msgs);
 
-      const result = controller.getMessages(userReq as any, 'c1', 1, 50);
+      const result = controller.getMessages(userReq as never, 'c1', 1, 50);
 
       expect(result).toEqual(msgs);
-      expect(mockChatService.getMessages).toHaveBeenCalledWith('user-1', 'c1', 1, 50);
+      expect(mockChatService.getMessages).toHaveBeenCalledWith(
+        'user-1',
+        'c1',
+        1,
+        50,
+      );
     });
 
     it('propagates ForbiddenException when user is not a participant', () => {
@@ -90,7 +136,9 @@ describe('ChatController', () => {
         throw new ForbiddenException('not_a_participant');
       });
 
-      expect(() => controller.getMessages(userReq as any, 'c-other', 1, 50)).toThrow(ForbiddenException);
+      expect(() =>
+        controller.getMessages(userReq as never, 'c-other', 1, 50),
+      ).toThrow(ForbiddenException);
     });
   });
 });

@@ -7,9 +7,15 @@ import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AssignmentsModule } from '../assignments/assignments.module';
+import { FilesModule } from '../files/files.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Task, TaskAssignment]), AssignmentsModule],
+  // Task reports carry uploaded photos
+  imports: [
+    TypeOrmModule.forFeature([Task, TaskAssignment]),
+    AssignmentsModule,
+    FilesModule,
+  ],
   controllers: [TasksController],
   providers: [TasksService, JwtAuthGuard],
   exports: [TasksService],

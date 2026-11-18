@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { AssignmentsService } from './assignments.service';
 
 const mockDataSource = {
@@ -19,6 +23,35 @@ describe('AssignmentsService', () => {
     }).compile();
     service = module.get<AssignmentsService>(AssignmentsService);
     jest.clearAllMocks();
+    // Queued answers a failing test did not use must not reach the next test
+    mockDataSource.query.mockReset();
+  });
+
+  // ──────────────────────────────────────────────
+  // getCaOfficerIds
+  // ──────────────────────────────────────────────
+
+  // T31: a member's new GPS position goes to the CA officers the member is assigned to
+  describe('getCaOfficerIds', () => {
+    it('lists the CA officers a DQTV member is assigned to', async () => {
+      mockDataSource.query.mockResolvedValueOnce([
+        { ca_user_id: 'ca-1' },
+        { ca_user_id: 'ca-2' },
+      ]);
+
+      await expect(service.getCaOfficerIds('dqtv-1')).resolves.toEqual([
+        'ca-1',
+        'ca-2',
+      ]);
+      const [sql, params] = mockDataSource.query.mock.calls[0] as [
+        string,
+        unknown[],
+      ];
+      expect(sql).toMatch(
+        /SELECT ca_user_id FROM ca_dqtv_assignments WHERE dqtv_user_id = \$1::uuid/,
+      );
+      expect(params).toEqual(['dqtv-1']);
+    });
   });
 
   // ──────────────────────────────────────────────
@@ -31,15 +64,17 @@ describe('AssignmentsService', () => {
 
     it('inserts and returns the new assignment (single CTE query)', async () => {
       // CTE INSERT + JOIN in one round-trip → single query call
-      mockDataSource.query.mockResolvedValueOnce([{
-        id: 'assign-1',
-        caUserId: 'ca-1',
-        dqtvUserId: 'dqtv-1',
-        dqtvFullName: 'Nguyen Van A',
-        dqtvUnitCode: 'WARD_01',
-        assignedBy: 'admin-1',
-        assignedAt: new Date(),
-      }]);
+      mockDataSource.query.mockResolvedValueOnce([
+        {
+          id: 'assign-1',
+          caUserId: 'ca-1',
+          dqtvUserId: 'dqtv-1',
+          dqtvFullName: 'Nguyen Van A',
+          dqtvUnitCode: 'WARD_01',
+          assignedBy: 'admin-1',
+          assignedAt: new Date(),
+        },
+      ]);
 
       const result = await service.createAssignment(dto, assignedBy);
       expect(result.id).toBe('assign-1');
@@ -47,14 +82,20 @@ describe('AssignmentsService', () => {
     });
 
     it('throws ConflictException on duplicate (pg error 23505)', async () => {
-      const pgError = Object.assign(new Error('duplicate key'), { code: '23505' });
+      const pgError = Object.assign(new Error('duplicate key'), {
+        code: '23505',
+      });
       mockDataSource.query.mockRejectedValueOnce(pgError);
-      await expect(service.createAssignment(dto, assignedBy)).rejects.toThrow(ConflictException);
+      await expect(service.createAssignment(dto, assignedBy)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('re-throws non-duplicate errors', async () => {
       mockDataSource.query.mockRejectedValueOnce(new Error('connection lost'));
-      await expect(service.createAssignment(dto, assignedBy)).rejects.toThrow('connection lost');
+      await expect(service.createAssignment(dto, assignedBy)).rejects.toThrow(
+        'connection lost',
+      );
     });
   });
 
@@ -63,19 +104,21 @@ describe('AssignmentsService', () => {
   // ──────────────────────────────────────────────
 
   describe('removeAssignment', () => {
-    const requester = { sub: 'admin-1', role: 'system_admin' };
-
     it('deletes the assignment when found', async () => {
       // Single DELETE RETURNING — one query call
       mockDataSource.query.mockResolvedValueOnce([{ id: 'assign-1' }]);
 
-      await expect(service.removeAssignment('assign-1', requester)).resolves.toBeUndefined();
+      await expect(
+        service.removeAssignment('assign-1'),
+      ).resolves.toBeUndefined();
     });
 
     it('throws NotFoundException when assignment does not exist', async () => {
       // DELETE RETURNING returns empty array → NotFoundException
       mockDataSource.query.mockResolvedValueOnce([]);
-      await expect(service.removeAssignment('missing-id', requester)).rejects.toThrow(NotFoundException);
+      await expect(service.removeAssignment('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -85,24 +128,41 @@ describe('AssignmentsService', () => {
 
   describe('listByCa', () => {
     const mockList = [
-      { id: 'a1', caUserId: 'ca-1', dqtvUserId: 'dqtv-1', dqtvFullName: 'A', dqtvUnitCode: 'U1', assignedBy: 'admin', assignedAt: new Date() },
+      {
+        id: 'a1',
+        caUserId: 'ca-1',
+        dqtvUserId: 'dqtv-1',
+        dqtvFullName: 'A',
+        dqtvUnitCode: 'U1',
+        assignedBy: 'admin',
+        assignedAt: new Date(),
+      },
     ];
 
     it('system_admin can list assignments for any CA', async () => {
       mockDataSource.query.mockResolvedValueOnce(mockList);
-      const result = await service.listByCa('ca-1', { sub: 'admin-1', role: 'system_admin' });
+      const result = await service.listByCa('ca-1', {
+        sub: 'admin-1',
+        role: 'system_admin',
+      });
       expect(result).toHaveLength(1);
     });
 
     it('ca_officer can list own assignments (no caUserId param)', async () => {
       mockDataSource.query.mockResolvedValueOnce(mockList);
-      const result = await service.listByCa(undefined, { sub: 'ca-1', role: 'ca_officer' });
+      const result = await service.listByCa(undefined, {
+        sub: 'ca-1',
+        role: 'ca_officer',
+      });
       expect(result).toHaveLength(1);
     });
 
     it('ca_officer can list own assignments (caUserId = self)', async () => {
       mockDataSource.query.mockResolvedValueOnce(mockList);
-      const result = await service.listByCa('ca-1', { sub: 'ca-1', role: 'ca_officer' });
+      const result = await service.listByCa('ca-1', {
+        sub: 'ca-1',
+        role: 'ca_officer',
+      });
       expect(result).toHaveLength(1);
     });
 

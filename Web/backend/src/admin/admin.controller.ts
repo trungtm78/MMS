@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   ParseIntPipe,
+  ParseUUIDPipe,
   DefaultValuePipe,
   BadRequestException,
 } from '@nestjs/common';
@@ -18,7 +19,11 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AdminService } from './admin.service';
-import type { CreateUserDto } from './admin.service';
+import {
+  CreateUserBodyDto,
+  UpdateUserRoleDto,
+  UpdateUserStatusDto,
+} from './admin.dto';
 import type { JwtPayload } from '../auth/auth.service';
 
 const EDITABLE_KEYS = new Set([
@@ -47,48 +52,63 @@ export class AdminController {
     @Query('unitCode') unitCode?: string,
     @Query('role') role?: string,
   ) {
-    return this.adminService.listUsers(req.user, page, Math.min(limit, 100), unitCode, role);
+    return this.adminService.listUsers(
+      req.user,
+      page,
+      Math.min(limit, 100),
+      unitCode,
+      role,
+    );
   }
 
   @Get('users/:id')
-  getUserById(@Request() req: { user: JwtPayload }, @Param('id') id: string) {
+  getUserById(
+    @Request() req: { user: JwtPayload },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.adminService.getUserById(req.user, id);
   }
 
   @Post('users')
-  createUser(@Request() req: { user: JwtPayload }, @Body() dto: CreateUserDto) {
+  createUser(
+    @Request() req: { user: JwtPayload },
+    @Body() dto: CreateUserBodyDto,
+  ) {
     return this.adminService.createUser(req.user, dto);
   }
 
   @Patch('users/:id/status')
   updateStatus(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
-    @Body('status') status: 'active' | 'inactive' | 'suspended',
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUserStatusDto,
   ) {
-    return this.adminService.updateStatus(req.user, id, status);
+    return this.adminService.updateStatus(req.user, id, dto.status);
   }
 
   @Patch('users/:id/role')
   updateRole(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
-    @Body('role') role: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUserRoleDto,
   ) {
-    return this.adminService.updateRole(req.user, id, role);
+    return this.adminService.updateRole(req.user, id, dto.role);
   }
 
   @Post('users/:id/reset-password')
-  resetPassword(@Request() req: { user: JwtPayload }, @Param('id') id: string) {
+  resetPassword(
+    @Request() req: { user: JwtPayload },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.adminService.resetPassword(req.user, id);
   }
 
   @Get('system-settings')
   @Roles('system_admin')
   async getSystemSettings() {
-    const rows = await this.dataSource.query<{ key: string; value: string; description: string }[]>(
-      `SELECT key, value, description FROM system_settings ORDER BY key`,
-    );
+    const rows = await this.dataSource.query<
+      { key: string; value: string; description: string }[]
+    >(`SELECT key, value, description FROM system_settings ORDER BY key`);
     return rows.reduce<Record<string, string>>((acc, r) => {
       acc[r.key] = r.value;
       return acc;
@@ -104,7 +124,9 @@ export class AdminController {
     const keys = Object.keys(dto);
     const invalid = keys.filter((k) => !EDITABLE_KEYS.has(k));
     if (invalid.length) {
-      throw new BadRequestException(`Not allowed to edit: ${invalid.join(', ')}`);
+      throw new BadRequestException(
+        `Not allowed to edit: ${invalid.join(', ')}`,
+      );
     }
     for (const key of keys) {
       await this.dataSource.query(

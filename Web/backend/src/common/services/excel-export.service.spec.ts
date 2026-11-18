@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as ExcelJS from 'exceljs';
 import { ExcelExportService } from './excel-export.service';
+import {
+  useUtcServerClock,
+  VN_1_OCTOBER_0130,
+} from '../../../test/support/clock';
 
 describe('ExcelExportService', () => {
   let service: ExcelExportService;
@@ -94,6 +98,37 @@ describe('ExcelExportService', () => {
     });
   });
 
+  // ── Vietnamese document dates ─────────────────────────────────────────────
+
+  describe('document dates on a UTC server', () => {
+    useUtcServerClock(VN_1_OCTOBER_0130);
+
+    it('dates the report header with the Vietnamese calendar day', () => {
+      const sheet = service.createWorkbook().addWorksheet('Test');
+
+      service.addGovernmentHeader(sheet, {
+        agency: 'UNIT',
+        reportTitle: 'TITLE',
+        reportDate: VN_1_OCTOBER_0130,
+      });
+
+      expect(sheet.getRow(6).getCell(1).value).toBe(
+        'Hồ Chí Minh, ngày 1 tháng 10 năm 2026',
+      );
+    });
+
+    it('dates the signature block with the Vietnamese calendar day', () => {
+      const sheet = service.createWorkbook().addWorksheet('Test');
+
+      service.addSignatureBlock(sheet, 1, { position: 'Chỉ huy trưởng' });
+
+      // A new sheet has no columns yet, so the block assumes 10 and centres on column 5
+      expect(sheet.getRow(3).getCell(5).value).toBe(
+        'Hồ Chí Minh, ngày 1 tháng 10 năm 2026',
+      );
+    });
+  });
+
   // ── addStyledTable ────────────────────────────────────────────────────────
 
   describe('addStyledTable', () => {
@@ -105,14 +140,20 @@ describe('ExcelExportService', () => {
         key: 'status',
         width: 14,
         type: 'status' as const,
-        statusColors: { 'ĐẠT': 'CCFFCC', 'KHÔNG ĐẠT': 'FFCCCC', 'CẢNH BÁO': 'FFF3CD' },
+        statusColors: {
+          ĐẠT: 'CCFFCC',
+          'KHÔNG ĐẠT': 'FFCCCC',
+          'CẢNH BÁO': 'FFF3CD',
+        },
       },
     ];
 
     it('writes header row with correct values', () => {
       const wb = service.createWorkbook();
       const sheet = wb.addWorksheet('Test');
-      service.addStyledTable(sheet, 1, columns, [{ stt: 1, name: 'Test', status: 'ĐẠT' }]);
+      service.addStyledTable(sheet, 1, columns, [
+        { stt: 1, name: 'Test', status: 'ĐẠT' },
+      ]);
 
       expect(sheet.getRow(1).getCell(1).value).toBe('STT');
       expect(sheet.getRow(1).getCell(2).value).toBe('Tên');
@@ -122,7 +163,9 @@ describe('ExcelExportService', () => {
     it('applies status colors: ĐẠT → green fill', () => {
       const wb = service.createWorkbook();
       const sheet = wb.addWorksheet('Test');
-      service.addStyledTable(sheet, 1, columns, [{ stt: 1, name: 'X', status: 'ĐẠT' }]);
+      service.addStyledTable(sheet, 1, columns, [
+        { stt: 1, name: 'X', status: 'ĐẠT' },
+      ]);
 
       const statusCell = sheet.getRow(2).getCell(3);
       const fill = statusCell.fill as ExcelJS.FillPattern;
@@ -133,7 +176,9 @@ describe('ExcelExportService', () => {
     it('applies status colors: KHÔNG ĐẠT → red fill', () => {
       const wb = service.createWorkbook();
       const sheet = wb.addWorksheet('Test');
-      service.addStyledTable(sheet, 1, columns, [{ stt: 1, name: 'X', status: 'KHÔNG ĐẠT' }]);
+      service.addStyledTable(sheet, 1, columns, [
+        { stt: 1, name: 'X', status: 'KHÔNG ĐẠT' },
+      ]);
 
       const statusCell = sheet.getRow(2).getCell(3);
       const fill = statusCell.fill as ExcelJS.FillPattern;
@@ -143,7 +188,9 @@ describe('ExcelExportService', () => {
     it('applies status colors: CẢNH BÁO → yellow fill', () => {
       const wb = service.createWorkbook();
       const sheet = wb.addWorksheet('Test');
-      service.addStyledTable(sheet, 1, columns, [{ stt: 1, name: 'X', status: 'CẢNH BÁO' }]);
+      service.addStyledTable(sheet, 1, columns, [
+        { stt: 1, name: 'X', status: 'CẢNH BÁO' },
+      ]);
 
       const statusCell = sheet.getRow(2).getCell(3);
       const fill = statusCell.fill as ExcelJS.FillPattern;
@@ -222,9 +269,9 @@ describe('ExcelExportService', () => {
       service.addLegalReferencesSheet(wb, ['REG_A', 'REG_B', 'REG_C']);
       const sheet = wb.getWorksheet('Ghi chú')!;
       // Regulations start at row 4
-      expect((sheet.getRow(4).getCell(1).value as string)).toContain('REG_A');
-      expect((sheet.getRow(5).getCell(1).value as string)).toContain('REG_B');
-      expect((sheet.getRow(6).getCell(1).value as string)).toContain('REG_C');
+      expect(sheet.getRow(4).getCell(1).value as string).toContain('REG_A');
+      expect(sheet.getRow(5).getCell(1).value as string).toContain('REG_B');
+      expect(sheet.getRow(6).getCell(1).value as string).toContain('REG_C');
     });
   });
 

@@ -6,18 +6,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import type { RoleCode } from '../../common/constants/roles';
 
-export type UserRole =
-  | 'system_admin'
-  | 'ubnd_leader'
-  | 'police_ward'
-  | 'police_area'
-  | 'office_staff'
-  | 'dqtv'
-  | 'ca_officer'
-  | 'ca_ward'
-  | 'ca_area'
-  | 'dqtv_member';
+// One list shared with the RBAC guard and the role catalogue migration
+export type UserRole = RoleCode;
 export type UserStatus = 'active' | 'inactive' | 'suspended';
 
 @Entity('users')
@@ -25,13 +17,18 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true, length: 50 })
+  @Column({ type: 'varchar', unique: true, length: 50 })
   username: string;
 
-  @Column({ name: 'password_hash', select: false })
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    length: 255,
+    select: false,
+  })
   passwordHash: string;
 
-  @Column({ name: 'full_name', length: 100 })
+  @Column({ name: 'full_name', type: 'varchar', length: 255 })
   fullName: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true, default: null })

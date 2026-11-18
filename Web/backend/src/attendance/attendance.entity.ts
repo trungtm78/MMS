@@ -42,10 +42,10 @@ export class AttendanceRecord {
   })
   checkoutAt: Date | null;
 
-  @Column({ length: 20, default: 'manual' })
+  @Column({ type: 'varchar', length: 20, default: 'mobile' })
   source: AttendanceSource;
 
-  @Column({ length: 20, default: 'checked_in' })
+  @Column({ type: 'varchar', length: 20, default: 'checked_in' })
   status: AttendanceStatus;
 
   @Column({

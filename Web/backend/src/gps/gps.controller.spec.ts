@@ -1,3 +1,5 @@
+import { ParseUUIDPipe } from '@nestjs/common';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { GpsController } from './gps.controller';
 import { GpsService } from './gps.service';
@@ -10,8 +12,9 @@ const mockGpsService = {
   getHistory: jest.fn(),
 };
 
-const dqtvReq = { user: { sub: 'dqtv-1', role: 'dqtv_member', unitScope: 'UNIT_001' } };
-const caReq = { user: { sub: 'ca-1', role: 'ca_officer', unitScope: 'UNIT_001' } };
+const MEMBER_ID = '5b0c3f7e-8f6a-4d52-9d8b-2f6f7a1c9e01';
+const dqtvUser = { sub: 'dqtv-1', role: 'dqtv_member', unitScope: 'UNIT_001' };
+const caUser = { sub: 'ca-1', role: 'ca_officer', unitScope: 'UNIT_001' };
 
 describe('GpsController', () => {
   let controller: GpsController;
@@ -31,74 +34,61 @@ describe('GpsController', () => {
     jest.clearAllMocks();
   });
 
-  describe('record', () => {
-    it('records GPS location and returns ok', async () => {
-      mockGpsService.recordLocation.mockResolvedValueOnce(undefined);
+  it('records the caller location and answers ok', async () => {
+    mockGpsService.recordLocation.mockResolvedValueOnce(undefined);
 
-      const result = await controller.record(dqtvReq as any, { lat: 10.5, lng: 106.5 });
-
-      expect(result).toEqual({ ok: true });
-      expect(mockGpsService.recordLocation).toHaveBeenCalledWith('dqtv-1', { lat: 10.5, lng: 106.5 });
-    });
-
-    it('propagates error from service', async () => {
-      mockGpsService.recordLocation.mockRejectedValueOnce(new Error('militia_not_found'));
-
-      await expect(controller.record(dqtvReq as any, { lat: 10.5, lng: 106.5 })).rejects.toThrow(
-        'militia_not_found',
-      );
+    await expect(
+      controller.record({ user: dqtvUser } as never, { lat: 10.5, lng: 106.5 }),
+    ).resolves.toEqual({ ok: true });
+    expect(mockGpsService.recordLocation).toHaveBeenCalledWith('dqtv-1', {
+      lat: 10.5,
+      lng: 106.5,
     });
   });
 
-  describe('getLive', () => {
-    it('returns live positions', () => {
+  // The positions a caller sees follow their scope (GpsService.getLive)
+  it.each(['getLive', 'getTeam'] as const)(
+    '%s lists the positions the caller may see',
+    async (method) => {
       const positions = [{ militiaId: 'mp-1', lat: 10.5, lng: 106.5 }];
-      mockGpsService.getLive.mockReturnValueOnce(positions);
+      mockGpsService.getLive.mockResolvedValueOnce(positions);
 
-      const result = controller.getLive();
+      await expect(
+        controller[method]({ user: caUser } as never),
+      ).resolves.toEqual(positions);
+      expect(mockGpsService.getLive).toHaveBeenCalledWith(caUser);
+    },
+  );
 
-      expect(result).toEqual(positions);
-      expect(mockGpsService.getLive).toHaveBeenCalled();
-    });
+  it('reads the history of a member as the caller', async () => {
+    const history = { data: [], total: 0, page: 1, limit: 50 };
+    mockGpsService.getHistory.mockResolvedValueOnce(history);
 
-    it('returns empty array when no active positions', () => {
-      mockGpsService.getLive.mockReturnValueOnce([]);
-
-      const result = controller.getLive();
-
-      expect(result).toHaveLength(0);
-    });
+    await expect(
+      controller.getHistory(
+        { user: caUser } as never,
+        MEMBER_ID,
+        '2025-01-01',
+        '2025-01-31',
+        1,
+        50,
+      ),
+    ).resolves.toEqual(history);
+    expect(mockGpsService.getHistory).toHaveBeenCalledWith(
+      caUser,
+      MEMBER_ID,
+      '2025-01-01',
+      '2025-01-31',
+      1,
+      50,
+    );
   });
 
-  describe('getTeam', () => {
-    it('calls getLive and returns same result as live endpoint', () => {
-      const positions = [{ militiaId: 'mp-1', lat: 10.5, lng: 106.5 }];
-      mockGpsService.getLive.mockReturnValueOnce(positions);
-
-      const result = controller.getTeam();
-
-      expect(result).toEqual(positions);
-      expect(mockGpsService.getLive).toHaveBeenCalled();
-    });
-  });
-
-  describe('getHistory', () => {
-    it('returns paginated GPS history for militia member', async () => {
-      const history = { data: [{ lat: 10.5, lng: 106.5 }], total: 1 };
-      mockGpsService.getHistory.mockResolvedValueOnce(history);
-
-      const result = await controller.getHistory('mp-1', '2025-01-01', '2025-01-31', 1, 50);
-
-      expect(result).toEqual(history);
-      expect(mockGpsService.getHistory).toHaveBeenCalledWith('mp-1', '2025-01-01', '2025-01-31', 1, 50);
-    });
-
-    it('returns empty history for unknown militia member', async () => {
-      mockGpsService.getHistory.mockResolvedValueOnce({ data: [], total: 0 });
-
-      const result = await controller.getHistory('bad', undefined, undefined, 1, 50);
-
-      expect((result as any).data).toHaveLength(0);
-    });
+  it('parses the member id of a history as a UUID', () => {
+    const args = Object.values(
+      (Reflect.getMetadata(ROUTE_ARGS_METADATA, GpsController, 'getHistory') ??
+        {}) as Record<string, { pipes?: unknown[] }>,
+    );
+    expect(args.some((arg) => arg.pipes?.includes(ParseUUIDPipe))).toBe(true);
   });
 });

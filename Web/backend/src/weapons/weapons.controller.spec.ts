@@ -3,7 +3,31 @@ import { WeaponsController } from './weapons.controller';
 import { WeaponsService } from './weapons.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, ParseUUIDPipe } from '@nestjs/common';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import type { CreateWeaponDto } from './dto/create-weapon.dto';
+import type { CreateAllocationDto } from './dto/create-allocation.dto';
+
+const newWeapon: CreateWeaponDto = {
+  serialNumber: 'SN002',
+  type: 'pistol',
+  acquiredAt: '2025-01-01',
+  condition: 'good',
+  storageLocation: 'Kho A',
+};
+
+const newAllocation: CreateAllocationDto = {
+  weaponId: 'w1',
+  recipientId: 'mp-1',
+  issuedAt: '2025-01-01',
+  purpose: 'Tuần tra',
+};
+
+const usesUuidPipe = (method: keyof WeaponsController) =>
+  Object.values(
+    (Reflect.getMetadata(ROUTE_ARGS_METADATA, WeaponsController, method) ??
+      {}) as Record<string, { pipes?: unknown[] }>,
+  ).some((arg) => arg.pipes?.includes(ParseUUIDPipe));
 
 const mockWeaponsService = {
   findAll: jest.fn(),
@@ -32,6 +56,16 @@ describe('WeaponsController', () => {
 
     controller = module.get<WeaponsController>(WeaponsController);
     jest.clearAllMocks();
+  });
+
+  // A malformed id reached PostgreSQL and answered 500 instead of 400
+  describe('route parameters', () => {
+    it.each(['findOne', 'update', 'retire', 'returnAllocation'] as const)(
+      'validates the id of %s as a UUID',
+      (method) => {
+        expect(usesUuidPipe(method)).toBe(true);
+      },
+    );
   });
 
   describe('findAll', () => {
@@ -68,26 +102,31 @@ describe('WeaponsController', () => {
     it('propagates NotFoundException for unknown id', async () => {
       mockWeaponsService.findOne.mockRejectedValueOnce(new NotFoundException());
 
-      await expect(controller.findOne('bad')).rejects.toThrow(NotFoundException);
+      await expect(controller.findOne('bad')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('create', () => {
     it('creates and returns weapon', async () => {
-      const dto = { serialNumber: 'SN002', weaponType: 'pistol', unitId: 'u1' };
-      const created = { id: 'w-new', ...dto };
+      const created = { id: 'w-new', ...newWeapon };
       mockWeaponsService.create.mockResolvedValueOnce(created);
 
-      const result = await controller.create(dto as any);
+      const result = await controller.create(newWeapon);
 
       expect(result).toEqual(created);
-      expect(mockWeaponsService.create).toHaveBeenCalledWith(dto);
+      expect(mockWeaponsService.create).toHaveBeenCalledWith(newWeapon);
     });
 
     it('propagates error on duplicate serial', async () => {
-      mockWeaponsService.create.mockRejectedValueOnce(new Error('duplicate_serial'));
+      mockWeaponsService.create.mockRejectedValueOnce(
+        new Error('duplicate_serial'),
+      );
 
-      await expect(controller.create({ serialNumber: 'SN001' } as any)).rejects.toThrow('duplicate_serial');
+      await expect(
+        controller.create({ ...newWeapon, serialNumber: 'SN001' }),
+      ).rejects.toThrow('duplicate_serial');
     });
   });
 
@@ -96,16 +135,22 @@ describe('WeaponsController', () => {
       const updated = { id: 'w1', status: 'maintenance' };
       mockWeaponsService.update.mockResolvedValueOnce(updated);
 
-      const result = await controller.update('w1', { status: 'maintenance' } as any);
+      const result = await controller.update('w1', {
+        status: 'maintenance',
+      });
 
       expect(result).toEqual(updated);
-      expect(mockWeaponsService.update).toHaveBeenCalledWith('w1', { status: 'maintenance' });
+      expect(mockWeaponsService.update).toHaveBeenCalledWith('w1', {
+        status: 'maintenance',
+      });
     });
 
     it('propagates NotFoundException for unknown id', async () => {
       mockWeaponsService.update.mockRejectedValueOnce(new NotFoundException());
 
-      await expect(controller.update('bad', {} as any)).rejects.toThrow(NotFoundException);
+      await expect(controller.update('bad', {})).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -137,38 +182,55 @@ describe('WeaponsController', () => {
 
   describe('createAllocation', () => {
     it('creates allocation and returns it', async () => {
-      const dto = { weaponId: 'w1', militiaId: 'mp-1', allocatedDate: '2025-01-01' };
-      const created = { id: 'a-new', ...dto };
+      const created = { id: 'a-new', ...newAllocation };
       mockWeaponsService.createAllocation.mockResolvedValueOnce(created);
 
-      const result = await controller.createAllocation(dto as any);
+      const result = await controller.createAllocation(newAllocation);
 
       expect(result).toEqual(created);
-      expect(mockWeaponsService.createAllocation).toHaveBeenCalledWith(dto);
+      expect(mockWeaponsService.createAllocation).toHaveBeenCalledWith(
+        newAllocation,
+      );
     });
 
     it('propagates error when weapon unavailable', async () => {
-      mockWeaponsService.createAllocation.mockRejectedValueOnce(new Error('not_available'));
+      mockWeaponsService.createAllocation.mockRejectedValueOnce(
+        new Error('not_available'),
+      );
 
-      await expect(controller.createAllocation({} as any)).rejects.toThrow('not_available');
+      await expect(controller.createAllocation(newAllocation)).rejects.toThrow(
+        'not_available',
+      );
     });
   });
 
   describe('returnAllocation', () => {
     it('records weapon return and returns result', async () => {
-      const returned = { id: 'a1', returnedDate: '2025-03-01', status: 'returned' };
+      const returned = {
+        id: 'a1',
+        returnedDate: '2025-03-01',
+        status: 'returned',
+      };
       mockWeaponsService.returnAllocation.mockResolvedValueOnce(returned);
 
-      const result = await controller.returnAllocation('a1', { returnedDate: '2025-03-01' } as any);
+      const result = await controller.returnAllocation('a1', {
+        returnedAt: '2025-03-01',
+      });
 
       expect(result).toEqual(returned);
-      expect(mockWeaponsService.returnAllocation).toHaveBeenCalledWith('a1', { returnedDate: '2025-03-01' });
+      expect(mockWeaponsService.returnAllocation).toHaveBeenCalledWith('a1', {
+        returnedAt: '2025-03-01',
+      });
     });
 
     it('propagates NotFoundException for unknown allocation', async () => {
-      mockWeaponsService.returnAllocation.mockRejectedValueOnce(new NotFoundException());
+      mockWeaponsService.returnAllocation.mockRejectedValueOnce(
+        new NotFoundException(),
+      );
 
-      await expect(controller.returnAllocation('bad', {} as any)).rejects.toThrow(NotFoundException);
+      await expect(
+        controller.returnAllocation('bad', { returnedAt: '2025-03-01' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

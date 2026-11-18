@@ -18,12 +18,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:migrate": "bash -c 'for f in migrations/*.sql; do echo \"Running $f\" && psql \"$DATABASE_URL\" -f \"$f\"; done'"
+    "db:migrate": "ts-node src/database/migrations/migrate.cli.ts",
+    "db:migrate:prod": "node dist/database/migrations/migrate.cli.js"
   },
   "dependencies": {
-    "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/axios": "^4.0.0",
-    "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
@@ -39,8 +38,6 @@
     "@socket.io/redis-adapter": "^8.3.0",
     "axios": "^1.15.1",
     "bcrypt": "^6.0.0",
-    "cache-manager": "^6.4.2",
-    "cache-manager-ioredis-yet": "^2.1.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "crypto": "^1.0.1",
@@ -77,6 +74,7 @@
     "globals": "^16.0.0",
     "jest": "^30.0.0",
     "prettier": "^3.4.2",
+    "socket.io-client": "^4.8.3",
     "source-map-support": "^0.5.21",
     "supertest": "^7.2.2",
     "ts-jest": "^29.2.5",
@@ -93,6 +91,7 @@
       "ts"
     ],
     "rootDir": "src",
+    "globalSetup": "<rootDir>/../test/support/utc-timezone.global-setup.ts",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest",

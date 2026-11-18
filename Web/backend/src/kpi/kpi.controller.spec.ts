@@ -10,8 +10,22 @@ const mockKpiService = {
   getHistory: jest.fn(),
 };
 
-const caReq = { user: { sub: 'ca-1', username: 'ca_user', role: 'ca_officer', unitScope: null } };
-const dqtvReq = { user: { sub: 'dqtv-1', username: 'dqtv_user', role: 'dqtv_member', unitScope: null } };
+const caReq = {
+  user: {
+    sub: 'ca-1',
+    username: 'ca_user',
+    role: 'ca_officer',
+    unitScope: null,
+  },
+};
+const dqtvReq = {
+  user: {
+    sub: 'dqtv-1',
+    username: 'dqtv_user',
+    role: 'dqtv_member',
+    unitScope: null,
+  },
+};
 
 describe('KpiController', () => {
   let controller: KpiController;
@@ -46,13 +60,21 @@ describe('KpiController', () => {
       const response = await controller.evaluate(dto as any, caReq);
 
       expect(response).toEqual(result);
-      expect(mockKpiService.submitEvaluation).toHaveBeenCalledWith(dto, { sub: 'ca-1', role: 'ca_officer' });
+      // The whole caller is passed so the service can apply role, assignment and unit scope
+      expect(mockKpiService.submitEvaluation).toHaveBeenCalledWith(
+        dto,
+        caReq.user,
+      );
     });
 
     it('propagates error from service', async () => {
-      mockKpiService.submitEvaluation.mockRejectedValueOnce(new Error('target_not_found'));
+      mockKpiService.submitEvaluation.mockRejectedValueOnce(
+        new Error('target_not_found'),
+      );
 
-      await expect(controller.evaluate(dto as any, caReq)).rejects.toThrow('target_not_found');
+      await expect(controller.evaluate(dto as any, caReq)).rejects.toThrow(
+        'target_not_found',
+      );
     });
   });
 
@@ -64,7 +86,12 @@ describe('KpiController', () => {
       const result = await controller.getCurrent(dqtvReq, undefined, 0, 0);
 
       expect(result).toEqual(score);
-      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith('dqtv-1', undefined, undefined);
+      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith(
+        dqtvReq.user,
+        'dqtv-1',
+        undefined,
+        undefined,
+      );
     });
 
     it('returns score for specified userId (admin view)', async () => {
@@ -74,7 +101,12 @@ describe('KpiController', () => {
       const result = await controller.getCurrent(caReq, 'other-1', 2, 2025);
 
       expect(result).toEqual(score);
-      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith('other-1', 2, 2025);
+      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith(
+        caReq.user,
+        'other-1',
+        2,
+        2025,
+      );
     });
 
     it('uses undefined for month/year when zero', async () => {
@@ -82,7 +114,12 @@ describe('KpiController', () => {
 
       await controller.getCurrent(dqtvReq, undefined, 0, 0);
 
-      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith('dqtv-1', undefined, undefined);
+      expect(mockKpiService.getCurrentScore).toHaveBeenCalledWith(
+        dqtvReq.user,
+        'dqtv-1',
+        undefined,
+        undefined,
+      );
     });
   });
 
@@ -94,7 +131,10 @@ describe('KpiController', () => {
       const result = await controller.getHistory(dqtvReq, undefined);
 
       expect(result).toEqual(history);
-      expect(mockKpiService.getHistory).toHaveBeenCalledWith('dqtv-1');
+      expect(mockKpiService.getHistory).toHaveBeenCalledWith(
+        dqtvReq.user,
+        'dqtv-1',
+      );
     });
 
     it('returns history for specified userId', async () => {
@@ -104,7 +144,10 @@ describe('KpiController', () => {
       const result = await controller.getHistory(caReq, 'other-1');
 
       expect(result).toEqual(history);
-      expect(mockKpiService.getHistory).toHaveBeenCalledWith('other-1');
+      expect(mockKpiService.getHistory).toHaveBeenCalledWith(
+        caReq.user,
+        'other-1',
+      );
     });
   });
 });

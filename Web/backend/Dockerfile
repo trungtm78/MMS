@@ -10,5 +10,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
+# SQL migrations own the schema; pending ones are applied before the server starts.
+# Replicas starting together are serialised by the migrator's advisory lock, but releases
+# with incompatible schema changes are still deployed drained, one migrating instance and
+# no mixed versions. A database migrated before migration history existed is refused
+# until MIGRATION_BASELINE_THROUGH names the last file it has. See docs/migrations.md.
+COPY migrations ./migrations
 EXPOSE 3000
-CMD ["node", "dist/main"]
+# Set RUN_MIGRATIONS=false when a separate release step migrates the database
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-true}\" = \"true\" ]; then node dist/database/migrations/migrate.cli.js || exit 1; fi; exec node dist/main"]

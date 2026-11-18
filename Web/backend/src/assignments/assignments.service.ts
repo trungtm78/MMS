@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { queryRows } from '../database/query-rows';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { CA_ROLES } from '../common/constants/roles';
 
@@ -57,19 +58,20 @@ export class AssignmentsService {
         [dto.caUserId, dto.dqtvUserId, assignedBy],
       );
       return rows[0];
-    } catch (err: any) {
-      if (err?.code === '23505') {
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === '23505') {
         throw new ConflictException('assignment_already_exists');
       }
       throw err;
     }
   }
 
-  // requester is system_admin (enforced by controller @Roles guard);
-  // any admin can delete any assignment — no ownership restriction by design.
-  async removeAssignment(id: string, _requester: RequesterInfo): Promise<void> {
+  // Only system_admin reaches this (controller @Roles guard); any admin may delete any
+  // assignment, so the caller plays no part — no ownership restriction by design.
+  async removeAssignment(id: string): Promise<void> {
     // Single DELETE RETURNING avoids TOCTOU race between SELECT-exists + DELETE.
-    const rows = await this.dataSource.query<{ id: string }[]>(
+    const rows = await queryRows<{ id: string }>(
+      this.dataSource,
       `DELETE FROM ca_dqtv_assignments WHERE id = $1::uuid RETURNING id`,
       [id],
     );
@@ -118,5 +120,14 @@ export class AssignmentsService {
       [caUserId],
     );
     return rows.map((r) => r.dqtv_user_id);
+  }
+
+  // The CA officers a DQTV member is assigned to (who receive the member's live position)
+  async getCaOfficerIds(dqtvUserId: string): Promise<string[]> {
+    const rows = await this.dataSource.query<{ ca_user_id: string }[]>(
+      `SELECT ca_user_id FROM ca_dqtv_assignments WHERE dqtv_user_id = $1::uuid`,
+      [dqtvUserId],
+    );
+    return rows.map((r) => r.ca_user_id);
   }
 }

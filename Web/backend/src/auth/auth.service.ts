@@ -1,35 +1,41 @@
 // US-W001: Auth service — login, token issuance, refresh, logout
 // Aligned with actual MMS DB schema: users + user_roles + sessions + system_settings
 // BR-AUTH-01: access 15m, refresh 7d
-// BR-AUTH-02: lockout tracked via Redis cache (login_attempts:<username>)
+// BR-AUTH-02: lockout counted in Postgres by LoginAttemptsService
 import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
-  Inject,
 } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import type { Cache } from 'cache-manager';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
-import {
-  generateSecret as totpGenerateSecret,
-  generateURI as totpGenerateURI,
-  verifySync as totpVerifySync,
-} from 'otplib';
-import { User } from '../database/entities/user.entity';
+import { createHash, randomUUID, timingSafeEqual } from 'crypto';
+import { isUUID } from 'class-validator';
+import { AuthStateService } from './auth-state.service';
+import { LoginAttempt, LoginAttemptsService } from './login-attempts.service';
+import { queryRows } from '../database/query-rows';
+import { User, type UserRole } from '../database/entities/user.entity';
 import { Session } from '../database/entities/refresh-token.entity';
+import { sortRolesByPriority } from '../common/constants/roles';
 
 export interface JwtPayload {
   sub: string; // user UUID
   username: string;
-  role: string;
+  role: string; // primary role (highest priority)
+  roles?: string[]; // every assigned role, primary first; absent on tokens issued before this claim
   unitScope: string | null;
+  // Access tokens only; JwtAuthGuard refuses any other token type
+  typ?: 'access';
+  // RFC 8176 methods used to sign in, e.g. ['pwd'] or ['pwd', 'otp', 'mfa']
+  amr?: string[];
+  // The session the token belongs to, and the account version it was issued under;
+  // AuthStateService refuses the token once either no longer matches
+  sid?: string;
+  ver?: number;
 }
 
 export interface TokenPair {
@@ -38,9 +44,52 @@ export interface TokenPair {
   expiresIn: number;
 }
 
+export interface RequestContext {
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
+export interface SignedInSession {
+  user: Record<string, unknown>;
+  tokens: TokenPair;
+}
+
+type Queryable = Pick<DataSource | EntityManager, 'query'>;
+
+type ValidatedUser = User & {
+  role: string;
+  roles: string[];
+  unitScope: string | null;
+  mfaEnabled: boolean;
+};
+
+// Refresh tokens are long random JWTs: a plain SHA-256 binds all of the token (bcrypt
+// would read only its first 72 bytes, which every refresh token of a user shares)
+const refreshTokenHash = (token: string) =>
+  createHash('sha256').update(token).digest('hex');
+
+const REFRESH_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+// A session and its account, as refresh sees them under the session row lock
+interface RefreshState {
+  id: string;
+  user_id: string;
+  refresh_token_hash: string;
+  expires_at: Date | string;
+  revoked_at: Date | string | null;
+  replaced_by: string | null;
+  amr: string[] | null;
+  session_version: string | number;
+  status: string;
+  user_version: string | number;
+  mfa_enabled: boolean;
+  mfa_required: boolean;
+}
+
 // Pre-computed bcrypt hash used for constant-time comparison when username is not found,
 // preventing timing-based username enumeration attacks.
-const DUMMY_HASH = '$2b$12$LqX0i9LzBqKjGLh7f8TiO.xJmqXhH7wNq1OXhqjK2HhCL4OY2abc';
+const DUMMY_HASH =
+  '$2b$12$LqX0i9LzBqKjGLh7f8TiO.xJmqXhH7wNq1OXhqjK2HhCL4OY2abc';
 
 @Injectable()
 export class AuthService {
@@ -53,42 +102,81 @@ export class AuthService {
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly loginAttempts: LoginAttemptsService,
+    private readonly authState: AuthStateService,
   ) {}
 
-  // Resolve role for user via user_roles → roles join
-  private async getUserRole(userId: string): Promise<string | null> {
+  // Every role assigned to the user, highest priority first (empty when none)
+  private async getUserRoles(userId: string): Promise<string[]> {
     const result = await this.dataSource.query<{ code: string }[]>(
       `SELECT r.code FROM user_roles ur
        JOIN roles r ON r.id = ur.role_id
-       WHERE ur.user_id = $1 LIMIT 1`,
+       WHERE ur.user_id = $1`,
       [userId],
     );
-    return result[0]?.code ?? null;
+    return sortRolesByPriority(result.map((r) => r.code));
   }
 
-  // Resolve unit scope for user via user_unit_scopes → units join
+  // Tokens are only ever issued to accounts with an assigned role
+  private async requireUserRoles(
+    userId: string,
+  ): Promise<{ role: UserRole; roles: string[] }> {
+    const roles = await this.getUserRoles(userId);
+    if (!roles.length) throw new ForbiddenException('no_role_assigned');
+    return { role: roles[0] as UserRole, roles };
+  }
+
+  // A disabled account loses every session the moment it tries to use one
+  private async assertAccountActive(
+    user: Pick<User, 'id' | 'status'>,
+  ): Promise<void> {
+    if (user.status === 'active') return;
+    await this.logout(user.id);
+    throw new ForbiddenException('account_disabled');
+  }
+
+  // Unit scope from user_unit_scopes: 'all' means the whole ward (null). When several
+  // rows exist the broadest scope wins, then the unit code, so the claim is stable.
   private async getUserUnitScope(userId: string): Promise<string | null> {
-    const result = await this.dataSource.query<{ code: string }[]>(
-      `SELECT u.code FROM user_unit_scopes uus
+    const result = await this.dataSource.query<
+      { code: string; scope_type?: string }[]
+    >(
+      `SELECT u.code, uus.scope_type
+       FROM user_unit_scopes uus
        JOIN units u ON u.id = uus.unit_id
-       WHERE uus.user_id = $1 LIMIT 1`,
+       WHERE uus.user_id = $1
+       ORDER BY CASE uus.scope_type
+                  WHEN 'all' THEN 0 WHEN 'subordinate' THEN 1 WHEN 'unit' THEN 2 ELSE 3
+                END, u.code
+       LIMIT 1`,
       [userId],
     );
-    return result[0]?.code ?? null;
+    const row = result[0];
+    if (!row || row.scope_type === 'all') return null;
+    return row.code;
   }
 
-  // US-W001 AC-1: Validate credentials + lockout check
+  // US-W001 AC-1: Validate credentials. BR-AUTH-02: the attempt takes a lockout slot first
+  // (403 account_locked when none is left) and counts only when the name is unknown or the
+  // password wrong.
   async validateUser(
     username: string,
     password: string,
-  ): Promise<User & { role: string; unitScope: string | null; mfaEnabled: boolean }> {
-    // Check lockout via Redis
-    const lockInfo = await this.cache.get<{ count: number; lockUntil: number }>(`login_attempts:${username}`);
-    if (lockInfo && lockInfo.lockUntil > Date.now()) {
-      throw new ForbiddenException('account_locked');
+  ): Promise<ValidatedUser> {
+    const attempt = await this.loginAttempts.begin(username);
+    try {
+      return await this.checkCredentials(username, password, attempt);
+    } finally {
+      // A no-op once settled; frees the slot when an unexpected error ended the attempt
+      await attempt.release();
     }
+  }
 
+  private async checkCredentials(
+    username: string,
+    password: string,
+    attempt: LoginAttempt,
+  ): Promise<ValidatedUser> {
     // Use raw query to reliably get password_hash (addSelect on select:false can be unreliable)
     const rawResults = await this.dataSource.query<Record<string, string>[]>(
       `SELECT id, username, full_name, email, phone, avatar_url, status, last_login_at, created_at, updated_at, password_hash, mfa_enabled
@@ -98,6 +186,7 @@ export class AuthService {
     if (!rawResults.length) {
       // Constant-time comparison prevents timing-based username enumeration
       await bcrypt.compare(password, DUMMY_HASH);
+      await attempt.failed();
       throw new UnauthorizedException('invalid_credentials');
     }
     const raw = rawResults[0];
@@ -115,97 +204,181 @@ export class AuthService {
       lastLoginAt: raw['last_login_at'] ? new Date(raw['last_login_at']) : null,
       createdAt: new Date(raw['created_at']),
       updatedAt: new Date(raw['updated_at']),
-      mfaEnabled: raw['mfa_enabled'] === 'true' || raw['mfa_enabled'] === true as unknown as string,
+      mfaEnabled:
+        raw['mfa_enabled'] === 'true' ||
+        raw['mfa_enabled'] === (true as unknown as string),
     };
-    // US-W001 NP-08: Disabled account
+    const passwordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!passwordValid) {
+      await attempt.failed();
+      throw new UnauthorizedException('invalid_credentials');
+    }
+    // A right password is not a failure. Earlier failures are cleared by signInUser, once
+    // every required factor passed.
+    await attempt.passed();
+
+    // US-W001 NP-08: Disabled account — told only to someone who knows the password, so a
+    // disabled username cannot be told apart from a wrong password
     if (user.status !== 'active') {
       throw new ForbiddenException('account_disabled');
     }
 
-    const passwordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordValid) {
-      await this.incrementFailedAttempts(username);
-      throw new UnauthorizedException('invalid_credentials');
-    }
-
-    // Reset on success
-    await this.cache.del(`login_attempts:${username}`);
-
-    // Resolve role + unitScope from DB
-    const role = await this.getUserRole(user.id);
+    // Resolve roles + unitScope from DB
+    const { role, roles } = await this.requireUserRoles(user.id);
     const unitScope = await this.getUserUnitScope(user.id);
 
     return {
       ...user,
-      role: (role ??
-        'dqtv') as import('../database/entities/user.entity').UserRole,
+      role,
+      roles,
       unitScope,
       mfaEnabled: user.mfaEnabled,
     };
   }
 
-  // BR-AUTH-02: 5 failed attempts → lock 30 minutes
-  private async incrementFailedAttempts(username: string): Promise<void> {
-    const key = `login_attempts:${username}`;
-    const current = await this.cache.get<{ count: number; lockUntil: number }>(key) ?? { count: 0, lockUntil: 0 };
-    const newCount = current.count + 1;
-    const lockUntil = newCount >= 5 ? Date.now() + 30 * 60 * 1000 : 0;
-    // TTL: 30 minutes in ms (cache-manager v6 uses ms)
-    await this.cache.set(key, { count: newCount, lockUntil }, 30 * 60 * 1000);
+  /**
+   * Completes a sign-in once every required factor has passed: re-checks the account,
+   * issues tokens recording how the user authenticated, records the login and clears
+   * the failed-login count.
+   */
+  async signInUser(
+    userId: string,
+    amr: string[],
+    ctx?: RequestContext,
+  ): Promise<SignedInSession> {
+    const user = await this.userRepo.findOneOrFail({ where: { id: userId } });
+    await this.assertAccountActive(user);
+    const { role, roles } = await this.requireUserRoles(user.id);
+    const unitScope = await this.getUserUnitScope(user.id);
+
+    const tokens = await this.issueTokens(
+      { ...user, role, roles, unitScope },
+      ctx?.ip ?? undefined,
+      ctx?.userAgent ?? undefined,
+      amr,
+    );
+    await this.dataSource.query(
+      `UPDATE users SET last_login_at = now() WHERE id = $1`,
+      [user.id],
+    );
+    await this.loginAttempts.clear(user.username);
+
+    return { user: await this.getUserById(user.id), tokens };
   }
 
-  // Issue access + refresh tokens
+  // Issue access + refresh tokens for a new session
   async issueTokens(
-    user: User & { role: string; unitScope: string | null },
+    user: User & { role: string; roles?: string[]; unitScope: string | null },
     ipAddress?: string,
     userAgent?: string,
+    amr: string[] = ['pwd'],
+    runner: Queryable = this.dataSource,
   ): Promise<TokenPair> {
-    const payload: JwtPayload = {
-      sub: user.id,
-      username: user.username,
-      role: user.role,
-      unitScope: user.unitScope,
-    };
+    const { tokens } = await this.openSession(
+      user,
+      amr,
+      { ip: ipAddress, userAgent },
+      runner,
+    );
+    return tokens;
+  }
 
-    // Read session_timeout_minutes from system_settings (NĐ 85/2016), fall back to config
-    let timeoutMinutes: number = parseInt(this.config.get<string>('jwt.accessExpiresIn') ?? '15', 10);
-    try {
-      const rows = await this.dataSource.query<{ value: string }[]>(
-        `SELECT value FROM system_settings WHERE key = 'session_timeout_minutes' LIMIT 1`,
-      );
-      if (rows.length && rows[0].value) timeoutMinutes = parseInt(rows[0].value, 10);
-    } catch { /* fallback to config value */ }
-
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.config.get('jwt.secret'),
-      expiresIn: `${timeoutMinutes}m`,
-    });
-
+  /**
+   * Stores a session bound to the account's current version and the methods the user
+   * authenticated with, then signs tokens naming it. The version is read by the INSERT
+   * itself, so a change committed concurrently cannot slip between reading and storing.
+   */
+  private async openSession(
+    user: User & { role: string; roles?: string[]; unitScope: string | null },
+    amr: string[],
+    ctx: RequestContext,
+    runner: Queryable,
+  ): Promise<{ tokens: TokenPair; sessionId: string }> {
+    const sessionId = randomUUID();
     const refreshToken = this.jwtService.sign(
-      { sub: user.id, type: 'refresh' },
+      { sub: user.id, type: 'refresh', sid: sessionId },
       {
         secret: this.config.get('jwt.refreshSecret'),
         expiresIn: this.config.get('jwt.refreshExpiresIn'),
       },
     );
 
-    // Persist hashed refresh token in sessions table
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await this.sessionRepo.save({
-      userId: user.id,
-      refreshTokenHash: tokenHash,
-      expiresAt,
-      ip: ipAddress ?? null,
-      userAgent: userAgent ?? null,
+    const [session] = await queryRows<{ auth_version: string | number }>(
+      runner,
+      `INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at, ip, user_agent, amr, auth_version)
+       SELECT $1, u.id, $3, $4, $5, $6, $7::text[], u.auth_version
+       FROM users u
+       WHERE u.id = $2
+       RETURNING auth_version`,
+      [
+        sessionId,
+        user.id,
+        refreshTokenHash(refreshToken),
+        new Date(Date.now() + REFRESH_LIFETIME_MS),
+        ctx.ip ?? null,
+        ctx.userAgent ?? null,
+        amr,
+      ],
+    );
+    if (!session) throw new UnauthorizedException('account_not_found');
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      roles: user.roles ?? [user.role],
+      unitScope: user.unitScope,
+      typ: 'access',
+      amr,
+      sid: sessionId,
+      ver: Number(session.auth_version),
+    };
+    const minutes = await this.accessTokenMinutes();
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.config.get('jwt.secret'),
+      expiresIn: `${minutes}m`,
     });
 
-    return { accessToken, refreshToken, expiresIn: 900 };
+    return {
+      tokens: { accessToken, refreshToken, expiresIn: minutes * 60 },
+      sessionId,
+    };
   }
 
-  // US-W001 AC-3: Silent refresh
-  async refreshTokens(refreshToken: string): Promise<TokenPair> {
-    let payload: { sub: string; type: string };
+  // session_timeout_minutes from system_settings (NĐ 85/2016), falling back to config
+  private async accessTokenMinutes(): Promise<number> {
+    let minutes = parseInt(
+      this.config.get<string>('jwt.accessExpiresIn') ?? '15',
+      10,
+    );
+    try {
+      const rows = await this.dataSource.query<{ value: string }[]>(
+        `SELECT value FROM system_settings WHERE key = 'session_timeout_minutes' LIMIT 1`,
+      );
+      const configured = parseInt(rows[0]?.value ?? '', 10);
+      if (configured > 0) minutes = configured;
+    } catch {
+      /* fallback to config value */
+    }
+    return minutes;
+  }
+
+  /**
+   * US-W001 AC-3: Silent refresh. The session is locked and rotated in one transaction:
+   * - a rotated token presented again means someone kept a copy: every session ends
+   * - a revoked, expired or outdated session (account changed since) is refused
+   * - a disabled account loses every session
+   * - a session weaker than the account now requires (MFA enabled or required by a
+   *   role since it was opened) ends, and the user signs in again with MFA
+   * - a session whose account has no role left ends: role changes are atomic and already
+   *   end every session of the account, so there is nothing to continue
+   * The new session keeps the methods the user originally authenticated with.
+   */
+  async refreshTokens(
+    refreshToken: string,
+    ctx: RequestContext = {},
+  ): Promise<TokenPair> {
+    let payload: { sub?: string; type?: string; sid?: string };
     try {
       payload = this.jwtService.verify(refreshToken, {
         secret: this.config.get('jwt.refreshSecret'),
@@ -213,46 +386,110 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('invalid_refresh_token');
     }
-
-    if (payload.type !== 'refresh')
+    const sid = payload.sid;
+    if (payload.type !== 'refresh' || typeof sid !== 'string' || !isUUID(sid)) {
       throw new UnauthorizedException('invalid_refresh_token');
+    }
 
-    // Find valid session — ORDER BY created_at DESC so newest (most likely match) is checked first
-    const sessions = await this.sessionRepo.find({
-      where: { userId: payload.sub, revokedAt: undefined as unknown as Date },
-      order: { createdAt: 'DESC' },
-    });
-    const validSession = await this.findValidSession(sessions, refreshToken);
-    if (!validSession) throw new UnauthorizedException('refresh_token_revoked');
+    const outcome = await this.dataSource.transaction(async (mgr) => {
+      const [state] = await mgr.query<RefreshState[]>(
+        `SELECT s.id, s.user_id, s.refresh_token_hash, s.expires_at, s.revoked_at,
+                s.replaced_by, s.amr, s.auth_version AS session_version,
+                u.status, u.auth_version AS user_version, u.mfa_enabled,
+                COALESCE((SELECT bool_or(r.mfa_required)
+                          FROM user_roles ur
+                          JOIN roles r ON r.id = ur.role_id
+                          WHERE ur.user_id = u.id), false) AS mfa_required
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.id = $1
+         FOR UPDATE OF s`,
+        [sid],
+      );
+      if (
+        !state ||
+        state.user_id !== payload.sub ||
+        !this.refreshHashMatches(refreshToken, state.refresh_token_hash)
+      ) {
+        return { kind: 'invalid' as const };
+      }
+      if (state.replaced_by) {
+        await this.authState.invalidateUser(mgr, state.user_id);
+        return { kind: 'reused' as const };
+      }
+      if (
+        state.revoked_at ||
+        new Date(state.expires_at).getTime() <= Date.now() ||
+        String(state.session_version) !== String(state.user_version)
+      ) {
+        return { kind: 'revoked' as const };
+      }
+      if (state.status !== 'active') {
+        await this.authState.invalidateUser(mgr, state.user_id);
+        return { kind: 'disabled' as const };
+      }
+      const amr = state.amr?.length ? state.amr : ['pwd'];
+      if ((state.mfa_enabled || state.mfa_required) && !amr.includes('mfa')) {
+        await this.endSession(mgr, state.id);
+        return { kind: 'mfa' as const };
+      }
 
-    // Revoke old session
-    await this.sessionRepo.update(validSession.id, { revokedAt: new Date() });
+      const roles = await this.getUserRoles(state.user_id);
+      if (!roles.length) {
+        await this.endSession(mgr, state.id);
+        return { kind: 'no_role' as const };
+      }
+      const user = await this.userRepo.findOneOrFail({
+        where: { id: state.user_id },
+      });
+      const unitScope = await this.getUserUnitScope(state.user_id);
+      const { tokens, sessionId } = await this.openSession(
+        { ...user, role: roles[0] as UserRole, roles, unitScope },
+        amr,
+        ctx,
+        mgr,
+      );
+      await mgr.query(
+        `UPDATE sessions SET revoked_at = now(), replaced_by = $2 WHERE id = $1`,
+        [state.id, sessionId],
+      );
+      return { kind: 'ok' as const, tokens };
+    });
 
-    // Re-fetch user with role
-    const user = await this.userRepo.findOneOrFail({
-      where: { id: payload.sub },
-    });
-    const role = await this.getUserRole(user.id);
-    const unitScope = await this.getUserUnitScope(user.id);
-    return this.issueTokens({
-      ...user,
-      role: (role ??
-        'dqtv') as import('../database/entities/user.entity').UserRole,
-      unitScope,
-    });
+    switch (outcome.kind) {
+      case 'ok':
+        return outcome.tokens;
+      case 'reused':
+        throw new UnauthorizedException('refresh_token_reused');
+      case 'revoked':
+        throw new UnauthorizedException('refresh_token_revoked');
+      case 'disabled':
+        throw new ForbiddenException('account_disabled');
+      case 'mfa':
+        throw new UnauthorizedException('mfa_reauthentication_required');
+      case 'no_role':
+        throw new ForbiddenException('no_role_assigned');
+      default:
+        throw new UnauthorizedException('invalid_refresh_token');
+    }
   }
 
-  private async findValidSession(
-    sessions: Session[],
-    token: string,
-  ): Promise<Session | null> {
-    for (const session of sessions) {
-      if (session.revokedAt) continue;
-      if (session.expiresAt < new Date()) continue;
-      const match = await bcrypt.compare(token, session.refreshTokenHash);
-      if (match) return session;
-    }
-    return null;
+  // Ends one session, leaving the account's other sessions open
+  private async endSession(
+    runner: Queryable,
+    sessionId: string,
+  ): Promise<void> {
+    await runner.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [
+      sessionId,
+    ]);
+  }
+
+  private refreshHashMatches(token: string, storedHash: string): boolean {
+    const expected = Buffer.from(refreshTokenHash(token), 'hex');
+    const stored = Buffer.from(storedHash ?? '', 'hex');
+    return (
+      stored.length === expected.length && timingSafeEqual(stored, expected)
+    );
   }
 
   // US-W001 AC-5: Logout — revoke all sessions for user
@@ -265,10 +502,10 @@ export class AuthService {
       .execute();
   }
 
-  // Get user by id (for /auth/me) — with role + unitScope
+  // Get user by id (for /auth/me) — with role (null when none assigned) + unitScope
   async getUserById(id: string): Promise<Record<string, unknown>> {
     const user = await this.userRepo.findOneOrFail({ where: { id } });
-    const role = await this.getUserRole(id);
+    const roles = await this.getUserRoles(id);
     const unitScope = await this.getUserUnitScope(id);
     return {
       id: user.id,
@@ -276,139 +513,14 @@ export class AuthService {
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      avatarUrl: user.avatarUrl,
       status: user.status,
-      role: role ?? 'dqtv',
+      lastLoginAt: user.lastLoginAt,
+      role: roles[0] ?? null,
+      roles,
       unitScope,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
-  }
-
-  // MFA: Generate a short-lived temp token for MFA challenge step
-  async issueMfaTempToken(userId: string): Promise<string> {
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = await bcrypt.hash(rawToken, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-    await this.dataSource.query(
-      `INSERT INTO mfa_temp_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-      [userId, tokenHash, expiresAt],
-    );
-    return rawToken;
-  }
-
-  // MFA: Verify temp token + TOTP OTP, then issue full token pair
-  async verifyMfaAndIssueTokens(
-    tempToken: string,
-    otp: string,
-  ): Promise<TokenPair & { user: Record<string, unknown> }> {
-    // Find unexpired, unused temp token rows for candidate matching
-    const rows = await this.dataSource.query<
-      { id: string; user_id: string; token_hash: string; used_at: string | null }[]
-    >(
-      `SELECT id, user_id, token_hash, used_at FROM mfa_temp_tokens
-       WHERE expires_at > NOW() AND used_at IS NULL
-       ORDER BY expires_at DESC LIMIT 20`,
-    );
-
-    let matchedRow: { id: string; user_id: string; token_hash: string } | null = null;
-    for (const row of rows) {
-      const match = await bcrypt.compare(tempToken, row.token_hash);
-      if (match) {
-        matchedRow = row;
-        break;
-      }
-    }
-    if (!matchedRow) throw new UnauthorizedException('invalid_otp');
-
-    // Verify TOTP against stored secret
-    const secretRows = await this.dataSource.query<{ totp_secret: string }[]>(
-      `SELECT totp_secret FROM users WHERE id = $1`,
-      [matchedRow.user_id],
-    );
-    const totpSecret = secretRows[0]?.totp_secret;
-    if (!totpSecret) throw new UnauthorizedException('invalid_otp');
-
-    const verifyResult1 = totpVerifySync({ token: otp, secret: totpSecret });
-    const isValid1 = typeof verifyResult1 === 'boolean' ? verifyResult1 : (verifyResult1 as { valid: boolean })?.valid === true;
-    if (!isValid1) throw new UnauthorizedException('invalid_otp');
-
-    // Mark temp token as used
-    await this.dataSource.query(
-      `UPDATE mfa_temp_tokens SET used_at = NOW() WHERE id = $1`,
-      [matchedRow.id],
-    );
-
-    // Fetch user and issue tokens
-    const user = await this.userRepo.findOneOrFail({ where: { id: matchedRow.user_id } });
-    const role = await this.getUserRole(user.id);
-    const unitScope = await this.getUserUnitScope(user.id);
-    const tokens = await this.issueTokens({
-      ...user,
-      role: (role ?? 'dqtv') as import('../database/entities/user.entity').UserRole,
-      unitScope,
-    });
-
-    const userData = await this.getUserById(user.id);
-    return { ...tokens, user: userData };
-  }
-
-  // MFA: Generate TOTP secret + recovery codes (setup step 1)
-  async setupMfa(
-    userId: string,
-  ): Promise<{ secret: string; qrUri: string; recoveryCodes: string[] }> {
-    const secret = totpGenerateSecret();
-
-    // Fetch username for the otpauth URI label
-    const rows = await this.dataSource.query<{ username: string }[]>(
-      `SELECT username FROM users WHERE id = $1`,
-      [userId],
-    );
-    const username = rows[0]?.username ?? userId;
-    const qrUri = totpGenerateURI({ issuer: 'MMS', label: username, secret });
-
-    // Generate 10 plaintext recovery codes, store hashed
-    const recoveryCodes: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      recoveryCodes.push(crypto.randomBytes(8).toString('hex'));
-    }
-    const hashedCodes = await Promise.all(recoveryCodes.map((c) => bcrypt.hash(c, 10)));
-
-    // Store secret (not yet enabled) + recovery codes
-    await this.dataSource.query(
-      `UPDATE users SET totp_secret = $1 WHERE id = $2`,
-      [secret, userId],
-    );
-    // Clear old recovery codes and insert new ones
-    await this.dataSource.query(
-      `DELETE FROM mfa_recovery_codes WHERE user_id = $1`,
-      [userId],
-    );
-    for (const hash of hashedCodes) {
-      await this.dataSource.query(
-        `INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`,
-        [userId, hash],
-      );
-    }
-
-    return { secret, qrUri, recoveryCodes };
-  }
-
-  // MFA: Confirm TOTP setup by verifying OTP, then enable MFA
-  async confirmMfaSetup(userId: string, otp: string): Promise<void> {
-    const rows = await this.dataSource.query<{ totp_secret: string }[]>(
-      `SELECT totp_secret FROM users WHERE id = $1`,
-      [userId],
-    );
-    const totpSecret = rows[0]?.totp_secret;
-    if (!totpSecret) throw new UnauthorizedException('mfa_not_configured');
-
-    const verifyResult2 = totpVerifySync({ token: otp, secret: totpSecret });
-    const isValid2 = typeof verifyResult2 === 'boolean' ? verifyResult2 : (verifyResult2 as { valid: boolean })?.valid === true;
-    if (!isValid2) throw new UnauthorizedException('invalid_otp');
-
-    await this.dataSource.query(
-      `UPDATE users SET mfa_enabled = TRUE, mfa_setup_at = NOW() WHERE id = $1`,
-      [userId],
-    );
   }
 }

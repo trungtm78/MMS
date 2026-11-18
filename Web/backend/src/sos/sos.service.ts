@@ -1,7 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+// SOS incidents: raising an alert, and a responder moving it through its lifecycle
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import { AssignmentsService } from '../assignments/assignments.service';
+import { insertWithRecordCode } from '../common/codes/record-code';
+import { queryRows } from '../database/query-rows';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { canMoveIncident } from './incident-values';
+import { resolveSosScope, SOS_SCOPE_SQL, type SosActor } from './sos-scope';
 
 export interface CreateSosDto {
   incidentType: string;
@@ -24,110 +35,118 @@ export class SosService {
     @InjectDataSource()
     private readonly ds: DataSource,
     private readonly notifications: NotificationsGateway,
+    private readonly assignments: AssignmentsService,
   ) {}
 
+  // An alert gets a readable code (SOS-YYYYMMDD-XXXXXX) and an empty message when the
+  // reporter wrote none: both columns are required (migration 007)
   async create(
     actorId: string,
     unitCode: string | null,
     dto: CreateSosDto,
   ): Promise<Record<string, unknown>> {
-    const rows = await this.ds.query<Record<string, unknown>[]>(
-      `INSERT INTO incidents(reporter_id, incident_type, severity, title, message, lat, lng, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', NOW())
-       RETURNING id, incident_type AS "incidentType", severity, title, message, lat, lng, status, created_at AS "createdAt"`,
-      [actorId, dto.incidentType, dto.severity, dto.title, dto.message ?? null, dto.lat ?? null, dto.lng ?? null],
-    );
-    const incident = rows[0];
-    // Emit sos:new to unit WebSocket room
-    if (unitCode) {
-      this.notifications.emitToUnit(unitCode, 'sos:new', {
-        id: incident['id'],
-        incidentType: incident['incidentType'],
-        severity: incident['severity'],
-        title: incident['title'],
-      });
-    } else {
-      this.notifications.broadcast('sos:new', {
-        id: incident['id'],
-        incidentType: incident['incidentType'],
-        severity: incident['severity'],
-        title: incident['title'],
-      });
-    }
+    const incident = await insertWithRecordCode('SOS', async (code) => {
+      const rows = await this.ds.query<Record<string, unknown>[]>(
+        `INSERT INTO incidents (code, reporter_id, incident_type, severity, title, message, lat, lng, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open')
+         ON CONFLICT (code) DO NOTHING
+         RETURNING id, code, incident_type AS "incidentType", severity, title, message,
+                   lat::float8 AS lat, lng::float8 AS lng, status, created_at AS "createdAt"`,
+        [
+          code,
+          actorId,
+          dto.incidentType,
+          dto.severity,
+          dto.title,
+          dto.message ?? '',
+          dto.lat ?? null,
+          dto.lng ?? null,
+        ],
+      );
+      return rows[0] ?? null;
+    });
+    this.announce(unitCode, incident);
     return incident;
   }
 
-  async list(filters: {
-    status?: string;
-    severity?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<{ data: unknown[]; total: number; page: number; limit: number }> {
-    const page = Math.max(1, filters.page ?? 1);
-    const limit = Math.min(Math.max(1, filters.limit ?? 20), 100);
-    const offset = (page - 1) * limit;
-    const params: unknown[] = [];
-    let idx = 1;
-    const conditions: string[] = [];
-    if (filters.status) { conditions.push(`status = $${idx++}`); params.push(filters.status); }
-    if (filters.severity) { conditions.push(`severity = $${idx++}`); params.push(filters.severity); }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const countRows = await this.ds.query<{ count: string }[]>(
-      `SELECT COUNT(*)::text AS count FROM incidents ${where}`,
-      params,
-    );
-    const total = parseInt(countRows[0]?.count ?? '0', 10);
-
-    const data = await this.ds.query(
-      `SELECT id, incident_type AS "incidentType", severity, title, message, lat, lng,
-              status, assigned_to AS "assignedTo", reporter_id AS "reporterId",
-              created_at AS "createdAt", resolved_at AS "resolvedAt"
-       FROM incidents ${where}
-       ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, limit, offset],
-    );
-    return { data, total, page, limit };
-  }
-
-  async getById(id: string): Promise<Record<string, unknown>> {
-    const rows = await this.ds.query<Record<string, unknown>[]>(
-      `SELECT id, incident_type AS "incidentType", severity, title, message, lat, lng,
-              status, assigned_to AS "assignedTo", reporter_id AS "reporterId",
-              resolution_note AS "resolutionNote",
-              created_at AS "createdAt", resolved_at AS "resolvedAt"
-       FROM incidents WHERE id = $1`,
-      [id],
-    );
-    if (!rows.length) throw new NotFoundException('incident_not_found');
-    return rows[0];
-  }
-
+  // Only an alert inside the responder's scope, locked while its status changes; others
+  // answer 404 like missing ones. A resolution keeps who resolved it first and when.
   async updateStatus(
+    actor: SosActor,
     id: string,
     dto: UpdateSosStatusDto,
-    actorId: string,
   ): Promise<Record<string, unknown>> {
-    const resolvedAt = dto.status === 'resolved' ? 'NOW()' : 'NULL';
-    const rows = await this.ds.query<Record<string, unknown>[]>(
-      `UPDATE incidents
-       SET status = $1,
-           assigned_to = COALESCE($2, assigned_to),
-           resolution_note = COALESCE($3, resolution_note),
-           resolved_at = ${resolvedAt},
-           resolved_by = CASE WHEN $1 = 'resolved' THEN $4 ELSE resolved_by END,
-           updated_at = NOW()
-       WHERE id = $5
-       RETURNING id, incident_type AS "incidentType", severity, title, status,
-                 assigned_to AS "assignedTo", resolved_at AS "resolvedAt"`,
-      [dto.status, dto.assignedTo ?? null, dto.resolutionNote ?? null, actorId, id],
-    );
-    if (!rows.length) throw new NotFoundException('incident_not_found');
-    const incident = rows[0];
+    const scope = await resolveSosScope(actor, this.assignments);
+
+    const incident = await this.ds.transaction(async (mgr) => {
+      const [current] = await mgr.query<{ id: string; status: string }[]>(
+        `SELECT i.id, i.status FROM incidents i
+         WHERE ${SOS_SCOPE_SQL}
+           AND i.id = $3
+         FOR UPDATE`,
+        [scope.reporterIds, scope.unit, id],
+      );
+      if (!current) throw new NotFoundException('incident_not_found');
+      if (!canMoveIncident(current.status, dto.status)) {
+        throw new ConflictException('invalid_status_transition');
+      }
+      if (dto.assignedTo) await this.assertActiveUser(mgr, dto.assignedTo);
+
+      const rows = await queryRows<Record<string, unknown>>(
+        mgr,
+        // $1 is used as a column value and in IN lists: one explicit type, or PostgreSQL
+        // refuses to deduce it
+        `UPDATE incidents
+         SET status = $1::text,
+             assigned_to = COALESCE($2::uuid, assigned_to),
+             resolution_note = COALESCE($3, resolution_note),
+             resolved_at = CASE WHEN $1::text IN ('resolved', 'closed') THEN COALESCE(resolved_at, now()) ELSE NULL END,
+             resolved_by = CASE WHEN $1::text IN ('resolved', 'closed') THEN COALESCE(resolved_by, $4::uuid) ELSE NULL END,
+             updated_at = now()
+         WHERE id = $5
+         RETURNING id, code, incident_type AS "incidentType", severity, title, status,
+                   assigned_to AS "assignedTo", resolved_at AS "resolvedAt"`,
+        [
+          dto.status,
+          dto.assignedTo ?? null,
+          dto.resolutionNote ?? null,
+          actor.sub,
+          id,
+        ],
+      );
+      return rows[0];
+    });
 
     if (dto.status === 'resolved') {
       this.notifications.broadcast('sos:resolved', { id: incident['id'] });
     }
     return incident;
+  }
+
+  private async assertActiveUser(
+    mgr: EntityManager,
+    userId: string,
+  ): Promise<void> {
+    const rows = await mgr.query<unknown[]>(
+      `SELECT 1 FROM users WHERE id = $1 AND status = 'active'`,
+      [userId],
+    );
+    if (!rows.length) throw new BadRequestException('assignee_not_found');
+  }
+
+  // sos:new to the reporter's unit room, or to everyone when the reporter has no unit
+  private announce(unitCode: string | null, incident: Record<string, unknown>) {
+    const payload = {
+      id: incident['id'],
+      code: incident['code'],
+      incidentType: incident['incidentType'],
+      severity: incident['severity'],
+      title: incident['title'],
+    };
+    if (unitCode) {
+      this.notifications.emitToUnit(unitCode, 'sos:new', payload);
+    } else {
+      this.notifications.broadcast('sos:new', payload);
+    }
   }
 }

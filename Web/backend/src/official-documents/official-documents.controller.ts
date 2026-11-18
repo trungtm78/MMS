@@ -16,7 +16,7 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
 import { OfficialDocumentsService } from './official-documents.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -48,7 +48,8 @@ class CreateDocDto {
   @IsOptional() @IsString()
   subject?: string;
 
-  @IsOptional() @IsString()
+  // An id from POST /files/upload, uploaded by the caller and not attached elsewhere
+  @IsOptional() @IsUUID('all')
   fileId?: string;
 
   @IsOptional() @IsString()

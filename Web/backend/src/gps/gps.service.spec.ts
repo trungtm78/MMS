@@ -1,14 +1,59 @@
 import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { AssignmentsService } from '../assignments/assignments.service';
+import { memberScopeSql } from '../common/access/member-scope';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
+import {
+  GPS_OFFLINE_AFTER_MINUTES,
+  GPS_UPDATE_EVENT,
+  GPS_WARD_ROOM,
+  gpsUnitRoom,
+} from './gps-rooms';
 import { GpsService } from './gps.service';
 
 const mockQuery = jest.fn();
 const mockDs = { query: mockQuery };
+const mockAssignments = {
+  getAssignedDqtvIds: jest.fn(),
+  getCaOfficerIds: jest.fn(),
+};
+const mockGateway = { emitToRooms: jest.fn() };
+
+const callsOf = () => mockQuery.mock.calls as [string, unknown[]][];
+const sqlOf = (call: number) => callsOf()[call][0];
+const paramsOf = (call: number) => callsOf()[call][1];
+
+const admin = { sub: 'admin-1', role: 'system_admin', unitScope: null };
+const areaOfficer = { sub: 'area-1', role: 'police_area', unitScope: 'KV1' };
+const caOfficer = { sub: 'ca-1', role: 'ca_officer', unitScope: 'KV1' };
+const member = { sub: 'dq-1', role: 'dqtv', unitScope: 'KV1' };
+
+// One row of GET /gps/live
+const liveRow = (overrides: Record<string, unknown> = {}) => ({
+  id: 'militia-1',
+  militiaId: 'militia-1',
+  userId: 'user-1',
+  name: 'Nguyen Van A',
+  fullName: 'Nguyen Van A',
+  unitCode: 'KV1',
+  lat: 10.762,
+  lng: 106.66,
+  accuracy: 5,
+  lastUpdate: '2026-09-14T01:00:00.000Z',
+  lastSeenAt: '2026-09-14T01:00:00.000Z',
+  status: 'online',
+  ...overrides,
+});
 
 async function build() {
   const mod = await Test.createTestingModule({
-    providers: [GpsService, { provide: getDataSourceToken(), useValue: mockDs }],
+    providers: [
+      GpsService,
+      { provide: getDataSourceToken(), useValue: mockDs },
+      { provide: AssignmentsService, useValue: mockAssignments },
+      { provide: NotificationsGateway, useValue: mockGateway },
+    ],
   }).compile();
   return mod.get(GpsService);
 }
@@ -19,113 +64,196 @@ describe('GpsService', () => {
   beforeEach(async () => {
     service = await build();
     mockQuery.mockReset();
+    mockAssignments.getAssignedDqtvIds.mockReset();
+    mockAssignments.getCaOfficerIds.mockReset();
+    mockGateway.emitToRooms.mockReset();
+    mockAssignments.getCaOfficerIds.mockResolvedValue([]);
   });
 
   // ── recordLocation ────────────────────────────────────────────────────────
 
-  it('1. recordLocation throws NotFoundException when no militia profile for userId', async () => {
-    mockQuery.mockResolvedValueOnce([]); // SELECT returns empty
-    await expect(service.recordLocation('user-no-profile', { lat: 10.762, lng: 106.660 }))
-      .rejects.toThrow(NotFoundException);
-    expect(mockQuery).toHaveBeenCalledTimes(1);
-    const sql: string = mockQuery.mock.calls[0][0];
-    expect(sql).toContain('militia_profiles');
-    expect(sql).toContain('user_id');
-  });
+  describe('recordLocation', () => {
+    const recorded = (row = liveRow()) =>
+      mockQuery
+        .mockResolvedValueOnce([{ id: 'militia-1' }]) // the caller's profile
+        .mockResolvedValueOnce([]) // points + latest
+        .mockResolvedValueOnce([row]); // the new live row
 
-  it('2. recordLocation resolves militia_id from userId and calls CTE insert', async () => {
-    const militiaId = 'militia-uuid-123';
-    mockQuery
-      .mockResolvedValueOnce([{ id: militiaId }]) // SELECT militia_profiles
-      .mockResolvedValueOnce([]);                  // CTE INSERT
-    await service.recordLocation('user-uuid-456', { lat: 10.762, lng: 106.660 });
-    expect(mockQuery).toHaveBeenCalledTimes(2);
-    const cteSql: string = mockQuery.mock.calls[1][0];
-    const cteParams: unknown[] = mockQuery.mock.calls[1][1];
-    // Must use resolved militiaId, not the original userId
-    expect(cteParams[0]).toBe(militiaId);
-    expect(cteSql).toContain('gps_points');
-    expect(cteSql).toContain('gps_latest');
-    expect(cteSql).toContain('ON CONFLICT');
-    expect(cteSql).toContain('WITH ins AS');
-  });
+    it('refuses a caller without a militia profile', async () => {
+      mockQuery.mockResolvedValueOnce([]);
 
-  it('3. recordLocation uses provided capturedAt when given', async () => {
-    const capturedAt = '2026-01-15T10:30:00.000Z';
-    mockQuery
-      .mockResolvedValueOnce([{ id: 'militia-1' }])
-      .mockResolvedValueOnce([]);
-    await service.recordLocation('user-1', { lat: 10.0, lng: 106.0, capturedAt });
-    const params: unknown[] = mockQuery.mock.calls[1][1];
-    expect(params[4]).toBe(capturedAt);
-  });
+      await expect(
+        service.recordLocation('user-no-profile', { lat: 10.762, lng: 106.66 }),
+      ).rejects.toThrow(new NotFoundException('militia_profile_not_found'));
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(sqlOf(0)).toMatch(/FROM militia_profiles WHERE user_id = \$1/);
+      expect(mockGateway.emitToRooms).not.toHaveBeenCalled();
+    });
 
-  it('4. recordLocation defaults capturedAt to ISO string when not provided', async () => {
-    mockQuery
-      .mockResolvedValueOnce([{ id: 'militia-1' }])
-      .mockResolvedValueOnce([]);
-    await service.recordLocation('user-1', { lat: 10.0, lng: 106.0 });
-    const params: unknown[] = mockQuery.mock.calls[1][1];
-    const capturedAt = params[4] as string;
-    expect(capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    it('stores the point and the latest position of the profile in one statement', async () => {
+      recorded();
+
+      await service.recordLocation('user-1', { lat: 10.762, lng: 106.66 });
+
+      expect(paramsOf(1)[0]).toBe('militia-1');
+      expect(sqlOf(1)).toContain('WITH ins AS');
+      expect(sqlOf(1)).toContain('gps_points');
+      expect(sqlOf(1)).toMatch(/INSERT INTO gps_latest[\s\S]*ON CONFLICT/);
+    });
+
+    // gps-live e2e: /gps/live answered accuracy null although the client sent it
+    it('keeps the accuracy of the latest position, on the first point and every later one', async () => {
+      recorded();
+
+      await service.recordLocation('user-1', {
+        lat: 10.762,
+        lng: 106.66,
+        accuracy: 4.5,
+      });
+
+      expect(sqlOf(1)).toMatch(
+        /INSERT INTO gps_latest\s*\(militia_id, lat, lng, accuracy, last_seen_at, status\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, 'online'\)/,
+      );
+      expect(sqlOf(1)).toMatch(/accuracy = EXCLUDED\.accuracy/);
+      expect(paramsOf(1)[3]).toBe(4.5);
+    });
+
+    it('keeps the capture time the client sent, else now', async () => {
+      const capturedAt = '2026-01-15T10:30:00.000Z';
+      recorded();
+      await service.recordLocation('user-1', { lat: 10, lng: 106, capturedAt });
+      expect(paramsOf(1)[4]).toBe(capturedAt);
+
+      mockQuery.mockReset();
+      recorded();
+      await service.recordLocation('user-1', { lat: 10, lng: 106 });
+      expect(paramsOf(1)[4]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    });
+
+    // Members of a unit share unit:<code> rooms, so a position only goes to staff rooms
+    it('publishes the new position to the staff who may see the member, never to their unit room', async () => {
+      const row = liveRow();
+      recorded(row);
+      mockAssignments.getCaOfficerIds.mockResolvedValueOnce(['ca-1', 'ca-2']);
+
+      await service.recordLocation('user-1', { lat: 10.762, lng: 106.66 });
+
+      expect(sqlOf(2)).toMatch(/WHERE gl\.militia_id = \$1/);
+      expect(paramsOf(2)).toEqual(['militia-1', GPS_OFFLINE_AFTER_MINUTES]);
+      expect(mockAssignments.getCaOfficerIds).toHaveBeenCalledWith('user-1');
+      expect(mockGateway.emitToRooms).toHaveBeenCalledWith(
+        [GPS_WARD_ROOM, gpsUnitRoom('KV1'), 'user:ca-1', 'user:ca-2'],
+        GPS_UPDATE_EVENT,
+        row,
+      );
+      const [rooms] = mockGateway.emitToRooms.mock.calls[0] as [string[]];
+      expect(rooms).not.toContain('unit:KV1');
+    });
   });
 
   // ── getLive ───────────────────────────────────────────────────────────────
 
-  it('5. getLive returns array with new field names and backward-compat aliases', async () => {
-    const now = new Date().toISOString();
-    mockQuery.mockResolvedValueOnce([
-      {
-        id: 'militia-1', militiaId: 'militia-1',
-        userId: 'user-1',
-        name: 'Nguyen Van A', fullName: 'Nguyen Van A',
-        lat: 10.762, lng: 106.660, accuracy: 5,
-        lastUpdate: now, lastSeenAt: now,
-        status: 'online',
-      },
-    ]);
-    const result = await service.getLive();
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('militia-1');
-    expect(result[0].name).toBe('Nguyen Van A');
-    expect(result[0].lastUpdate).toBe(now);
-    // backward-compat aliases
-    expect(result[0].militiaId).toBe('militia-1');
-    expect(result[0].fullName).toBe('Nguyen Van A');
-    expect(result[0].lastSeenAt).toBe(now);
-    const sql: string = mockQuery.mock.calls[0][0];
-    expect(sql).toContain('gps_latest');
-    expect(sql).toContain('"lastUpdate"');
-    expect(sql).toContain('"lastSeenAt"');
+  describe('getLive', () => {
+    it('lists the latest positions of the members in scope, offline once stale', async () => {
+      mockQuery.mockResolvedValueOnce([liveRow()]);
+
+      await expect(service.getLive(admin)).resolves.toEqual([liveRow()]);
+
+      const sql = sqlOf(0);
+      expect(sql).toMatch(
+        /CASE WHEN gl\.last_seen_at >= now\(\) - make_interval\(mins => \$3\) THEN gl\.status ELSE 'offline' END AS status/,
+      );
+      expect(sql).toContain(memberScopeSql(1, 2));
+      expect(sql).toMatch(/JOIN units u ON u\.id = mp\.unit_id/);
+      expect(sql).toMatch(/u\.code\s+AS "unitCode"/);
+      for (const alias of [
+        '"militiaId"',
+        '"fullName"',
+        '"lastUpdate"',
+        '"lastSeenAt"',
+      ]) {
+        expect(sql).toContain(alias);
+      }
+      expect(sql).toMatch(/ORDER BY gl\.last_seen_at DESC/);
+      expect(paramsOf(0)).toEqual([null, null, GPS_OFFLINE_AFTER_MINUTES]);
+    });
+
+    it('limits unit staff to their unit and a CA officer to the DQTV assigned to them', async () => {
+      mockQuery.mockResolvedValue([]);
+      mockAssignments.getAssignedDqtvIds.mockResolvedValueOnce(['dq-7']);
+
+      await service.getLive(areaOfficer);
+      await service.getLive(caOfficer);
+
+      expect(paramsOf(0)).toEqual(['KV1', null, GPS_OFFLINE_AFTER_MINUTES]);
+      expect(paramsOf(1)).toEqual([null, ['dq-7'], GPS_OFFLINE_AFTER_MINUTES]);
+    });
+
+    // resolveMemberScope, as on every member route: a member sees only their own record
+    it('limits a member to their own position', async () => {
+      mockQuery.mockResolvedValueOnce([]);
+
+      await service.getLive(member);
+
+      expect(paramsOf(0)).toEqual([null, ['dq-1'], GPS_OFFLINE_AFTER_MINUTES]);
+    });
+
+    it('refuses a role that reads no positions', async () => {
+      await expect(
+        service.getLive({ sub: 'l-1', role: 'ubnd_leader', unitScope: null }),
+      ).rejects.toThrow(new ForbiddenException('insufficient_role'));
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
   });
 
-  it('6. getLive returns empty array when no GPS data exists', async () => {
-    mockQuery.mockResolvedValueOnce([]);
-    const result = await service.getLive();
-    expect(result).toEqual([]);
-    expect(mockQuery).toHaveBeenCalledTimes(1);
-  });
+  // ── getHistory ────────────────────────────────────────────────────────────
 
-  // ── getHistory (existing, kept) ────────────────────────────────────────────
+  describe('getHistory', () => {
+    it('answers a member outside the caller scope like an unknown one', async () => {
+      mockQuery.mockResolvedValueOnce([]);
 
-  it('7. getHistory applies date range filter when from/to provided', async () => {
-    mockQuery
-      .mockResolvedValueOnce([{ count: '5' }])
-      .mockResolvedValueOnce([{ id: 'gp1', lat: 10.0, lng: 106.0, capturedAt: '2025-01-01T00:00:00Z' }]);
-    const result = await service.getHistory('m1', '2025-01-01', '2025-01-31', 1, 10);
-    expect(result.total).toBe(5);
-    expect(result.data).toHaveLength(1);
-    const countSql: string = mockQuery.mock.calls[0][0];
-    expect(countSql).toContain('captured_at >=');
-    expect(countSql).toContain('captured_at <=');
-  });
+      await expect(
+        service.getHistory(areaOfficer, 'm1', undefined, undefined, 1, 50),
+      ).rejects.toThrow(new NotFoundException('militia_not_found'));
 
-  it('8. getHistory caps limit at 200', async () => {
-    mockQuery
-      .mockResolvedValueOnce([{ count: '0' }])
-      .mockResolvedValueOnce([]);
-    await service.getHistory('m1', undefined, undefined, 1, 9999);
-    const params: unknown[] = mockQuery.mock.calls[1][1];
-    expect(params).toContain(200);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(sqlOf(0)).toMatch(/WHERE mp\.id = \$1 AND/);
+      expect(sqlOf(0)).toContain(memberScopeSql(2, 3));
+      expect(paramsOf(0)).toEqual(['m1', 'KV1', null]);
+    });
+
+    it('pages the points of a member in scope within the date range', async () => {
+      mockQuery
+        .mockResolvedValueOnce([{ id: 'm1' }])
+        .mockResolvedValueOnce([{ count: '5' }])
+        .mockResolvedValueOnce([
+          { id: 'gp1', lat: 10, lng: 106, capturedAt: '2025-01-01T00:00:00Z' },
+        ]);
+
+      const result = await service.getHistory(
+        admin,
+        'm1',
+        '2025-01-01',
+        '2025-01-31',
+        1,
+        10,
+      );
+
+      expect(result).toMatchObject({ total: 5, page: 1, limit: 10 });
+      expect(result.data).toHaveLength(1);
+      expect(sqlOf(1)).toContain('captured_at >=');
+      expect(sqlOf(1)).toContain('captured_at <=');
+    });
+
+    it('caps the page size at 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce([{ id: 'm1' }])
+        .mockResolvedValueOnce([{ count: '0' }])
+        .mockResolvedValueOnce([]);
+
+      await service.getHistory(admin, 'm1', undefined, undefined, 1, 9999);
+
+      expect(paramsOf(2)).toContain(200);
+    });
   });
 });

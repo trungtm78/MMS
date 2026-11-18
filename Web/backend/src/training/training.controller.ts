@@ -14,15 +14,18 @@ import {
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { TrainingService } from './training.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
+import { UpdateTrainingDto } from './dto/update-training.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ExcelExportService } from '../common/services/excel-export.service';
 import type { JwtPayload } from '../auth/auth.service';
+import { businessDate } from '../common/time/business-date';
 
 @Controller('training')
 @UseGuards(JwtAuthGuard)
@@ -40,12 +43,14 @@ export class TrainingController {
     @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+    @Query('unitCode') unitCode?: string,
   ) {
     return this.trainingService.listRecords(req.user, {
       militiaId: militiaId || undefined,
       year: year > 0 ? year : undefined,
       page,
       limit,
+      unitCode: unitCode || undefined,
     });
   }
 
@@ -58,8 +63,12 @@ export class TrainingController {
     @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
     @Query('unitCode') unitCode?: string,
   ) {
-    const effectiveYear = year > 0 ? year : new Date().getFullYear();
-    return this.trainingService.getComplianceReport(req.user, effectiveYear, unitCode || undefined);
+    const effectiveYear = year > 0 ? year : businessDate().year;
+    return this.trainingService.getComplianceReport(
+      req.user,
+      effectiveYear,
+      unitCode || undefined,
+    );
   }
 
   // GET /training/export — xlsx export of compliance report (MUST be before /:id)
@@ -72,14 +81,13 @@ export class TrainingController {
     @Query('year', new DefaultValuePipe(0), ParseIntPipe) year = 0,
     @Query('unitCode') unitCode?: string,
   ) {
-    const effectiveYear = year > 0 ? year : new Date().getFullYear();
+    const effectiveYear = year > 0 ? year : businessDate().year;
     const workbook = await this.trainingService.exportComplianceReport(
       req.user,
       effectiveYear,
       unitCode || undefined,
     );
-    const date = new Date().toISOString().slice(0, 10);
-    const filename = `HuanLuyen_TuanThu_${effectiveYear}_${unitCode ?? 'ToanBo'}_${date}.xlsx`;
+    const filename = `HuanLuyen_TuanThu_${effectiveYear}_${unitCode ?? 'ToanBo'}_${businessDate().isoDate}.xlsx`;
     await this.excelExportService.streamToResponse(workbook, res, filename);
   }
 
@@ -100,7 +108,7 @@ export class TrainingController {
   @Get(':id')
   async getRecord(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.trainingService.getRecord(req.user, id);
   }
@@ -119,8 +127,8 @@ export class TrainingController {
   @Patch(':id')
   async updateRecord(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
-    @Body() dto: Partial<CreateTrainingDto>,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTrainingDto,
   ) {
     return this.trainingService.updateRecord(req.user, id, dto);
   }
@@ -130,7 +138,7 @@ export class TrainingController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteRecord(
     @Request() req: { user: JwtPayload },
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.trainingService.deleteRecord(req.user, id);
   }

@@ -38,14 +38,8 @@ export class AssignmentsController {
   @Delete(':id')
   @Roles('system_admin')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @Param('id') id: string,
-    @Request() req: { user: JwtPayload },
-  ) {
-    return this.assignmentsService.removeAssignment(id, {
-      sub: req.user.sub,
-      role: req.user.role,
-    });
+  remove(@Param('id') id: string) {
+    return this.assignmentsService.removeAssignment(id);
   }
 
   // GET /assignments?caUserId= — admin sees any; ca_officer/police_ward/police_area sees own

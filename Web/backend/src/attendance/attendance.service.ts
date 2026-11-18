@@ -3,11 +3,68 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { queryRows } from '../database/query-rows';
+import { effectiveUnit, type ScopedActor } from '../common/access/unit-scope';
+import { businessDate } from '../common/time/business-date';
 import * as ExcelJS from 'exceljs';
 import { ExcelExportService } from '../common/services/excel-export.service';
+import { AssignmentsService } from '../assignments/assignments.service';
+import { holdsAnyRole } from '../common/access/unit-scope';
+import { DQTV_ROLES } from '../common/constants/roles';
+import { BUSINESS_TZ } from '../common/time/business-date';
+import { datesInRange } from '../common/validation/date-range';
+import {
+  buildTimesheetRow,
+  type TimesheetLeave,
+  type TimesheetMember,
+  type TimesheetRecord,
+  type TimesheetRow,
+} from './timesheet';
+
+export interface TimesheetActor extends ScopedActor {
+  sub: string;
+}
+
+export interface TimesheetPage {
+  from: string;
+  to: string;
+  /** The unit the grid is limited to; null when not limited by unit */
+  unitCode: string | null;
+  dates: string[];
+  data: TimesheetRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// Staff who read other members' timesheets; militia members read only their own
+const TIMESHEET_STAFF_ROLES: ReadonlySet<string> = new Set([
+  'system_admin',
+  'police_ward',
+  'police_area',
+  'office_staff',
+  'ca_officer',
+]);
+
+// Members of the scope ($1 unit, $2 owner user ids) over the grid ($3 from, $4 to): active
+// members, and members who have since left but have records in the range
+const TIMESHEET_MEMBERS = `
+  FROM militia_profiles mp
+  JOIN units u ON u.id = mp.unit_id
+  WHERE ($1::text IS NULL OR u.code = $1)
+    AND ($2::uuid[] IS NULL OR mp.user_id = ANY($2::uuid[]))
+    AND (mp.status = 'active' OR EXISTS (
+      SELECT 1 FROM attendance_records x
+      WHERE x.militia_id = mp.id AND x.work_date BETWEEN $3::date AND $4::date))`;
+
+// Who records attendance for others: unit staff for their unit, CA officers for their DQTV
+export interface AttendanceActor extends ScopedActor {
+  sub?: string | null;
+}
 
 export interface CheckInDto {
   location?: { lat?: number; lng?: number; accuracy?: number };
@@ -75,39 +132,58 @@ export class AttendanceService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly excelExportService: ExcelExportService,
+    private readonly assignmentsService: AssignmentsService,
   ) {}
 
-  // US-SS-07 AC-1: Record attendance for militia member
-  async record(dto: CreateAttendanceDto): Promise<AttendanceRecordView> {
-    // Validate militia exists
-    const militiaRows = await this.dataSource.query<
-      { id: string; fullName: string; militiaCode: string }[]
-    >(
-      `SELECT id, full_name AS "fullName", militia_code AS "militiaCode"
-       FROM militia_profiles WHERE id = $1 LIMIT 1`,
-      [dto.militiaId],
-    );
-    if (!militiaRows.length) {
-      throw new NotFoundException('militia_not_found');
-    }
-    const militia = militiaRows[0];
+  // CA officers act only for the DQTV members assigned to them
+  private async managesMember(
+    actor: AttendanceActor,
+    memberUserId: string | null,
+  ): Promise<boolean> {
+    if (actor.role !== 'ca_officer') return true;
+    const assigned = actor.sub
+      ? await this.assignmentsService.getAssignedDqtvIds(actor.sub)
+      : [];
+    return !!memberUserId && assigned.includes(memberUserId);
+  }
 
-    // US-SS-07 AC-2: Guard against duplicate attendance for same date
-    const dupRows = await this.dataSource.query<{ id: string }[]>(
-      `SELECT id FROM attendance_records WHERE militia_id = $1 AND work_date = $2::date LIMIT 1`,
-      [dto.militiaId, dto.workDate],
+  // US-SS-07 AC-1: Record attendance for militia member
+  async record(
+    actor: AttendanceActor,
+    dto: CreateAttendanceDto,
+  ): Promise<AttendanceRecordView> {
+    // Only a member the caller manages; any other member answers like a missing one
+    const militiaRows = await this.dataSource.query<
+      {
+        id: string;
+        fullName: string;
+        militiaCode: string;
+        userId: string | null;
+      }[]
+    >(
+      `SELECT mp.id, mp.full_name AS "fullName", mp.militia_code AS "militiaCode",
+              mp.user_id AS "userId"
+       FROM militia_profiles mp
+       JOIN units u ON u.id = mp.unit_id
+       WHERE mp.id = $1 AND ($2::text IS NULL OR u.code = $2)
+       LIMIT 1`,
+      [dto.militiaId, effectiveUnit(actor)],
     );
-    if (dupRows.length) {
-      throw new ConflictException('attendance_already_recorded');
+    const militia = militiaRows[0];
+    if (!militia || !(await this.managesMember(actor, militia.userId))) {
+      throw new NotFoundException('militia_not_found');
     }
 
     // Map status to DB status values
     const dbStatus = this.mapStatus(dto.status);
 
+    // US-SS-07 AC-2: one record per member per day. The unique index decides, so two
+    // concurrent requests cannot both insert and the loser gets 409, not a database error.
     const inserted = await this.dataSource.query<{ id: string }[]>(
       `INSERT INTO attendance_records
          (militia_id, work_date, status, checkin_at, checkout_at, source, note)
        VALUES ($1::uuid, $2::date, $3, $4::timestamptz, $5::timestamptz, 'web', $6)
+       ON CONFLICT (militia_id, work_date) DO NOTHING
        RETURNING id`,
       [
         dto.militiaId,
@@ -118,6 +194,9 @@ export class AttendanceService {
         dto.note ?? null,
       ],
     );
+    if (!inserted.length) {
+      throw new ConflictException('attendance_already_recorded');
+    }
 
     return {
       id: inserted[0].id,
@@ -173,14 +252,34 @@ export class AttendanceService {
   // Supports single date filter (date=) or range filter (from= + to=).
   // Fallback when no date/range provided: returns today's records (backward compat).
   async listAttendancePaginated(
-    user: { role: string; unitScope: string | null },
-    params: { date?: string; from?: string; to?: string; page?: number; limit?: number } = {},
-  ): Promise<{ data: AttendanceRecordView[]; total: number; page: number; limit: number }> {
+    user: AttendanceActor,
+    params: {
+      date?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{
+    data: AttendanceRecordView[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
     const offset = (page - 1) * limit;
 
-    const unitFilter = user.role === 'system_admin' ? null : user.unitScope;
+    const unitFilter = effectiveUnit(user);
+
+    // CA officers see only the DQTV members assigned to them
+    let assignedUserIds: string[] | null = null;
+    if (user.role === 'ca_officer') {
+      assignedUserIds = user.sub
+        ? await this.assignmentsService.getAssignedDqtvIds(user.sub)
+        : [];
+      if (!assignedUserIds.length) return { data: [], total: 0, page, limit };
+    }
 
     // Resolve date filter: explicit date > range > today fallback
     const singleDate = params.date ?? null;
@@ -188,7 +287,7 @@ export class AttendanceService {
     const toDate = params.to ?? null;
     // If no filter at all, fall back to today
     const effectiveSingleDate =
-      singleDate ?? (!fromDate && !toDate ? new Date().toISOString().slice(0, 10) : null);
+      singleDate ?? (!fromDate && !toDate ? businessDate().isoDate : null);
 
     const countResult = await this.dataSource.query<{ count: string }[]>(
       `SELECT COUNT(*) as count FROM attendance_records ar
@@ -197,8 +296,9 @@ export class AttendanceService {
        WHERE ($1::date IS NULL OR ar.work_date = $1::date)
          AND ($2::date IS NULL OR ar.work_date >= $2::date)
          AND ($3::date IS NULL OR ar.work_date <= $3::date)
-         AND ($4::text IS NULL OR u.code = $4)`,
-      [effectiveSingleDate, fromDate, toDate, unitFilter],
+         AND ($4::text IS NULL OR u.code = $4)
+         AND ($5::uuid[] IS NULL OR mp.user_id = ANY($5::uuid[]))`,
+      [effectiveSingleDate, fromDate, toDate, unitFilter, assignedUserIds],
     );
     const total = parseInt(countResult[0]?.count ?? '0', 10);
 
@@ -214,17 +314,33 @@ export class AttendanceService {
          AND ($2::date IS NULL OR ar.work_date >= $2::date)
          AND ($3::date IS NULL OR ar.work_date <= $3::date)
          AND ($4::text IS NULL OR u.code = $4)
+         AND ($5::uuid[] IS NULL OR mp.user_id = ANY($5::uuid[]))
        ORDER BY ar.work_date ASC, mp.full_name
-       LIMIT $5 OFFSET $6`,
-      [effectiveSingleDate, fromDate, toDate, unitFilter, limit, offset],
+       LIMIT $6 OFFSET $7`,
+      [
+        effectiveSingleDate,
+        fromDate,
+        toDate,
+        unitFilter,
+        assignedUserIds,
+        limit,
+        offset,
+      ],
     );
 
     return { data, total, page, limit };
   }
 
   // Mobile: check-in for current user
-  async checkIn(userId: string, dto: CheckInDto): Promise<{
-    id: string; militiaId: string; status: string; workDate: string; checkinAt: Date;
+  async checkIn(
+    userId: string,
+    dto: CheckInDto,
+  ): Promise<{
+    id: string;
+    militiaId: string;
+    status: string;
+    workDate: string;
+    checkinAt: Date;
   }> {
     const militiaRows = await this.dataSource.query<
       { id: string; fullName: string; militiaCode: string }[]
@@ -236,7 +352,7 @@ export class AttendanceService {
     if (!militiaRows.length) throw new NotFoundException('militia_not_found');
     const militia = militiaRows[0];
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = businessDate().isoDate;
     const dupRows = await this.dataSource.query<{ id: string }[]>(
       `SELECT id FROM attendance_records WHERE militia_id = $1 AND work_date = $2::date LIMIT 1`,
       [militia.id, today],
@@ -244,7 +360,9 @@ export class AttendanceService {
     if (dupRows.length) throw new ConflictException('already_checked_in');
 
     const source = dto.source ?? 'mobile';
-    const inserted = await this.dataSource.query<{ id: string; checkin_at: Date }[]>(
+    const inserted = await this.dataSource.query<
+      { id: string; checkin_at: Date }[]
+    >(
       `INSERT INTO attendance_records (militia_id, work_date, status, checkin_at, source)
        VALUES ($1::uuid, $2::date, 'checked_in', NOW(), $3)
        RETURNING id, checkin_at`,
@@ -261,8 +379,14 @@ export class AttendanceService {
   }
 
   // Mobile: check-out for current user
-  async checkOut(userId: string, _dto: CheckOutDto): Promise<{
-    id: string; militiaId: string; status: string; checkoutAt: Date;
+  async checkOut(
+    userId: string,
+    _dto: CheckOutDto,
+  ): Promise<{
+    id: string;
+    militiaId: string;
+    status: string;
+    checkoutAt: Date;
   }> {
     const militiaRows = await this.dataSource.query<{ id: string }[]>(
       `SELECT id FROM militia_profiles WHERE user_id = $1 LIMIT 1`,
@@ -271,8 +395,9 @@ export class AttendanceService {
     if (!militiaRows.length) throw new NotFoundException('militia_not_found');
     const militiaId = militiaRows[0].id;
 
-    const today = new Date().toISOString().slice(0, 10);
-    const updated = await this.dataSource.query<{ id: string; checkout_at: Date }[]>(
+    const today = businessDate().isoDate;
+    const updated = await queryRows<{ id: string; checkout_at: Date }>(
+      this.dataSource,
       `UPDATE attendance_records SET checkout_at = NOW()
        WHERE militia_id = $1 AND work_date = $2::date AND checkout_at IS NULL
        RETURNING id, checkout_at`,
@@ -297,10 +422,15 @@ export class AttendanceService {
     if (!militiaRows.length) return null;
     const militiaId = militiaRows[0].id;
 
-    const today = new Date().toISOString().slice(0, 10);
-    const rows = await this.dataSource.query<{
-      status: string; checkin_at: Date | null; checkout_at: Date | null; work_date: string;
-    }[]>(
+    const today = businessDate().isoDate;
+    const rows = await this.dataSource.query<
+      {
+        status: string;
+        checkin_at: Date | null;
+        checkout_at: Date | null;
+        work_date: string;
+      }[]
+    >(
       `SELECT status, checkin_at, checkout_at, work_date::text
        FROM attendance_records WHERE militia_id = $1 AND work_date = $2::date LIMIT 1`,
       [militiaId, today],
@@ -323,13 +453,16 @@ export class AttendanceService {
     if (!militiaRows.length) throw new NotFoundException('militia_not_found');
     const militiaId = militiaRows[0].id;
 
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+    const { month: currentMonth, year: currentYear } = businessDate();
 
-    const rows = await this.dataSource.query<{
-      totalDays: string; presentDays: string; lateDays: string; absentDays: string;
-    }[]>(
+    const rows = await this.dataSource.query<
+      {
+        totalDays: string;
+        presentDays: string;
+        lateDays: string;
+        absentDays: string;
+      }[]
+    >(
       `SELECT
          COUNT(*) AS "totalDays",
          COUNT(*) FILTER (WHERE status IN ('checked_in', 'present')) AS "presentDays",
@@ -356,13 +489,12 @@ export class AttendanceService {
   // ── getAttendanceSummary ─────────────────────────────────────────────────
 
   async getAttendanceSummary(
-    user: { role: string; unitScope: string | null },
+    user: ScopedActor,
     from: string,
     to: string,
     unitCode?: string,
   ): Promise<AttendanceSummaryRow[]> {
-    const effectiveUnit: string | null =
-      user.role === 'system_admin' ? (unitCode ?? null) : (user.unitScope ?? null);
+    const unit = effectiveUnit(user, unitCode);
 
     const rows = await this.dataSource.query<
       {
@@ -393,8 +525,10 @@ export class AttendanceService {
        GROUP BY mp.id, mp.full_name, mp.militia_code, u.code
        ORDER BY
          (COUNT(*) FILTER (WHERE ar.status IN ('checked_in', 'present')) * 100.0 /
-           NULLIF(COUNT(*), 0)) ASC`,
-      [from, to, effectiveUnit],
+           NULLIF(COUNT(*), 0)) ASC,
+         mp.full_name ASC,
+         mp.id ASC`,
+      [from, to, unit],
     );
 
     return rows.map((r) => {
@@ -409,7 +543,8 @@ export class AttendanceService {
         onTimeDays,
         lateDays: parseInt(r.lateDays, 10),
         absentDays: parseInt(r.absentDays, 10),
-        attendancePct: totalDays > 0 ? Math.round((onTimeDays / totalDays) * 1000) / 10 : 0,
+        attendancePct:
+          totalDays > 0 ? Math.round((onTimeDays / totalDays) * 1000) / 10 : 0,
       };
     });
   }
@@ -417,7 +552,7 @@ export class AttendanceService {
   // ── exportAttendanceSummary ──────────────────────────────────────────────
 
   async exportAttendanceSummary(
-    user: { role: string; unitScope: string | null },
+    user: ScopedActor,
     from: string,
     to: string,
     unitCode?: string,
@@ -438,14 +573,29 @@ export class AttendanceService {
       sheet1,
       startRow,
       [
-        { header: 'STT',         key: 'stt',          width: 6,  type: 'number' as const },
-        { header: 'Họ tên',      key: 'militiaName',  width: 24 },
-        { header: 'Mã DQTV',    key: 'militiaCode',  width: 14 },
-        { header: 'Đơn vị',     key: 'unitCode',     width: 14 },
-        { header: 'Tổng ngày',  key: 'totalDays',    width: 12, type: 'number' as const },
-        { header: 'Đúng giờ',   key: 'onTimeDays',   width: 12, type: 'number' as const },
-        { header: 'Trễ',        key: 'lateDays',     width: 10, type: 'number' as const },
-        { header: 'Vắng',       key: 'absentDays',   width: 10, type: 'number' as const },
+        { header: 'STT', key: 'stt', width: 6, type: 'number' as const },
+        { header: 'Họ tên', key: 'militiaName', width: 24 },
+        { header: 'Mã DQTV', key: 'militiaCode', width: 14 },
+        { header: 'Đơn vị', key: 'unitCode', width: 14 },
+        {
+          header: 'Tổng ngày',
+          key: 'totalDays',
+          width: 12,
+          type: 'number' as const,
+        },
+        {
+          header: 'Đúng giờ',
+          key: 'onTimeDays',
+          width: 12,
+          type: 'number' as const,
+        },
+        { header: 'Trễ', key: 'lateDays', width: 10, type: 'number' as const },
+        {
+          header: 'Vắng',
+          key: 'absentDays',
+          width: 10,
+          type: 'number' as const,
+        },
         {
           header: '% có mặt',
           key: 'attendancePct',
@@ -462,8 +612,10 @@ export class AttendanceService {
       const cell = sheet1.getRow(startRow + 1 + rowIdx).getCell(pctColIdx);
       const pct = r.attendancePct;
       let argb: string;
-      if (pct >= 80) argb = 'FFCCFFCC'; // green
-      else if (pct >= 60) argb = 'FFFFFF99'; // yellow
+      if (pct >= 80)
+        argb = 'FFCCFFCC'; // green
+      else if (pct >= 60)
+        argb = 'FFFFFF99'; // yellow
       else argb = 'FFFFCCCC'; // red
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
     });
@@ -475,20 +627,141 @@ export class AttendanceService {
 
     // Sheet 2 — summary stats
     const sheet2 = wb.addWorksheet('Chi tiết tham khảo');
-    const avgPct = data.length > 0
-      ? Math.round(data.reduce((s, r) => s + r.attendancePct, 0) / data.length * 10) / 10
-      : 0;
+    const avgPct =
+      data.length > 0
+        ? Math.round(
+            (data.reduce((s, r) => s + r.attendancePct, 0) / data.length) * 10,
+          ) / 10
+        : 0;
     const belowThreshold = data.filter((r) => r.attendancePct < 80).length;
 
-    this.excelExportService.addSummaryStatsTable(sheet2, 0, `Thống kê điểm danh ${from} — ${to}`, [
-      { label: 'Tổng số DQTV', value: data.length },
-      { label: 'Tỷ lệ có mặt trung bình', value: `${avgPct}%` },
-      { label: 'DQTV dưới 80% có mặt', value: belowThreshold, highlight: belowThreshold > 0 },
-      { label: 'Từ ngày', value: from },
-      { label: 'Đến ngày', value: to },
-    ]);
+    this.excelExportService.addSummaryStatsTable(
+      sheet2,
+      0,
+      `Thống kê điểm danh ${from} — ${to}`,
+      [
+        { label: 'Tổng số DQTV', value: data.length },
+        { label: 'Tỷ lệ có mặt trung bình', value: `${avgPct}%` },
+        {
+          label: 'DQTV dưới 80% có mặt',
+          value: belowThreshold,
+          highlight: belowThreshold > 0,
+        },
+        { label: 'Từ ngày', value: from },
+        { label: 'Đến ngày', value: to },
+      ],
+    );
 
     return wb;
+  }
+
+  // ── getTimesheet ─────────────────────────────────────────────────────────
+
+  /**
+   * GET /attendance/timesheet: a page of members, each with every day of the range and
+   * totals by status. Scoped as listAttendancePaginated: unit staff are locked to their
+   * unit (ward-wide roles may narrow to one), CA officers to their assigned DQTV within
+   * it, militia members to themselves.
+   */
+  async getTimesheet(
+    actor: TimesheetActor,
+    params: {
+      from: string;
+      to: string;
+      unitCode?: string;
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<TimesheetPage> {
+    const { from, to } = params;
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(Math.max(1, params.limit ?? 20), 100);
+    const offset = (page - 1) * limit;
+    const dates = datesInRange(from, to);
+
+    let unit: string | null = null;
+    let userIds: string[] | null = null;
+    if (holdsAnyRole(actor, TIMESHEET_STAFF_ROLES)) {
+      unit = effectiveUnit(actor, params.unitCode);
+      if (actor.role === 'ca_officer') {
+        userIds = await this.assignmentsService.getAssignedDqtvIds(actor.sub);
+        if (!userIds.length) {
+          return {
+            from,
+            to,
+            unitCode: unit,
+            dates,
+            data: [],
+            total: 0,
+            page,
+            limit,
+          };
+        }
+      }
+    } else if (holdsAnyRole(actor, DQTV_ROLES)) {
+      userIds = [actor.sub];
+    } else {
+      throw new ForbiddenException('insufficient_role');
+    }
+
+    const scope = [unit, userIds, from, to];
+    const [count] = await this.dataSource.query<{ total: number }[]>(
+      `SELECT COUNT(*)::int AS total ${TIMESHEET_MEMBERS}`,
+      scope,
+    );
+    const members = await this.dataSource.query<TimesheetMember[]>(
+      `SELECT mp.id AS "militiaId", mp.user_id AS "userId", mp.full_name AS "fullName",
+              mp.militia_code AS "militiaCode", u.code AS "unitCode", u.name AS "unitName"
+       ${TIMESHEET_MEMBERS}
+       ORDER BY u.code, mp.full_name, mp.militia_code, mp.id
+       LIMIT $5 OFFSET $6`,
+      [...scope, limit, offset],
+    );
+    const result = {
+      from,
+      to,
+      unitCode: unit,
+      dates,
+      total: Number(count?.total ?? 0),
+      page,
+      limit,
+    };
+    if (!members.length) return { ...result, data: [] };
+
+    const records = await this.dataSource.query<TimesheetRecord[]>(
+      `SELECT ar.militia_id AS "militiaId", ar.work_date::text AS "workDate", ar.status,
+              to_char(ar.checkin_at AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') AS "checkIn",
+              to_char(ar.checkout_at AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') AS "checkOut",
+              ar.work_hours::float8 AS "workHours"
+       FROM attendance_records ar
+       WHERE ar.militia_id = ANY($1::uuid[])
+         AND ar.work_date BETWEEN $2::date AND $3::date`,
+      [members.map((m) => m.militiaId), from, to],
+    );
+
+    const accountIds = members
+      .map((m) => m.userId)
+      .filter((id): id is string => !!id);
+    const leaves = accountIds.length
+      ? await this.dataSource.query<TimesheetLeave[]>(
+          `SELECT lr.requester_id AS "userId",
+                  GREATEST(lr.from_date, $2::date)::text AS "from",
+                  LEAST(lr.to_date, $3::date)::text AS "to"
+           FROM leave_requests lr
+           WHERE lr.requester_id = ANY($1::uuid[])
+             AND lr.status = 'approved'
+             AND lr.from_date <= $3::date AND lr.to_date >= $2::date`,
+          [accountIds, from, to],
+        )
+      : [];
+
+    const today = businessDate().isoDate;
+    return {
+      ...result,
+      data: members.map((member) =>
+        buildTimesheetRow(member, dates, records, leaves, today),
+      ),
+    };
   }
 
   private mapStatus(status: string): string {

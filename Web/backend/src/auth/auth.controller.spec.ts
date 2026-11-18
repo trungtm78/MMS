@@ -1,19 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UnauthorizedException } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MfaService } from './mfa/mfa.service';
+import { LOGIN_THROTTLE } from './auth-throttle';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 const mockAuthService = {
   validateUser: jest.fn(),
-  issueMfaTempToken: jest.fn(),
-  issueTokens: jest.fn(),
-  verifyMfaAndIssueTokens: jest.fn(),
-  setupMfa: jest.fn(),
-  confirmMfaSetup: jest.fn(),
   refreshTokens: jest.fn(),
   logout: jest.fn(),
   getUserById: jest.fn(),
+};
+
+const mockMfaService = {
+  beginLogin: jest.fn(),
 };
 
 const mockUser = {
@@ -25,14 +27,7 @@ const mockUser = {
   mfaEnabled: false,
 };
 
-// Helper to make a valid JwtPayload-shaped request user
-const makeUser = (overrides: Partial<{ sub: string; username: string; role: string; unitScope: string | null }> = {}) => ({
-  sub: 'user-1',
-  username: 'admin',
-  role: 'system_admin',
-  unitScope: null as string | null,
-  ...overrides,
-});
+const request = { ip: '10.0.0.7', headers: { 'user-agent': 'jest' } };
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -40,7 +35,10 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: mockAuthService }],
+      providers: [
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: MfaService, useValue: mockMfaService },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
@@ -53,122 +51,62 @@ describe('AuthController', () => {
   });
 
   describe('login', () => {
-    it('returns tokens and user when credentials valid and MFA disabled', async () => {
+    it('checks the password, then lets the MFA policy decide what the caller receives', async () => {
+      const outcome = { status: 'SUCCESS', user: { id: 'user-1' }, tokens: {} };
       mockAuthService.validateUser.mockResolvedValueOnce(mockUser);
-      mockAuthService.issueTokens.mockResolvedValueOnce({
-        accessToken: 'at',
-        refreshToken: 'rt',
-      });
+      mockMfaService.beginLogin.mockResolvedValueOnce(outcome);
 
-      const result = await controller.login({
-        username: 'admin',
-        password: 'pass',
-      });
+      await expect(
+        controller.login({ username: 'admin', password: 'pass' }, request),
+      ).resolves.toBe(outcome);
 
-      expect(result).toHaveProperty('tokens');
-      expect(result).toHaveProperty('user');
-      expect(result['user']).not.toHaveProperty('passwordHash');
+      expect(mockAuthService.validateUser).toHaveBeenCalledWith(
+        'admin',
+        'pass',
+      );
+      expect(mockMfaService.beginLogin).toHaveBeenCalledWith(
+        { id: 'user-1', username: 'admin', mfaEnabled: false },
+        { ip: '10.0.0.7', userAgent: 'jest' },
+      );
     });
 
-    it('returns mfa_required and tempToken when MFA enabled', async () => {
+    it('tells the MFA policy the account is enrolled', async () => {
       mockAuthService.validateUser.mockResolvedValueOnce({
         ...mockUser,
         mfaEnabled: true,
       });
-      mockAuthService.issueMfaTempToken.mockResolvedValueOnce('temp-tok');
-
-      const result = await controller.login({
-        username: 'admin',
-        password: 'pass',
+      mockMfaService.beginLogin.mockResolvedValueOnce({
+        status: 'MFA_REQUIRED',
       });
 
-      expect(result).toEqual({ mfa_required: true, tempToken: 'temp-tok' });
-      expect(mockAuthService.issueTokens).not.toHaveBeenCalled();
+      await controller.login({ username: 'admin', password: 'pass' }, request);
+
+      expect(mockMfaService.beginLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ mfaEnabled: true }),
+        expect.anything(),
+      );
     });
 
-    it('delegates validateUser with correct credentials', async () => {
-      mockAuthService.validateUser.mockResolvedValueOnce(mockUser);
-      mockAuthService.issueTokens.mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt' });
+    it('is rate limited per client as a password route', () => {
+      const handler = Reflect.get(AuthController.prototype, 'login') as object;
 
-      await controller.login({ username: 'admin', password: 'secret' });
-
-      expect(mockAuthService.validateUser).toHaveBeenCalledWith('admin', 'secret');
+      expect(Reflect.getMetadata('THROTTLER:LIMITdefault', handler)).toBe(
+        LOGIN_THROTTLE.default.limit,
+      );
+      expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(
+        LOGIN_THROTTLE.default.ttl,
+      );
     });
 
-    it('strips passwordHash and mfaEnabled from user response', async () => {
-      mockAuthService.validateUser.mockResolvedValueOnce(mockUser);
-      mockAuthService.issueTokens.mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt' });
-
-      const result = await controller.login({ username: 'admin', password: 'pass' });
-
-      expect(result['user']).not.toHaveProperty('passwordHash');
-      expect(result['user']).not.toHaveProperty('mfaEnabled');
-    });
-  });
-
-  describe('mfaLogin', () => {
-    it('returns user and tokens on successful MFA verification', async () => {
-      mockAuthService.verifyMfaAndIssueTokens.mockResolvedValueOnce({
-        user: { id: 'user-1', username: 'admin' },
-        accessToken: 'at',
-        refreshToken: 'rt',
-      });
-
-      const result = await controller.mfaLogin({
-        tempToken: 'temp-tok',
-        otp: '123456',
-      });
-
-      expect(result).toHaveProperty('user');
-      expect(result).toHaveProperty('tokens');
-      expect(mockAuthService.verifyMfaAndIssueTokens).toHaveBeenCalledWith('temp-tok', '123456');
-    });
-
-    it('propagates errors from verifyMfaAndIssueTokens', async () => {
-      mockAuthService.verifyMfaAndIssueTokens.mockRejectedValueOnce(
-        new Error('invalid_otp'),
+    it('opens no MFA challenge when the password is wrong', async () => {
+      mockAuthService.validateUser.mockRejectedValueOnce(
+        new UnauthorizedException('invalid_credentials'),
       );
 
       await expect(
-        controller.mfaLogin({ tempToken: 'bad', otp: '000000' }),
-      ).rejects.toThrow('invalid_otp');
-    });
-  });
-
-  describe('mfaSetup', () => {
-    it('delegates to authService.setupMfa with user sub', async () => {
-      const expected = { secret: 's', qrUri: 'qr', recoveryCodes: [] };
-      mockAuthService.setupMfa.mockResolvedValueOnce(expected);
-
-      const result = await controller.mfaSetup({ user: makeUser() });
-
-      expect(result).toEqual(expected);
-      expect(mockAuthService.setupMfa).toHaveBeenCalledWith('user-1');
-    });
-  });
-
-  describe('mfaConfirm', () => {
-    it('calls confirmMfaSetup and returns undefined (204)', async () => {
-      mockAuthService.confirmMfaSetup.mockResolvedValueOnce(undefined);
-
-      const result = await controller.mfaConfirm(
-        { user: makeUser() },
-        { otp: '123456' },
-      );
-
-      expect(result).toBeUndefined();
-      expect(mockAuthService.confirmMfaSetup).toHaveBeenCalledWith('user-1', '123456');
-    });
-
-    it('propagates errors from confirmMfaSetup', async () => {
-      mockAuthService.confirmMfaSetup.mockRejectedValueOnce(new Error('invalid_otp'));
-
-      await expect(
-        controller.mfaConfirm(
-          { user: makeUser() },
-          { otp: '000000' },
-        ),
-      ).rejects.toThrow('invalid_otp');
+        controller.login({ username: 'admin', password: 'bad' }, request),
+      ).rejects.toThrow('invalid_credentials');
+      expect(mockMfaService.beginLogin).not.toHaveBeenCalled();
     });
   });
 
@@ -177,18 +115,27 @@ describe('AuthController', () => {
       const tokens = { accessToken: 'new-at', refreshToken: 'new-rt' };
       mockAuthService.refreshTokens.mockResolvedValueOnce(tokens);
 
-      const result = await controller.refresh({ refreshToken: 'old-rt' });
+      const result = await controller.refresh(
+        { refreshToken: 'old-rt' },
+        request,
+      );
 
       expect(result).toEqual(tokens);
-      expect(mockAuthService.refreshTokens).toHaveBeenCalledWith('old-rt');
+      // The rotated session records where the refresh came from
+      expect(mockAuthService.refreshTokens).toHaveBeenCalledWith('old-rt', {
+        ip: '10.0.0.7',
+        userAgent: 'jest',
+      });
     });
 
     it('propagates error when token invalid', async () => {
-      mockAuthService.refreshTokens.mockRejectedValueOnce(new Error('invalid_token'));
-
-      await expect(controller.refresh({ refreshToken: 'bad' })).rejects.toThrow(
-        'invalid_token',
+      mockAuthService.refreshTokens.mockRejectedValueOnce(
+        new Error('invalid_token'),
       );
+
+      await expect(
+        controller.refresh({ refreshToken: 'bad' }, request),
+      ).rejects.toThrow('invalid_token');
     });
   });
 
