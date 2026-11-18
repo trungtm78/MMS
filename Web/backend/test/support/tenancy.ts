@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
@@ -143,6 +144,10 @@ export interface SeededTenant {
   memberUserId: string;
   taskId: string;
   fileId: string;
+  /** The storage key of the seeded file; its content is written by writeSeededFile. */
+  storageKey: string;
+  /** The content of the seeded file, marked with the canary of the tenant. */
+  fileBody: string;
   notificationId: string;
 }
 
@@ -214,10 +219,18 @@ export async function seedTenant(
        VALUES ($1, $2, $3, $3)`,
       [id, taskId, adminId],
     );
+    const storageKey = randomUUID();
+    const fileBody = `file body ${canary}`;
     const fileId = await one<string>(
       `INSERT INTO files (tenant_id, storage_key, original_name, mime_type, size, uploaded_by)
-       VALUES ($1, $2, $3, 'text/plain', 4, $4) RETURNING id`,
-      [id, randomUUID(), `file-${canary}.txt`, adminId],
+       VALUES ($1, $2, $3, 'text/plain', $4, $5) RETURNING id`,
+      [
+        id,
+        storageKey,
+        `file-${canary}.txt`,
+        Buffer.byteLength(fileBody),
+        adminId,
+      ],
     );
     const notificationId = await one<string>(
       `INSERT INTO notifications (tenant_id, type, title, body, sender_id)
@@ -245,7 +258,19 @@ export async function seedTenant(
       memberUserId,
       taskId,
       fileId,
+      storageKey,
+      fileBody,
       notificationId,
     };
   });
+}
+
+/**
+ * Puts the content of the seeded file where the backend looks for it, so that a download
+ * answers with the content instead of "file not found". This is the one place that knows
+ * the storage layout: today a flat directory, upload dir / storage key.
+ */
+export function writeSeededFile(uploadDir: string, seeded: SeededTenant): void {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, seeded.storageKey), seeded.fileBody);
 }

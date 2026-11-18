@@ -18,6 +18,7 @@ import {
   ADMIN_PASSWORD,
   createTenantDatabase,
   seedTenant,
+  writeSeededFile,
   type SeededTenant,
   type TenantDatabase,
 } from './support/tenancy';
@@ -49,6 +50,8 @@ describe('tenant slice (e2e)', () => {
   const api = () => request(baseUrl);
   const url = (route: string) => `/${E2E_API_PREFIX}${route}`;
   const auth = (who: string) => ({ Authorization: `Bearer ${tokens[who]}` });
+  const canaryOf = (tenant: SeededTenant) =>
+    tenant === a ? 'CANARY-A' : 'CANARY-B';
 
   // The error filter stamps every body with the time of the answer
   const withoutTimestamp = (body: unknown) =>
@@ -88,6 +91,9 @@ describe('tenant slice (e2e)', () => {
     db = await createTenantDatabase({ name: E2E_DB_NAME });
     a = await seedTenant(db, 'phu-dinh', 'CANARY-A');
     b = await seedTenant(db, 'tenant-b', 'CANARY-B');
+    // A download needs its content on disk, or every answer is 404 for any caller
+    writeSeededFile(E2E_UPLOAD_DIR, a);
+    writeSeededFile(E2E_UPLOAD_DIR, b);
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -299,7 +305,12 @@ describe('tenant slice (e2e)', () => {
   };
 
   // The audit row of a request is written after its answer went out; it is found by the
-  // request id the request carried, so no other request can be mistaken for it
+  // request id the request carried, so no other request can be mistaken for it. It is not
+  // found by `action`: the AuditInterceptor reads the path with the API prefix in it, so
+  // under the real prefix every row says 'POST:api' instead of 'POST:tasks' (a defect that
+  // predates tenancy, left to a separate audit task). When that task makes sensitive GETs
+  // audited, those rows are also written after the answer: the `/audit` snapshot of the
+  // differential test then needs a settle step before `before` is taken.
   const auditRowsOf = async (requestId: string) => {
     let rows: { tenant_id: string; actor_id: string }[] = [];
     await eventually(async () => {
@@ -334,23 +345,47 @@ describe('tenant slice (e2e)', () => {
       expect(JSON.stringify(tasks?.body)).toContain('CANARY-A');
     });
 
-    it('answers 404 for a record of another tenant, by id', async () => {
-      await api()
-        .get(url(`/tasks/${b.taskId}`))
-        .set(auth('a'))
-        .expect(404);
-      await api()
-        .get(url(`/militia/${b.memberId}`))
-        .set(auth('a'))
-        .expect(404);
-      await api()
-        .get(url(`/files/${b.fileId}`))
-        .set(auth('a'))
-        .expect(404);
-      await api()
-        .get(url(`/tasks/${a.taskId}`))
-        .set(auth('a'))
-        .expect(200);
+    // Each tenant opens its own record (200, with its own canary) and gets 404 for the same
+    // kind of record of the other, in both directions. The owner answer is the control: a
+    // 404 for the foreign id proves nothing when the owner would get 404 as well.
+    describe.each([
+      { name: 'A reads B', who: 'a', own: () => a, foreign: () => b },
+      { name: 'B reads A', who: 'b', own: () => b, foreign: () => a },
+    ])('by id ($name)', ({ who, own, foreign }) => {
+      it('opens the own task, militia profile and file', async () => {
+        const mine = own();
+        const task = await api()
+          .get(url(`/tasks/${mine.taskId}`))
+          .set(auth(who))
+          .expect(200);
+        expect(JSON.stringify(task.body)).toContain(canaryOf(mine));
+        const member = await api()
+          .get(url(`/militia/${mine.memberId}`))
+          .set(auth(who))
+          .expect(200);
+        expect(JSON.stringify(member.body)).toContain(canaryOf(mine));
+        const file = await api()
+          .get(url(`/files/${mine.fileId}`))
+          .set(auth(who))
+          .expect(200);
+        expect(file.text).toBe(mine.fileBody);
+      });
+
+      it('answers 404, without a trace of the other tenant, for its task, militia profile and file', async () => {
+        const theirs = foreign();
+        for (const route of [
+          `/tasks/${theirs.taskId}`,
+          `/militia/${theirs.memberId}`,
+          `/files/${theirs.fileId}`,
+        ]) {
+          const res = await api().get(url(route)).set(auth(who)).expect(404);
+          const answer = JSON.stringify(res.body) + res.text;
+          expect({ route, leaked: answer.includes(canaryOf(theirs)) }).toEqual({
+            route,
+            leaked: false,
+          });
+        }
+      });
     });
 
     it('does not let a tenant point its own record at another tenant', async () => {
@@ -377,6 +412,8 @@ describe('tenant slice (e2e)', () => {
 
     it('leaves the answers of one tenant unchanged when another tenant changes (differential)', async () => {
       const before = await snapshot('a');
+      // The comparison is not between two empty answers, whatever ran before this test
+      expect(JSON.stringify(before)).toContain('CANARY-A');
       await db.admin((c) =>
         c.query(
           `INSERT INTO tasks (tenant_id, code, title, type, created_by)
@@ -391,8 +428,11 @@ describe('tenant slice (e2e)', () => {
         .set('X-Request-Id', requestId)
         .send({ title: 'CANARY-B created', assigneeMilitiaId: b.memberId })
         .expect(201);
-      // Tenant B's audit row is written after the answer; let it land before comparing
-      await auditRowsOf(requestId);
+      // Tenant B's audit row is written after the answer; let it land before comparing,
+      // and see that it is B's
+      expect(await auditRowsOf(requestId)).toEqual([
+        { tenant_id: b.id, actor_id: b.adminId },
+      ]);
 
       // The change is real: tenant B sees it ...
       const seenByB = await api().get(url('/tasks')).set(auth('b')).expect(200);
@@ -449,7 +489,60 @@ describe('tenant slice (e2e)', () => {
         [a.id, b.id].sort(),
       );
       // The code is still unique inside one tenant
-      await expect(insert(a)).rejects.toMatchObject({ code: '23505' });
+      await expect(insert(a)).rejects.toMatchObject({
+        code: '23505',
+        constraint: 'uq_tasks_tenant_code',
+      });
+    });
+
+    // Rows that tie one tenant to the records of another: until composite foreign keys
+    // exist (M1) the database accepts them, so row-level security of EACH table has to hold
+    // them back. Every table a route reads is exercised on its own: a row of tenant B
+    // that points at a record of A must not change what A sees, and a receipt of A that
+    // points at a notification of B must not show it.
+    it('is not changed by rows of another tenant that reference its records, nor by its rows that reference another tenant', async () => {
+      // A receipt of A for a notification of B: its own row, the notification is not its
+      await db.admin((c) =>
+        c.query(
+          `INSERT INTO notification_receipts (tenant_id, notification_id, user_id)
+           VALUES ($1, $2, $3)`,
+          [a.id, b.notificationId, a.adminId],
+        ),
+      );
+      const before = await snapshot('a');
+      expect(JSON.stringify(before)).toContain('CANARY-A');
+      expect(JSON.stringify(before)).not.toContain('CANARY-B');
+
+      await db.admin(async (c) => {
+        // A militia profile of B in a unit of A (seen by /militia and its export)
+        await c.query(
+          `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date)
+           VALUES ($1, 'DQ-BRIDGE', 'Bridge CANARY-B', '999999999999', '1990-01-01', $2, '2022-01-01')`,
+          [b.id, a.unitId],
+        );
+        // An assignment of B on a task of A, the first one of that task (it would become
+        // the assignee of the task in /tasks)
+        await c.query(
+          `INSERT INTO task_assignments (tenant_id, task_id, assignee_id, assigned_by, assigned_at)
+           VALUES ($1, $2, $3, $4, '2000-01-01T00:00:00Z')`,
+          [b.id, a.taskId, a.memberUserId, b.adminId],
+        );
+        // A receipt of B for a notification and a user of A (counted by /notifications);
+        // the notification is a second one of A, which A itself has no receipt for
+        const second = await c.query<{ id: string }>(
+          `INSERT INTO notifications (tenant_id, type, title, body, sender_id)
+           VALUES ($1, 'system', 'Second notice CANARY-A', 'x', $2) RETURNING id`,
+          [a.id, a.adminId],
+        );
+        await c.query(
+          `INSERT INTO notification_receipts (tenant_id, notification_id, user_id)
+           VALUES ($1, $2, $3)`,
+          [b.id, second.rows[0].id, a.adminId],
+        );
+      });
+
+      const after = await snapshot('a');
+      expect(after).toEqual(before);
     });
   });
 
