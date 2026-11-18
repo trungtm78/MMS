@@ -1457,16 +1457,60 @@ INSERT INTO online_t SELECT g, g % 3 FROM generate_series(1, 30) g;`,
         await c.query<{ name: string; valid: boolean }>(
           `SELECT c.relname AS name, x.indisvalid AS valid FROM pg_index x
              JOIN pg_class c ON c.oid = x.indexrelid
-            WHERE c.relname = ANY ($1) ORDER BY 1`,
+            WHERE c.relname = ANY ($1)`,
           [names],
         )
-      ).rows,
+      ).rows.sort((a, b) => (a.name < b.name ? -1 : 1)),
       recorded: (
         await c.query(
           `SELECT 1 FROM schema_migrations WHERE filename = '002_online.sql'`,
         )
       ).rowCount,
     }));
+
+  const oidOf = (url: string, name: string) =>
+    withClient(url, async (c) => {
+      const { rows } = await c.query<{ oid: string }>(
+        `SELECT x.indexrelid::text AS oid FROM pg_index x
+           JOIN pg_class c ON c.oid = x.indexrelid WHERE c.relname = $1`,
+        [name],
+      );
+      return rows[0]?.oid;
+    });
+
+  /** True while an index build waits for a lock or for older transactions, for `seconds` */
+  const buildHasWaited = (url: string, seconds: number) =>
+    withClient(url, async (c) => {
+      const { rowCount } = await c.query(
+        `SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND pid <> pg_backend_pid()
+            AND query LIKE '%CREATE INDEX CONCURRENTLY%' AND wait_event_type = 'Lock'
+            AND now() - query_start >= make_interval(secs => $1)`,
+        [seconds],
+      );
+      return (rowCount ?? 0) > 0;
+    });
+
+  /** True once another session has asked for the migration advisory lock */
+  const someoneAskedForTheLock = (url: string) =>
+    withClient(url, async (c) => {
+      const { rowCount } = await c.query(
+        `SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND pid <> pg_backend_pid()
+            AND query LIKE '%advisory_lock%'`,
+      );
+      return (rowCount ?? 0) > 0;
+    });
+
+  /** Settles a migration promise without leaving an unhandled rejection behind it */
+  const settled = <T>(promise: Promise<T>) => {
+    const state = { done: false };
+    promise.then(
+      () => (state.done = true),
+      () => (state.done = true),
+    );
+    return state;
+  };
 
   it('builds indexes concurrently, outside a transaction, and records the file', async () => {
     const url = await createDatabase();
@@ -1485,8 +1529,39 @@ ALTER TABLE online_t ADD COLUMN IF NOT EXISTS w int;`,
     });
   });
 
-  it('records nothing after a failure half way, drops the INVALID index it left, and completes on the next run', async () => {
+  it('refuses a marked file that could not run again before running anything', async () => {
     const url = await createDatabase();
+    const directory = scratchMigrations({
+      ...base,
+      '002_online.sql': `${header}/* a */ UPDATE online_t SET v = 0;`,
+    });
+
+    await expect(
+      migrateDatabase({ connectionString: url, directory }),
+    ).rejects.toMatchObject({
+      name: 'MigrationInvalidError',
+      fileName: '002_online.sql',
+    });
+    expect(await recordedMigrations(url)).toEqual([]);
+  });
+
+  it('records nothing after a failure half way, drops only its own INVALID index, and completes on the next run', async () => {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: scratchMigrations(base),
+    });
+    // An INVALID index of another name, left by someone else's failed build: not this file's
+    await expect(
+      withClient(url, (c) =>
+        c.query(
+          `CREATE UNIQUE INDEX CONCURRENTLY uq_unrelated ON online_t (v)`,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+    expect(await indexState(url, ['uq_unrelated'])).toMatchObject({
+      indexes: [{ name: 'uq_unrelated', valid: false }],
+    });
     const directory = scratchMigrations({
       ...base,
       '002_online.sql': `${header}CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_online_id ON online_t (id);
@@ -1507,19 +1582,26 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_online_v ON online_t (v);`,
       ],
       recorded: 0,
     });
+    const builtOnce = await oidOf(url, 'ix_online_id');
 
     // The data the unique index refused is repaired; the same file runs again unchanged
     await withClient(url, (c) => c.query(`UPDATE online_t SET v = id`));
     const report = await migrateDatabase({ connectionString: url, directory });
 
     expect(report.applied).toEqual(['002_online.sql']);
-    expect(await indexState(url, ['ix_online_id', 'uq_online_v'])).toEqual({
+    expect(
+      await indexState(url, ['ix_online_id', 'uq_online_v', 'uq_unrelated']),
+    ).toEqual({
       indexes: [
         { name: 'ix_online_id', valid: true },
         { name: 'uq_online_v', valid: true },
+        // Not built by this file: left exactly as it was
+        { name: 'uq_unrelated', valid: false },
       ],
       recorded: 1,
     });
+    // A VALID index of the file is not dropped and rebuilt either
+    expect(await oidOf(url, 'ix_online_id')).toBe(builtOnce);
   });
 
   it('lets writers write while it waits to build, and keeps other migrators out', async () => {
@@ -1538,21 +1620,10 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_online_v ON online_t (v);`,
     try {
       await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
       await holder.query('SELECT count(*) FROM online_t');
-      const migrating = migrateDatabase({
-        connectionString: url,
-        directory,
-        lockTimeout: '60s',
-      });
+      const migrating = migrateDatabase({ connectionString: url, directory });
+      settled(migrating);
       await eventually(
-        () =>
-          withClient(url, async (c) => {
-            const { rowCount } = await c.query(
-              `SELECT 1 FROM pg_stat_activity
-                WHERE datname = current_database() AND pid <> pg_backend_pid()
-                  AND query LIKE '%CREATE INDEX CONCURRENTLY%' AND wait_event_type = 'Lock'`,
-            );
-            return (rowCount ?? 0) > 0;
-          }),
+        () => buildHasWaited(url, 0),
         'the index build waiting for the open snapshot',
       );
 
@@ -1579,7 +1650,122 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_online_v ON online_t (v);`,
     }
   });
 
-  it('stops after the file named by through', async () => {
+  // Production runs two replicas, each migrating at boot. A replica that blocks on the
+  // advisory lock holds a snapshot, and the build in the other one waits for every older
+  // snapshot: with a blocking lock request the two deadlocked and the index stayed INVALID.
+  it('does not deadlock a build with a second migrator waiting for the lock', async () => {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: scratchMigrations(base),
+    });
+    const directory = scratchMigrations({
+      ...base,
+      '002_online.sql': `${header}CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_online_v ON online_t (v);`,
+    });
+    const holder = new Client({ connectionString: url });
+    await holder.connect();
+    try {
+      // The first migrator's build waits for this lock while it holds the advisory lock
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE online_t IN SHARE UPDATE EXCLUSIVE MODE');
+      const first = migrateDatabase({ connectionString: url, directory });
+      settled(first);
+      await eventually(
+        () => buildHasWaited(url, 0),
+        'the first migrator building',
+      );
+      const second = migrateDatabase({
+        connectionString: url,
+        directory,
+        advisoryLockTimeout: '60s',
+      });
+      settled(second);
+      await eventually(
+        () => someoneAskedForTheLock(url),
+        'the second migrator asking for the migration lock',
+      );
+
+      await holder.query('COMMIT');
+
+      await expect(first).resolves.toMatchObject({
+        applied: ['002_online.sql'],
+      });
+      await expect(second).resolves.toMatchObject({
+        applied: [],
+        skipped: ['001_online_base.sql', '002_online.sql'],
+      });
+      expect(await indexState(url, ['ix_online_v'])).toEqual({
+        indexes: [{ name: 'ix_online_v', valid: true }],
+        recorded: 1,
+      });
+    } finally {
+      await holder.end();
+    }
+  });
+
+  // The statement lock timeout is for statements that lock a table against writers. An index
+  // build only waits for older transactions, which blocks nobody; cancelling it at 10 s left
+  // an INVALID index and failed the deployment behind any long report or export.
+  it('lets a build wait behind a long transaction past the statement lock timeout, with the default timeouts', async () => {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: scratchMigrations(base),
+    });
+    const directory = scratchMigrations({
+      ...base,
+      '002_online.sql': `${header}CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_online_long ON online_t (v);`,
+    });
+    const holder = new Client({ connectionString: url });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      await holder.query('SELECT count(*) FROM online_t');
+      const migrating = migrateDatabase({ connectionString: url, directory });
+      const state = settled(migrating);
+      // Past the 10 s default of MIGRATION_LOCK_TIMEOUT, or until the run gave up
+      await eventually(
+        async () => state.done || (await buildHasWaited(url, 12)),
+        'the index build waiting past the statement lock timeout',
+        40_000,
+      );
+
+      await holder.query('COMMIT');
+
+      await expect(migrating).resolves.toMatchObject({
+        applied: ['002_online.sql'],
+      });
+      expect(await indexState(url, ['ix_online_long'])).toEqual({
+        indexes: [{ name: 'ix_online_long', valid: true }],
+        recorded: 1,
+      });
+    } finally {
+      await holder.end();
+    }
+  });
+
+  it('verifies indexes whose names Postgres folds, clips or keeps whole', async () => {
+    const url = await createDatabase();
+    const long = `ix_online_${'x'.repeat(70)}`;
+    const directory = scratchMigrations({
+      ...base,
+      '002_online.sql': `${header}CREATE INDEX CONCURRENTLY IF NOT EXISTS IX_Online_Đơn ON online_t (v);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ${long} ON online_t (id);`,
+    });
+
+    const first = await migrateDatabase({ connectionString: url, directory });
+    expect(first.applied).toContain('002_online.sql');
+    const names = ['ix_online_Đơn', long.slice(0, 63)];
+    expect(await indexState(url, names)).toEqual({
+      indexes: names
+        .map((name) => ({ name, valid: true }))
+        .sort((a, b) => (a.name < b.name ? -1 : 1)),
+      recorded: 1,
+    });
+  });
+
+  it('stops after the file named by through, leaves the later file untouched, and applies it on the next run', async () => {
     const url = await createDatabase();
     const directory = scratchMigrations({
       ...base,
@@ -1594,5 +1780,19 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_online_v ON online_t (v);`,
 
     expect(report.applied).toEqual(['001_online_base.sql']);
     expect(report.pending).toEqual(['002_online.sql']);
+    // The later file did not run: its index is absent and the file unrecorded
+    expect(await indexState(url, ['ix_online_v'])).toEqual({
+      indexes: [],
+      recorded: 0,
+    });
+
+    const next = await migrateDatabase({ connectionString: url, directory });
+
+    expect(next.applied).toEqual(['002_online.sql']);
+    expect(next.pending).toEqual([]);
+    expect(await indexState(url, ['ix_online_v'])).toEqual({
+      indexes: [{ name: 'ix_online_v', valid: true }],
+      recorded: 1,
+    });
   });
 });
