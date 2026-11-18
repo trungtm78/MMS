@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../l10n/l10n.dart';
+import '../../../shared/errors/app_failure.dart';
+import '../../../shared/utils/calendar_date.dart';
 import '../../auth/providers/auth_provider.dart';
 
+/// A month of the user's attendance (GET /attendance?from=&to=), one coloured day per record.
 class AttendanceCalendar extends ConsumerStatefulWidget {
   const AttendanceCalendar({super.key});
 
@@ -15,6 +20,7 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
   DateTime _focusedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   Map<DateTime, String> _statusMap = {};
   bool _loading = false;
+  AppFailure? _failure;
 
   @override
   void initState() {
@@ -22,47 +28,49 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
     _loadMonth(_focusedMonth);
   }
 
+  /// Only the month still shown takes its answer: moving between months quickly must not let a
+  /// late answer paint another month's days.
   Future<void> _loadMonth(DateTime month) async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _failure = null;
+    });
     try {
-      final dio = ref.read(dioProvider);
-      final from = DateTime(month.year, month.month, 1);
-      final to = DateTime(month.year, month.month + 1, 0);
-      final fromStr = '${from.year}-${from.month.toString().padLeft(2, '0')}-01';
-      final toStr = '${to.year}-${to.month.toString().padLeft(2, '0')}-${to.day.toString().padLeft(2, '0')}';
-      final res = await dio.get('/attendance', queryParameters: {
-        'from': fromStr,
-        'to': toStr,
+      final res = await ref.read(dioProvider).get<Object?>(ApiConstants.attendanceList, queryParameters: {
+        'from': toCalendarDateString(DateTime(month.year, month.month, 1)),
+        'to': toCalendarDateString(DateTime(month.year, month.month + 1, 0)),
         'limit': 31,
       });
-      final items = (res.data['data'] as List?) ?? [];
+      final body = res.data;
+      if (body is! Map || body['data'] is! List) throw const FormatException('attendance list without data');
       final map = <DateTime, String>{};
-      for (final item in items) {
-        final d = item['workDate'] as String?;
-        final s = item['status'] as String?;
-        if (d != null && s != null) {
-          try {
-            final parsed = DateTime.parse(d);
-            map[DateTime(parsed.year, parsed.month, parsed.day)] = s;
-          } catch (_) {}
-        }
+      for (final item in (body['data'] as List).whereType<Map>()) {
+        // work_date is a DATE column: a 'YYYY-MM-DD' calendar day
+        final day = parseCalendarDate(item['workDate']);
+        final status = item['status'];
+        if (day != null && status is String) map[day] = status;
       }
-      if (mounted) setState(() { _statusMap = map; _loading = false; });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted || month != _focusedMonth) return;
+      setState(() {
+        _statusMap = map;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || month != _focusedMonth) return;
+      setState(() {
+        _failure = AppFailure.from(e);
+        _loading = false;
+      });
     }
   }
 
-  void _prevMonth() {
-    final prev = DateTime(_focusedMonth.year, _focusedMonth.month - 1);
-    setState(() { _focusedMonth = prev; _statusMap = {}; });
-    _loadMonth(prev);
-  }
-
-  void _nextMonth() {
-    final next = DateTime(_focusedMonth.year, _focusedMonth.month + 1);
-    setState(() { _focusedMonth = next; _statusMap = {}; });
-    _loadMonth(next);
+  void _showMonth(int offset) {
+    final month = DateTime(_focusedMonth.year, _focusedMonth.month + offset);
+    setState(() {
+      _focusedMonth = month;
+      _statusMap = {};
+    });
+    _loadMonth(month);
   }
 
   List<DateTime?> _buildDays() {
@@ -79,8 +87,18 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final days = _buildDays();
-    const weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+    final weekdays = [
+      l10n.attendanceCalendarWeekdayMon,
+      l10n.attendanceCalendarWeekdayTue,
+      l10n.attendanceCalendarWeekdayWed,
+      l10n.attendanceCalendarWeekdayThu,
+      l10n.attendanceCalendarWeekdayFri,
+      l10n.attendanceCalendarWeekdaySat,
+      l10n.attendanceCalendarWeekdaySun,
+    ];
+    final failure = _failure;
 
     return Card(
       child: Padding(
@@ -92,7 +110,8 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
             Row(
               children: [
                 IconButton(
-                  onPressed: _prevMonth,
+                  tooltip: l10n.attendanceCalendarPreviousMonth,
+                  onPressed: () => _showMonth(-1),
                   icon: const Icon(Icons.chevron_left),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -100,13 +119,14 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
                 Expanded(
                   child: Center(
                     child: Text(
-                      'Tháng ${_focusedMonth.month}/${_focusedMonth.year}',
+                      l10n.attendanceCalendarMonth(_focusedMonth.month, _focusedMonth.year),
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     ),
                   ),
                 ),
                 IconButton(
-                  onPressed: _nextMonth,
+                  tooltip: l10n.attendanceCalendarNextMonth,
+                  onPressed: () => _showMonth(1),
                   icon: const Icon(Icons.chevron_right),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -122,9 +142,7 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
                         child: Center(
                           child: Text(d,
                               style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondary)),
+                                  fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
                         ),
                       ))
                   .toList(),
@@ -136,6 +154,17 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(child: CircularProgressIndicator(color: AppColors.navy, strokeWidth: 2)),
+              )
+            else if (failure != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(l10n.attendanceCalendarLoadError(failureText(l10n, failure)),
+                        style: const TextStyle(fontSize: 12, color: AppColors.error)),
+                  ),
+                  TextButton(onPressed: () => _loadMonth(_focusedMonth), child: Text(l10n.commonRetry)),
+                ]),
               )
             else
               GridView.builder(
@@ -162,11 +191,11 @@ class _AttendanceCalendarState extends ConsumerState<AttendanceCalendar> {
             Wrap(
               spacing: 12,
               runSpacing: 6,
-              children: const [
-                _LegendDot(color: Color(0xFFA7F3D0), label: 'Có mặt'),
-                _LegendDot(color: Color(0xFFFECACA), label: 'Vắng'),
-                _LegendDot(color: Color(0xFFBFDBFE), label: 'Nghỉ phép'),
-                _LegendDot(color: Color(0xFFE2E8F0), label: 'Lễ'),
+              children: [
+                _LegendDot(color: const Color(0xFFA7F3D0), label: l10n.attendanceCalendarLegendPresent),
+                _LegendDot(color: const Color(0xFFFECACA), label: l10n.attendanceCalendarLegendAbsent),
+                _LegendDot(color: const Color(0xFFBFDBFE), label: l10n.attendanceCalendarLegendLeave),
+                _LegendDot(color: const Color(0xFFE2E8F0), label: l10n.attendanceCalendarLegendHoliday),
               ],
             ),
           ],

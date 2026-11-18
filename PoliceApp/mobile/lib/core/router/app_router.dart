@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/models/auth_models.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/auth/screens/security_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
@@ -31,36 +33,31 @@ import '../../features/chat/screens/conversations_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../shared/widgets/main_shell_ca.dart';
 import '../../shared/widgets/main_shell_dqtv.dart';
+import 'route_guard.dart';
 import 'routes.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // One router for the app's lifetime, re-evaluated when sign-in state changes. Rebuilding
+  // it on every auth state change reset navigation to the login screen — for example while
+  // an MFA code was being checked.
+  final authChanges = ValueNotifier<int>(0);
+  ref.listen<AuthState>(authStateProvider, (previous, next) {
+    if (previous?.isAuthenticated != next.isAuthenticated || previous?.role != next.role) {
+      authChanges.value++;
+    }
+  });
+  ref.onDispose(authChanges.dispose);
 
   return GoRouter(
     initialLocation: Routes.login,
+    refreshListenable: authChanges,
     redirect: (context, state) {
-      final isAuth = authState.isAuthenticated;
-      final role = authState.role;
-      final loc = state.matchedLocation;
-
-      // Allow auth routes always
-      final authRoutes = [Routes.login, Routes.otp, Routes.mfaSetup, Routes.recoveryCodes];
-      if (authRoutes.contains(loc)) {
-        // If already authenticated, redirect to proper home
-        if (isAuth) {
-          return role == 'ca' ? Routes.caHome : Routes.dqtvHome;
-        }
-        return null;
-      }
-
-      // Not authenticated — force login
-      if (!isAuth) return Routes.login;
-
-      // Role mismatch guard
-      if (role == 'ca' && loc.startsWith('/dqtv/')) return Routes.caHome;
-      if (role == 'dqtv' && loc.startsWith('/ca/')) return Routes.dqtvHome;
-
-      return null;
+      final auth = ref.read(authStateProvider);
+      return appRouteRedirect(
+        isAuthenticated: auth.isAuthenticated,
+        role: auth.role,
+        location: state.matchedLocation,
+      );
     },
     routes: [
       // ─── Auth Routes ────────────────────────────────────────────────────
@@ -68,22 +65,41 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.login,
         builder: (context, state) => const LoginScreen(),
       ),
+      // extra: the MFA_REQUIRED / MFA_SETUP_REQUIRED LoginResponse from the login screen
       GoRoute(
         path: Routes.otp,
-        builder: (context, state) => OtpScreen(tempToken: state.extra as String? ?? ''),
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is LoginResponse) {
+            return OtpScreen(
+              mfaToken: extra.mfaToken ?? '',
+              methods: extra.methods.isEmpty ? const [mfaMethodTotp] : extra.methods,
+            );
+          }
+          return OtpScreen(mfaToken: extra is String ? extra : '');
+        },
       ),
       GoRoute(
         path: Routes.mfaSetup,
-        builder: (context, state) => MfaSetupScreen(tempToken: state.extra as String? ?? ''),
+        builder: (context, state) {
+          final extra = state.extra;
+          final token = extra is LoginResponse ? extra.mfaToken : extra is String ? extra : null;
+          return MfaSetupScreen(mfaToken: token ?? '');
+        },
       ),
       GoRoute(
         path: Routes.recoveryCodes,
         builder: (context, state) {
-          final codes = (state.extra is List<String>)
-              ? state.extra as List<String>
-              : const <String>[];
-          return RecoveryCodesScreen(codes: codes);
+          final extra = state.extra;
+          if (extra is RecoveryCodesArgs) {
+            return RecoveryCodesScreen(codes: extra.codes, completesLogin: extra.completesLogin);
+          }
+          return RecoveryCodesScreen(codes: extra is List<String> ? extra : const <String>[]);
         },
+      ),
+      GoRoute(
+        path: Routes.security,
+        builder: (context, state) => const SecurityScreen(),
       ),
       GoRoute(
         path: Routes.forgotPassword,
@@ -208,17 +224,3 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
-
-/// Temporary placeholder for routes not yet fully implemented
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text(title, style: const TextStyle(fontSize: 18))),
-    );
-  }
-}

@@ -1,26 +1,32 @@
-import 'dart:async';
 import 'package:dio/dio.dart';
 import '../constants/api_constants.dart';
 import '../storage/secure_storage_service.dart';
+import 'session_events.dart';
+import 'token_refresher.dart';
 
 /// Auth interceptor with queued refresh:
-/// - Concurrent 401s wait for the in-flight refresh and then retry with the new token
+/// - 401s (expired or revoked access tokens, e.g. session_revoked) renew the token through one
+///   shared [TokenRefresher] and retry with it
 /// - Each request is retried at most once; a second 401 goes back to the caller
 /// - 401s from auth endpoints (bad credentials/OTP) never trigger a refresh
-/// - Refresh uses a SEPARATE Dio with no interceptors so it cannot pick up the stale Authorization
-/// - Refresh must return a full token pair; otherwise storage is cleared and queued retries fail
+/// - A refused refresh clears the session and reports it through [SessionEvents]
 class AuthInterceptor extends Interceptor {
   final Dio dio;
   final SecureStorageService storage;
 
-  /// Single in-flight refresh future. Concurrent 401s await this.
-  Completer<String?>? _refreshCompleter;
+  /// Also used by the chat socket, so HTTP and socket renewals share one refresh
+  final TokenRefresher refresher;
 
-  /// Plain Dio without interceptors, used only for /auth/refresh.
-  final Dio _refreshDio;
-
-  AuthInterceptor({required this.dio, required this.storage, Dio? refreshDio})
-      : _refreshDio = refreshDio ?? _plainDio();
+  AuthInterceptor({
+    required this.dio,
+    required this.storage,
+    Dio? refreshDio,
+    SessionEvents? sessionEvents,
+  }) : refresher = TokenRefresher(
+          storage: storage,
+          refreshDio: refreshDio ?? _plainDio(),
+          sessionEvents: sessionEvents,
+        );
 
   static Dio _plainDio() => Dio(BaseOptions(
         baseUrl: ApiConstants.baseUrl,
@@ -35,18 +41,33 @@ class AuthInterceptor extends Interceptor {
   /// Marks a request that was already retried after a refresh.
   static const _retriedKey = 'auth_retried';
 
-  /// Endpoints whose 401 means bad credentials, not an expired session.
-  static const _noRefreshPaths = [
+  /// Sign-in routes: they take no Bearer, and their 401 means a wrong password, code or
+  /// challenge — never an expired session (contract T15).
+  static const _publicAuthPaths = [
     ApiConstants.login,
     ApiConstants.refreshToken,
     ApiConstants.verifyMfa,
-    ApiConstants.verifyRecovery,
+    ApiConstants.mfaEnroll,
+    ApiConstants.mfaEnrollConfirm,
+    ApiConstants.mfaLegacyLogin,
   ];
+
+  static bool isPublicAuthPath(String path) => _publicAuthPaths.any(path.endsWith);
+
+  /// 401s that reject an MFA code or challenge rather than the access token. Bearer MFA
+  /// routes answer a wrong code with 401 invalid_code (Web/backend/src/auth/mfa/mfa.service.ts:650-662);
+  /// refreshing and resending would count the same code twice towards the lock.
+  static const _mfaCodeRejections = {'invalid_code', 'mfa_token_invalid'};
+
+  static bool _rejectsMfaCode(DioException err) {
+    final body = err.response?.data;
+    return body is Map && _mfaCodeRejections.contains(body['message']);
+  }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     final token = await storage.getAccessToken();
-    if (token != null) {
+    if (token != null && !isPublicAuthPath(options.path)) {
       options.headers['Authorization'] = 'Bearer $token';
     }
     handler.next(options);
@@ -57,13 +78,14 @@ class AuthInterceptor extends Interceptor {
     final options = err.requestOptions;
     if (err.response?.statusCode != 401 ||
         options.extra[_retriedKey] == true ||
-        _noRefreshPaths.any(options.path.contains)) {
+        isPublicAuthPath(options.path) ||
+        _rejectsMfaCode(err)) {
       handler.next(err);
       return;
     }
 
     try {
-      final newToken = await _ensureRefresh();
+      final newToken = await refresher.renew(staleAccessToken: _bearerOf(options));
       if (newToken == null) {
         handler.next(err);
         return;
@@ -82,52 +104,9 @@ class AuthInterceptor extends Interceptor {
     }
   }
 
-  /// Returns a new access token, or null if refresh failed.
-  /// Concurrent callers share the same in-flight refresh.
-  Future<String?> _ensureRefresh() async {
-    if (_refreshCompleter != null) {
-      return _refreshCompleter!.future;
-    }
-
-    final completer = Completer<String?>();
-    _refreshCompleter = completer;
-
-    try {
-      final refreshToken = await storage.getRefreshToken();
-      if (refreshToken == null || refreshToken.trim().isEmpty) {
-        // Nothing usable to refresh with: end the session rather than send a blank token
-        await storage.clearTokens();
-        completer.complete(null);
-        return null;
-      }
-
-      final response = await _refreshDio.post(
-        ApiConstants.refreshToken,
-        data: {'refreshToken': refreshToken},
-      );
-
-      String? nonBlank(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
-      final body = response.data;
-      final newAccessToken = body is Map ? nonBlank(body['accessToken']) : null;
-      final newRefreshToken = body is Map ? nonBlank(body['refreshToken']) : null;
-      // Backend rotates the refresh token; keeping the old one would strand the session
-      if (newAccessToken == null || newRefreshToken == null) {
-        await storage.clearTokens();
-        completer.complete(null);
-        return null;
-      }
-
-      await storage.saveAccessToken(newAccessToken);
-      await storage.saveRefreshToken(newRefreshToken);
-
-      completer.complete(newAccessToken);
-      return newAccessToken;
-    } catch (_) {
-      await storage.clearTokens();
-      completer.complete(null);
-      return null;
-    } finally {
-      _refreshCompleter = null;
-    }
+  /// The access token a request was sent with
+  static String? _bearerOf(RequestOptions options) {
+    final header = options.headers['Authorization'];
+    return header is String && header.startsWith('Bearer ') ? header.substring(7) : null;
   }
 }

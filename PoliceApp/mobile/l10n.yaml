@@ -1,0 +1,11 @@
+# gen-l10n: display texts live in lib/l10n/app_vi.arb. `flutter gen-l10n` (and every build,
+# because pubspec.yaml sets `generate: true`) writes AppLocalizations next to the ARB file.
+arb-dir: lib/l10n
+template-arb-file: app_vi.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+preferred-supported-locales: [vi]
+# AppLocalizations.of(context) is non-nullable: the app always provides the delegate
+nullable-getter: false
+# Every message carries an @key description
+required-resource-attributes: true

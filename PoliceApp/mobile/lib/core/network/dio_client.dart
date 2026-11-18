@@ -3,12 +3,13 @@ import 'package:flutter/foundation.dart';
 import '../constants/api_constants.dart';
 import '../storage/secure_storage_service.dart';
 import 'auth_interceptor.dart';
+import 'session_events.dart';
 
 class DioClient {
   static Dio? _instance;
 
-  static Dio getInstance(SecureStorageService storage) {
-    _instance ??= _createDio(storage);
+  static Dio getInstance(SecureStorageService storage, {SessionEvents? sessionEvents}) {
+    _instance ??= _createDio(storage, sessionEvents);
     return _instance!;
   }
 
@@ -16,7 +17,7 @@ class DioClient {
     _instance = null;
   }
 
-  static Dio _createDio(SecureStorageService storage) {
+  static Dio _createDio(SecureStorageService storage, SessionEvents? sessionEvents) {
     final dio = Dio(
       BaseOptions(
         baseUrl: ApiConstants.baseUrl,
@@ -29,7 +30,7 @@ class DioClient {
       ),
     );
 
-    dio.interceptors.add(AuthInterceptor(dio: dio, storage: storage));
+    dio.interceptors.add(AuthInterceptor(dio: dio, storage: storage, sessionEvents: sessionEvents));
 
     // SECURITY: only log request/response bodies in debug builds.
     // Release logs would leak passwords + access/refresh tokens to device logs.

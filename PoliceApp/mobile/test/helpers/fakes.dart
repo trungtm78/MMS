@@ -86,10 +86,13 @@ class MemoryStorage implements SecureStorageService {
 
 /// Records requests and answers them with [handler] instead of the network.
 class FakeAdapter implements HttpClientAdapter {
-  FakeAdapter(this.handler, {this.delay = Duration.zero});
+  FakeAdapter(this.handler, {this.gate});
 
   final ResponseBody Function(RequestOptions options) handler;
-  final Duration delay;
+
+  /// Awaited before answering: complete a Completer to release a response exactly when a test
+  /// needs it, never a fixed delay
+  final Future<void> Function(RequestOptions options)? gate;
   final List<RequestOptions> requests = [];
 
   @override
@@ -101,7 +104,8 @@ class FakeAdapter implements HttpClientAdapter {
     requests.add(options);
     // Safety valve: a retry loop must fail the test, not hang it
     if (requests.length > 20) return jsonBody(418, {'message': 'loop'});
-    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    final gate = this.gate;
+    if (gate != null) await gate(options);
     return handler(options);
   }
 

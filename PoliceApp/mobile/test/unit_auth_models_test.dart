@@ -5,6 +5,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:police_app/features/auth/models/auth_models.dart';
+import 'package:police_app/shared/errors/app_failure.dart';
 
 void main() {
   group('UserInfo.appRole detection', () {
@@ -147,14 +148,14 @@ void main() {
       final json = {
         'id': 'u1',
         'username': 'ca001',
-        'fullName': 'Võ Văn Tân',
+        'fullName': 'Vo Van Tan',
         'status': 'active',
         'roles': ['police_area'],
       };
       final user = UserInfo.fromJson(json);
       expect(user.id, equals('u1'));
       expect(user.username, equals('ca001'));
-      expect(user.fullName, equals('Võ Văn Tân'));
+      expect(user.fullName, equals('Vo Van Tan'));
       expect(user.status, equals('active'));
       expect(user.roles, equals(['police_area']));
     });
@@ -223,7 +224,7 @@ void main() {
         'user': {
           'id': 'u1',
           'username': 'dqtv01',
-          'fullName': 'Nguyễn Văn A',
+          'fullName': 'Nguyen Van A',
           'status': 'active',
           'role': 'dqtv',
         },
@@ -236,7 +237,7 @@ void main() {
       final resp = LoginResponse.fromJson(json);
       expect(resp.accessToken, equals('tok_access'));
       expect(resp.refreshToken, equals('tok_refresh'));
-      expect(resp.user?.fullName, equals('Nguyễn Văn A'));
+      expect(resp.user?.fullName, equals('Nguyen Van A'));
     });
 
     test('UT-LOGIN-07: mfa_required flag maps to requiresMfa', () {
@@ -253,7 +254,7 @@ void main() {
       final user = UserInfo.fromJson({
         'id': 'u1',
         'username': 'dqtv01',
-        'fullName': 'Nguyễn Văn A',
+        'fullName': 'Nguyen Van A',
         'status': 'active',
         'role': 'dqtv',
       });
@@ -335,6 +336,20 @@ void main() {
     });
   });
 
+  // POST /auth/mfa/setup and /auth/mfa/enroll → {mfaToken, secret, otpauthUri, qrUri, expiresAt}
+  // (Web/backend/src/auth/mfa/mfa.service.ts:76-82)
+  group('MfaEnrollment.fromJson', () {
+    test('UT-MFA-SETUP-01: falls back to qrUri when otpauthUri is missing', () {
+      final resp = MfaEnrollment.fromJson({
+        'mfaToken': 'm',
+        'secret': 'ABC',
+        'qrUri': 'otpauth://totp/MMS:ca01?secret=ABC&issuer=MMS',
+      });
+      expect(resp.secret, 'ABC');
+      expect(resp.otpauthUri, 'otpauth://totp/MMS:ca01?secret=ABC&issuer=MMS');
+    });
+  });
+
   group('LoginResponse.sessionRejection', () {
     Map<String, dynamic> backendLogin({
       String? role = 'dqtv',
@@ -363,23 +378,23 @@ void main() {
 
     test('UT-GATE-02: missing refresh token is rejected', () {
       expect(
-        LoginResponse.fromJson(backendLogin(withRefresh: false)).sessionRejection,
-        isNotNull,
+        LoginResponse.fromJson(backendLogin(withRefresh: false)).sessionRejection?.code,
+        AppFailure.missingTokens,
       );
     });
 
     test('UT-GATE-03: response without user is rejected', () {
       expect(
-        LoginResponse.fromJson(backendLogin(withUser: false)).sessionRejection,
-        isNotNull,
+        LoginResponse.fromJson(backendLogin(withUser: false)).sessionRejection?.code,
+        AppFailure.roleNotAllowed,
       );
     });
 
     test('UT-GATE-04: roles outside CA/DQTV are rejected', () {
       for (final role in ['system_admin', 'office_staff', 'ubnd_leader', null]) {
         expect(
-          LoginResponse.fromJson(backendLogin(role: role)).sessionRejection,
-          equals('Tài khoản không có quyền dùng ứng dụng này'),
+          LoginResponse.fromJson(backendLogin(role: role)).sessionRejection?.code,
+          AppFailure.roleNotAllowed,
           reason: '$role',
         );
       }
@@ -392,7 +407,7 @@ void main() {
       });
       expect(resp.accessToken, isNull);
       expect(resp.refreshToken, isNull);
-      expect(resp.sessionRejection, isNotNull);
+      expect(resp.sessionRejection?.code, AppFailure.missingTokens);
     });
 
     test('UT-GATE-06: non-string tokens do not throw and are rejected', () {
@@ -403,7 +418,7 @@ void main() {
       };
       expect(() => LoginResponse.fromJson(json), returnsNormally);
       final resp = LoginResponse.fromJson(json);
-      expect(resp.sessionRejection, isNotNull);
+      expect(resp.sessionRejection?.code, AppFailure.missingTokens);
       expect(resp.tempToken, isNull);
     });
   });

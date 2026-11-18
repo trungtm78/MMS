@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
+import 'l10n/l10n.dart';
 
 class PoliceApp extends ConsumerWidget {
   const PoliceApp({super.key});
@@ -11,7 +12,11 @@ class PoliceApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'PoliceApp',
+      onGenerateTitle: (context) => context.l10n.appTitle,
+      // Texts come from lib/l10n/app_vi.arb; Material widgets use their Vietnamese texts too
+      locale: const Locale('vi'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       routerConfig: router,
       theme: ThemeData(

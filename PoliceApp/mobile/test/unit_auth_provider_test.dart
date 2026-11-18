@@ -9,9 +9,16 @@ import 'helpers/fakes.dart';
 
 Future<AuthNotifier> _boot(MemoryStorage storage) async {
   final notifier = AuthNotifier(storage, Dio());
-  // _checkAuth runs from the constructor; let its awaits settle
-  await Future<void>.delayed(const Duration(milliseconds: 10));
+  // The stored session is checked from the constructor
+  await notifier.ready;
   return notifier;
+}
+
+/// Current state without the deprecated debugState: addListener fires immediately.
+AuthState _state(AuthNotifier n) {
+  late AuthState current;
+  n.addListener((s) => current = s)();
+  return current;
 }
 
 void main() {
@@ -20,8 +27,8 @@ void main() {
       for (final role in ['ca', 'dqtv']) {
         final storage = MemoryStorage(role: role);
         final n = await _boot(storage);
-        expect(n.debugState.isAuthenticated, isTrue, reason: role);
-        expect(n.debugState.role, role, reason: role);
+        expect(_state(n).isAuthenticated, isTrue, reason: role);
+        expect(_state(n).role, role, reason: role);
         n.dispose();
       }
     });
@@ -30,7 +37,7 @@ void main() {
       for (final role in [null, '', 'unknown']) {
         final storage = MemoryStorage(role: role);
         final n = await _boot(storage);
-        expect(n.debugState.isAuthenticated, isFalse, reason: '$role');
+        expect(_state(n).isAuthenticated, isFalse, reason: '$role');
         expect(storage.access, isNull, reason: '$role');
         expect(storage.refresh, isNull, reason: '$role');
         n.dispose();
@@ -40,7 +47,7 @@ void main() {
     test('UT-SESS-03: unexpired session without a refresh token is discarded', () async {
       final storage = MemoryStorage(access: unexpiredJwt(), refresh: null, role: 'ca');
       final n = await _boot(storage);
-      expect(n.debugState.isAuthenticated, isFalse);
+      expect(_state(n).isAuthenticated, isFalse);
       expect(storage.access, isNull);
       n.dispose();
     });
@@ -48,7 +55,7 @@ void main() {
     test('UT-SESS-04: whitespace-only stored tokens are discarded', () async {
       final storage = MemoryStorage(access: '   ', refresh: '  ', role: 'ca');
       final n = await _boot(storage);
-      expect(n.debugState.isAuthenticated, isFalse);
+      expect(_state(n).isAuthenticated, isFalse);
       expect(storage.access, isNull);
       expect(storage.refresh, isNull);
       n.dispose();

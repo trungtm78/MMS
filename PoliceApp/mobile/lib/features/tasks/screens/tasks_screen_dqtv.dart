@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../l10n/l10n.dart';
+import '../../../shared/errors/app_failure.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../models/task_status.dart';
+import '../task_texts.dart';
 
 class MyTasksScreen extends ConsumerStatefulWidget {
   const MyTasksScreen({super.key});
@@ -14,111 +20,75 @@ class MyTasksScreen extends ConsumerStatefulWidget {
 }
 
 class _MyTasksScreenState extends ConsumerState<MyTasksScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
-  List<Map<String, dynamic>> _all = [], _assigned = [], _inProgress = [], _completed = [];
+  late final TabController _tabCtrl = TabController(length: 4, vsync: this);
+  List<Map<String, dynamic>> _all = [];
   bool _loading = true;
+  AppFailure? _failure;
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 4, vsync: this);
     _load();
   }
 
   @override
-  void dispose() { _tabCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
 
+  /// GET /tasks: one row per task of the caller's scope (tasks.service.ts listTasksPaginated)
   Future<void> _load() async {
-    setState(() { _loading = true; });
+    setState(() {
+      _loading = true;
+      _failure = null;
+    });
     try {
-      final dio = ref.read(dioProvider);
-      final resp = await dio.get(ApiConstants.tasks, queryParameters: {'limit': '50'});
+      final resp = await ref.read(dioProvider).get(ApiConstants.tasks, queryParameters: {'limit': 50});
+      final body = resp.data;
+      final rows = body is Map ? body['data'] : null;
+      if (rows is! List) throw const FormatException('GET /tasks: expected {data: [...]}');
       if (!mounted) return;
-      final all = List<Map<String, dynamic>>.from(resp.data['data'] as List? ?? []);
       setState(() {
-        _all = all;
-        _assigned = all.where((t) => t['assignments'] is List && (t['assignments'] as List).isNotEmpty &&
-            (t['assignments'] as List).first['status'] == 'assigned').toList();
-        _inProgress = all.where((t) => t['assignments'] is List && (t['assignments'] as List).isNotEmpty &&
-            ['accepted', 'in_progress'].contains((t['assignments'] as List).first['status'])).toList();
-        _completed = all.where((t) => t['assignments'] is List && (t['assignments'] as List).isNotEmpty &&
-            (t['assignments'] as List).first['status'] == 'completed').toList();
+        _all = rows.whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() { _loading = false; });
+      setState(() {
+        _failure = AppFailure.from(e);
+        _loading = false;
+      });
     }
   }
 
-  Widget _buildList(List<Map<String, dynamic>> tasks) {
+  List<Map<String, dynamic>> _where(bool Function(String status) test) =>
+      _all.where((task) => test(task['status'] as String? ?? '')).toList();
+
+  Widget _buildList(AppLocalizations l10n, List<Map<String, dynamic>> tasks) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.navy));
-    if (tasks.isEmpty) return const Center(child: Text('Không có nhiệm vụ', style: TextStyle(color: AppColors.textSecondary)));
+    if (tasks.isEmpty) {
+      return Center(child: Text(l10n.tasksMyListEmpty, style: const TextStyle(color: AppColors.textSecondary)));
+    }
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: tasks.length,
-        itemBuilder: (ctx, i) {
-          final task = tasks[i];
-          final assignment = (task['assignments'] as List?)?.firstOrNull as Map<String, dynamic>?;
-          final assignStatus = assignment?['status'] as String? ?? task['status'] as String? ?? 'pending';
-          final progress = assignment?['progress'] as int? ?? 0;
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              onTap: () => context.push('/dqtv/tasks/${task['id']}'),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Expanded(child: Text(task['title'] as String? ?? '', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.taskStatusColor(assignStatus).withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(AppColors.taskStatusLabel(assignStatus),
-                          style: TextStyle(fontSize: 11, color: AppColors.taskStatusColor(assignStatus), fontWeight: FontWeight.w600)),
-                    ),
-                  ]),
-                  const SizedBox(height: 6),
-                  Text('${task['code'] ?? ''}  •  Hạn: ${task['deadline']?.toString().substring(0, 10) ?? '-'}',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                  if (task['locationName'] != null) ...[
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      const Icon(Icons.location_on, size: 13, color: AppColors.textMuted),
-                      const SizedBox(width: 4),
-                      Text(task['locationName'] as String, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                    ]),
-                  ],
-                  if (progress > 0) ...[
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: progress / 100,
-                      backgroundColor: AppColors.divider,
-                      valueColor: AlwaysStoppedAnimation(AppColors.navy),
-                    ),
-                    const SizedBox(height: 2),
-                    Text('Tiến độ: $progress%', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                  ],
-                ]),
-              ),
-            ),
-          );
-        },
+        itemBuilder: (ctx, i) => _TaskCard(task: tasks[i]),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final toAccept = _where(acceptableTaskStatuses.contains);
+    final inProgress = _where((status) => status == 'in_progress');
+    final completed = _where((status) => status == 'completed');
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const AppHeader(title: 'Nhiệm vụ của tôi', showBack: false),
+      appBar: AppHeader(title: l10n.tasksMyListTitle, showBack: false),
       body: Column(children: [
         Container(
           color: Colors.white,
@@ -129,25 +99,105 @@ class _MyTasksScreenState extends ConsumerState<MyTasksScreen> with SingleTicker
             unselectedLabelColor: AppColors.textSecondary,
             indicatorColor: AppColors.navy,
             tabs: [
-              Tab(text: 'Tất cả (${_all.length})'),
-              Tab(text: 'Chờ nhận (${_assigned.length})'),
-              Tab(text: 'Đang làm (${_inProgress.length})'),
-              Tab(text: 'Hoàn thành (${_completed.length})'),
+              Tab(text: l10n.tasksMyListTabAll(_all.length)),
+              Tab(text: l10n.tasksMyListTabToAccept(toAccept.length)),
+              Tab(text: l10n.tasksMyListTabInProgress(inProgress.length)),
+              Tab(text: l10n.tasksMyListTabCompleted(completed.length)),
             ],
           ),
         ),
         Expanded(
-          child: TabBarView(
-            controller: _tabCtrl,
-            children: [
-              _buildList(_all),
-              _buildList(_assigned),
-              _buildList(_inProgress),
-              _buildList(_completed),
-            ],
-          ),
+          child: _failure != null
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.error_outline, color: AppColors.error, size: 48),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(l10n.tasksMyListLoadFailed(failureText(l10n, _failure!)),
+                          textAlign: TextAlign.center),
+                    ),
+                    ElevatedButton(onPressed: _load, child: Text(l10n.commonRetry)),
+                  ]),
+                )
+              : TabBarView(
+                  controller: _tabCtrl,
+                  children: [
+                    _buildList(l10n, _all),
+                    _buildList(l10n, toAccept),
+                    _buildList(l10n, inProgress),
+                    _buildList(l10n, completed),
+                  ],
+                ),
         ),
       ]),
     );
   }
+}
+
+class _TaskCard extends StatelessWidget {
+  const _TaskCard({required this.task});
+
+  final Map<String, dynamic> task;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final status = task['status'] as String? ?? '';
+    final color = AppColors.taskStatusColor(status);
+    final deadline = DateTime.tryParse('${task['deadline'] ?? ''}');
+    final location = task['locationName'];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: () => context.push('/dqtv/tasks/${task['id']}'),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(
+                child: Text(task['title'] as String? ?? '',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              ),
+              _Chip(text: taskStatusText(l10n, status), color: color),
+              // Open past its deadline, whatever the stored status says
+              if (task['overdue'] == true && status != 'overdue') ...[
+                const SizedBox(width: 6),
+                _Chip(text: l10n.tasksStatusOverdue, color: AppColors.error),
+              ],
+            ]),
+            const SizedBox(height: 6),
+            Text(
+              '${task['code'] ?? ''}  •  '
+              '${l10n.tasksMyListDeadline(deadline == null ? '-' : DateFormat('dd/MM/yyyy').format(deadline.toLocal()))}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            ),
+            if (location is String && location.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(children: [
+                const Icon(Icons.location_on, size: 13, color: AppColors.textMuted),
+                const SizedBox(width: 4),
+                Text(location, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+              ]),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+        child: Text(text, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+      );
 }

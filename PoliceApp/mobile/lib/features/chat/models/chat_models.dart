@@ -1,3 +1,35 @@
+/// Someone in a conversation other than the caller, or a person found by the picker.
+class ChatParticipant {
+  final String id; // users.id
+  final String fullName;
+  final String? username;
+
+  /// Extra line shown by the participant picker (militia code and unit, or username)
+  final String? subtitle;
+
+  const ChatParticipant({
+    required this.id,
+    required this.fullName,
+    this.username,
+    this.subtitle,
+  });
+
+  factory ChatParticipant.fromJson(Map<String, dynamic> json) => ChatParticipant(
+        id: json['id'].toString(),
+        fullName: json['fullName'] as String? ?? '',
+        username: json['username'] as String?,
+      );
+
+  /// The full name, else the username, else the id
+  String get displayName {
+    if (fullName.trim().isNotEmpty) return fullName.trim();
+    final user = username?.trim();
+    return user != null && user.isNotEmpty ? user : id;
+  }
+}
+
+/// One item of GET /chat/conversations, also the answer of POST /chat/conversations
+/// (Web/backend/src/chat/chat.service.ts:77-121). Texts built from it: chat_labels.dart.
 class Conversation {
   final String id;
   final String? title;
@@ -6,6 +38,12 @@ class Conversation {
   final String? lastMessage;
   final String? lastMessageAt;
 
+  /// Everyone in the conversation except the caller
+  final List<ChatParticipant> participants;
+
+  /// Messages from others since the caller last read the conversation
+  final int unreadCount;
+
   const Conversation({
     required this.id,
     this.title,
@@ -13,16 +51,32 @@ class Conversation {
     required this.createdAt,
     this.lastMessage,
     this.lastMessageAt,
+    this.participants = const [],
+    this.unreadCount = 0,
   });
 
-  factory Conversation.fromJson(Map<String, dynamic> json) => Conversation(
-        id: json['id'] as String,
-        title: json['title'] as String?,
-        conversationType: json['conversationType'] as String? ?? 'direct',
-        createdAt: json['createdAt'] as String? ?? '',
-        lastMessage: json['lastMessage'] as String?,
-        lastMessageAt: json['lastMessageAt'] as String?,
-      );
+  bool get isGroup => conversationType == 'group';
+
+  factory Conversation.fromJson(Map<String, dynamic> json) {
+    final rawParticipants = json['participants'];
+    final rawUnread = json['unreadCount'];
+    return Conversation(
+      id: json['id'] as String,
+      title: json['title'] as String?,
+      conversationType: json['conversationType'] as String? ?? 'direct',
+      createdAt: json['createdAt'] as String? ?? '',
+      lastMessage: json['lastMessage'] as String?,
+      lastMessageAt: json['lastMessageAt'] as String?,
+      participants: rawParticipants is List
+          ? rawParticipants
+              .whereType<Map>()
+              .where((p) => p['id'] != null)
+              .map((p) => ChatParticipant.fromJson(Map<String, dynamic>.from(p)))
+              .toList()
+          : const [],
+      unreadCount: rawUnread is num ? rawUnread.toInt() : int.tryParse('$rawUnread') ?? 0,
+    );
+  }
 }
 
 class ChatMessage {
