@@ -5,6 +5,7 @@
 // Composite (tenant_id, id) keys (migrations 038-040) close it. Every foreign key of the
 // M0 slice is tried here as mms_app under tenant A with one id of tenant B.
 // Requires MIGRATION_TEST_ADMIN_URL; run with --runInBand.
+import { randomUUID } from 'crypto';
 import {
   createTenantDatabase,
   seedTenant,
@@ -106,43 +107,64 @@ describe('cross-tenant references (e2e)', () => {
     await db?.drop();
   });
 
+  // Every case runs in its own transaction and rolls back: no case leaves a row for another
+  // to meet, so the cases pass or fail in any order
   it.each(POINTERS)(
     'refuses a row of one tenant that points at a row of another ($fk)',
     async ({ fk, sql, values }) => {
       await expect(
-        db.app(a.id, (c) => c.query(sql, values(a, b))),
+        db.app(a.id, async (c) => {
+          await c.query('BEGIN');
+          try {
+            return await c.query(sql, values(a, b));
+          } finally {
+            await c.query('ROLLBACK');
+          }
+        }),
       ).rejects.toMatchObject({ code: '23503', constraint: fk });
     },
   );
 
-  // Last: it deletes the task of B that the cases above point at
-  it('lets another tenant delete its own rows without reaching into, or being blocked by, ours', async () => {
-    // Refused by the composite key; with a single-column key this row would exist and the
-    // delete below would silently remove it from tenant A
-    await expect(
+  // Builds its own rows, so it depends on no other case. With a single-column key the
+  // pointing row is accepted (the first expectation fails: resolved instead of rejected) and
+  // B's delete would cascade into A's row; the composite key refuses the row outright
+  it('lets another tenant delete its own task without reaching into, or being blocked by, ours', async () => {
+    const task = (t: SeededTenant, label: string) =>
+      db.app(t.id, async (c) => {
+        const { rows } = await c.query<{ id: string }>(
+          `INSERT INTO tasks (code, title, type, created_by, unit_id)
+           VALUES ($1, 'x', 'patrol', $2, $3) RETURNING id`,
+          [`REF-${label}-${randomUUID().slice(0, 8)}`, t.adminId, t.unitId],
+        );
+        return rows[0].id;
+      });
+    const taskOfA = await task(a, 'A');
+    const taskOfB = await task(b, 'B');
+    const assign = (taskId: string) =>
       db.app(a.id, (c) =>
         c.query(
           `INSERT INTO task_assignments (task_id, assignee_id, assigned_by) VALUES ($1, $2, $2)`,
-          [b.taskId, a.memberUserId],
-        ),
-      ),
-    ).rejects.toMatchObject({ code: '23503' });
-    const assignmentsOfA = () =>
-      db.app(a.id, async (c) =>
-        Number(
-          (
-            await c.query<{ n: string }>(
-              `SELECT count(*) AS n FROM task_assignments`,
-            )
-          ).rows[0].n,
+          [taskId, a.memberUserId],
         ),
       );
-    const before = await assignmentsOfA();
+    await assign(taskOfA);
 
-    await db.app(b.id, (c) =>
-      c.query(`DELETE FROM tasks WHERE id = $1`, [b.taskId]),
+    await expect(assign(taskOfB)).rejects.toMatchObject({ code: '23503' });
+
+    const deleted = await db.app(b.id, (c) =>
+      c.query(`DELETE FROM tasks WHERE id = $1`, [taskOfB]),
     );
+    expect(deleted.rowCount).toBe(1);
 
-    expect(await assignmentsOfA()).toBe(before);
+    // Tenant A still holds its own assignment, and none to the deleted task of B
+    const remaining = await db.app(a.id, async (c) =>
+      (
+        await c.query<{ task_id: string }>(
+          `SELECT task_id FROM task_assignments WHERE task_id = ANY ($1) AND assignee_id = $2`,
+          [[taskOfA, taskOfB], a.memberUserId],
+        )
+      ).rows.map((r) => r.task_id),
+    );
+    expect(remaining).toEqual([taskOfA]);
   });
 });
