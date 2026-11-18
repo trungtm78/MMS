@@ -52,7 +52,13 @@ describe('tenant isolation in the database (e2e)', () => {
         );
         return [Number(mine.rows[0].n), Number(other.rows[0].n)];
       });
-      expect({ table, own, foreign }).toEqual({ table, own: 1, foreign: 0 });
+      // seedTenant writes one row per table, except two users: the admin and the member
+      const expectedOwn = table === 'users' ? 2 : 1;
+      expect({ table, own, foreign }).toEqual({
+        table,
+        own: expectedOwn,
+        foreign: 0,
+      });
     }
   });
 

@@ -2,6 +2,8 @@
 // Requires MIGRATION_TEST_ADMIN_URL, TEST_REDIS_URL; run with --runInBand.
 import { E2E_API_PREFIX, E2E_DB_NAME } from './support/app-env';
 import { E2E_UPLOAD_DIR } from './support/enforced-env';
+import * as ExcelJS from 'exceljs';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
@@ -19,6 +21,7 @@ import {
   type SeededTenant,
   type TenantDatabase,
 } from './support/tenancy';
+import { eventually } from './support/eventually';
 
 jest.setTimeout(240_000);
 
@@ -240,6 +243,240 @@ describe('tenant slice (e2e)', () => {
       ]);
       expect(unknown.map((r) => r.status)).toEqual(known.map((r) => r.status));
       expect(unknown.map((r) => r.body)).toEqual(known.map((r) => r.body));
+    });
+  });
+
+  // Every GET route the slice serves to a tenant admin. The search terms match the canary
+  // of BOTH tenants (users: "CANARY", units: "Unit CANARY-x"), so a search that ignored the
+  // tenant would return the rows of the other one. The user search needs two characters.
+  const GET_ROUTES = [
+    '/tasks',
+    '/militia',
+    '/users/search?q=canary',
+    '/units/search?q=unit',
+    '/notifications',
+    '/audit',
+  ];
+
+  // Keys a route may return that differ between two identical calls; add one here, with
+  // a comment, only when a route really returns a clock value
+  const VOLATILE_KEYS = new Set<string>([]);
+  const stable = (value: unknown): unknown =>
+    JSON.parse(
+      JSON.stringify(value, (key, v: unknown) =>
+        VOLATILE_KEYS.has(key) ? null : v,
+      ),
+    );
+
+  const snapshot = async (who: string) =>
+    Promise.all(
+      GET_ROUTES.map(async (route) => {
+        const res = await api().get(url(route)).set(auth(who));
+        return { route, status: res.status, body: stable(res.body) };
+      }),
+    );
+
+  const binary = (
+    res: request.Response,
+    cb: (error: Error | null, body: Buffer) => void,
+  ) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => chunks.push(chunk));
+    res.on('end', () => cb(null, Buffer.concat(chunks)));
+  };
+
+  const cellTexts = async (body: Buffer): Promise<string> => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(body as unknown as ArrayBuffer);
+    const texts: string[] = [];
+    workbook.eachSheet((sheet) =>
+      sheet.eachRow((row) =>
+        // cell.text is the shown text, whatever the cell holds (string, rich text, formula)
+        row.eachCell((cell) => texts.push(cell.text)),
+      ),
+    );
+    return texts.join('\n');
+  };
+
+  // The audit row of a request is written after its answer went out; it is found by the
+  // request id the request carried, so no other request can be mistaken for it
+  const auditRowsOf = async (requestId: string) => {
+    let rows: { tenant_id: string; actor_id: string }[] = [];
+    await eventually(async () => {
+      rows = await db.admin(
+        async (c) =>
+          (
+            await c.query<{ tenant_id: string; actor_id: string }>(
+              `SELECT tenant_id, actor_id FROM audit_logs WHERE request_id = $1`,
+              [requestId],
+            )
+          ).rows,
+      );
+      return rows.length > 0;
+    }, `the audit row of request ${requestId}`);
+    return rows;
+  };
+
+  describe('HTTP guard chain', () => {
+    it('serves every list route with the caller tenant data only', async () => {
+      const results = await snapshot('a');
+      expect(results.length).toBeGreaterThanOrEqual(5);
+      for (const { route, status, body } of results) {
+        expect({ route, status }).toEqual({ route, status: 200 });
+        // Not an empty answer: the tenant's own rows are there, the other tenant's are not
+        expect({
+          route,
+          ownRows: JSON.stringify(body).includes('CANARY-A'),
+        }).toEqual({ route, ownRows: true });
+        expect(JSON.stringify(body)).not.toContain('CANARY-B');
+      }
+      const tasks = results.find((r) => r.route === '/tasks');
+      expect(JSON.stringify(tasks?.body)).toContain('CANARY-A');
+    });
+
+    it('answers 404 for a record of another tenant, by id', async () => {
+      await api()
+        .get(url(`/tasks/${b.taskId}`))
+        .set(auth('a'))
+        .expect(404);
+      await api()
+        .get(url(`/militia/${b.memberId}`))
+        .set(auth('a'))
+        .expect(404);
+      await api()
+        .get(url(`/files/${b.fileId}`))
+        .set(auth('a'))
+        .expect(404);
+      await api()
+        .get(url(`/tasks/${a.taskId}`))
+        .set(auth('a'))
+        .expect(200);
+    });
+
+    it('does not let a tenant point its own record at another tenant', async () => {
+      const requestId = randomUUID();
+      const res = await api()
+        .post(url('/tasks'))
+        .set(auth('a'))
+        .set('X-Request-Id', requestId)
+        .send({ title: 'Cross tenant', assigneeMilitiaId: b.memberId })
+        .expect(404);
+      expect(JSON.stringify(res.body)).toContain('militia_not_found');
+
+      const created = await db.admin((c) =>
+        c.query<{ id: string }>(`SELECT id FROM tasks WHERE title = $1`, [
+          'Cross tenant',
+        ]),
+      );
+      expect(created.rows).toEqual([]);
+      // The refused request is on the audit trail of the tenant that made it
+      expect(await auditRowsOf(requestId)).toEqual([
+        { tenant_id: a.id, actor_id: a.adminId },
+      ]);
+    });
+
+    it('leaves the answers of one tenant unchanged when another tenant changes (differential)', async () => {
+      const before = await snapshot('a');
+      await db.admin((c) =>
+        c.query(
+          `INSERT INTO tasks (tenant_id, code, title, type, created_by)
+           VALUES ($1, 'TASK-B-EXTRA', 'Task CANARY-B extra', 'patrol', $2)`,
+          [b.id, b.adminId],
+        ),
+      );
+      const requestId = randomUUID();
+      await api()
+        .post(url('/tasks'))
+        .set(auth('b'))
+        .set('X-Request-Id', requestId)
+        .send({ title: 'CANARY-B created', assigneeMilitiaId: b.memberId })
+        .expect(201);
+      // Tenant B's audit row is written after the answer; let it land before comparing
+      await auditRowsOf(requestId);
+
+      // The change is real: tenant B sees it ...
+      const seenByB = await api().get(url('/tasks')).set(auth('b')).expect(200);
+      expect(JSON.stringify(seenByB.body)).toContain('CANARY-B created');
+      expect(JSON.stringify(seenByB.body)).toContain('CANARY-B extra');
+      // ... and tenant A's answers did not move
+      const after = await snapshot('a');
+      expect(after).toEqual(before);
+    });
+
+    it('writes a created record and its audit row under the caller tenant', async () => {
+      const requestId = randomUUID();
+      const created = await api()
+        .post(url('/tasks'))
+        .set(auth('a'))
+        .set('X-Request-Id', requestId)
+        .send({ title: 'Audited task', assigneeMilitiaId: a.memberId })
+        .expect(201);
+      const id = (created.body as { id: string }).id;
+      const rows = await db.admin(
+        async (c) =>
+          (
+            await c.query<{ tenant_id: string }>(
+              `SELECT tenant_id FROM tasks WHERE id = $1`,
+              [id],
+            )
+          ).rows,
+      );
+      expect(rows).toEqual([{ tenant_id: a.id }]);
+      // Written after the answer, outside the handler: it still belongs to the caller
+      expect(await auditRowsOf(requestId)).toEqual([
+        { tenant_id: a.id, actor_id: a.adminId },
+      ]);
+    });
+
+    it('lets two tenants hold the same task code, but a tenant only once', async () => {
+      const insert = (tenant: SeededTenant) =>
+        db.admin((c) =>
+          c.query(
+            `INSERT INTO tasks (tenant_id, code, title, type, created_by)
+             VALUES ($1, 'TASK-SHARED', 'x', 'patrol', $2)`,
+            [tenant.id, tenant.adminId],
+          ),
+        );
+      await insert(a);
+      await insert(b);
+
+      const held = await db.admin((c) =>
+        c.query<{ tenant_id: string }>(
+          `SELECT tenant_id FROM tasks WHERE code = 'TASK-SHARED'`,
+        ),
+      );
+      expect(held.rows.map((r) => r.tenant_id).sort()).toEqual(
+        [a.id, b.id].sort(),
+      );
+      // The code is still unique inside one tenant
+      await expect(insert(a)).rejects.toMatchObject({ code: '23505' });
+    });
+  });
+
+  describe('exports', () => {
+    it('contains only the rows of the caller tenant', async () => {
+      const res = await api()
+        .get(url('/militia/export?format=xlsx'))
+        .set(auth('a'))
+        .buffer(true)
+        .parse(binary)
+        .expect(200);
+      expect(res.headers['content-type']).toContain('spreadsheetml');
+      const text = await cellTexts(res.body as Buffer);
+      expect(text).toContain('Member CANARY-A');
+      expect(text).not.toContain('CANARY-B');
+    });
+
+    it('contains the rows of the other tenant for the other tenant', async () => {
+      const res = await api()
+        .get(url('/militia/export?format=xlsx'))
+        .set(auth('b'))
+        .buffer(true)
+        .parse(binary)
+        .expect(200);
+      const text = await cellTexts(res.body as Buffer);
+      expect(text).toContain('Member CANARY-B');
+      expect(text).not.toContain('CANARY-A');
     });
   });
 });

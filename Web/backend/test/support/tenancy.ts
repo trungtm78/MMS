@@ -140,6 +140,7 @@ export interface SeededTenant {
   adminId: string;
   adminUsername: string;
   memberId: string;
+  memberUserId: string;
   taskId: string;
   fileId: string;
   notificationId: string;
@@ -180,15 +181,27 @@ export async function seedTenant(
        SELECT $1, r.id FROM roles r WHERE r.code = 'system_admin'`,
       [adminId],
     );
+    // The member holds an account too, so a task can be assigned through the API
+    const memberUserId = await one<string>(
+      `INSERT INTO users (tenant_id, username, password_hash, full_name, status)
+       VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
+      [id, `member-${code}`, hash, `Member user ${canary}`],
+    );
+    await c.query(
+      `INSERT INTO user_roles (user_id, role_id)
+       SELECT $1, r.id FROM roles r WHERE r.code = 'dqtv'`,
+      [memberUserId],
+    );
     const memberId = await one<string>(
-      `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date)
-       VALUES ($1, $2, $3, $4, '1998-04-04', $5, '2022-01-01') RETURNING id`,
+      `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date, user_id)
+       VALUES ($1, $2, $3, $4, '1998-04-04', $5, '2022-01-01', $6) RETURNING id`,
       [
         id,
         `DQ-${code}`.toUpperCase(),
         `Member ${canary}`,
         String(Math.floor(Math.random() * 1e12)).padStart(12, '0'),
         unitId,
+        memberUserId,
       ],
     );
     const taskId = await one<string>(
@@ -229,6 +242,7 @@ export async function seedTenant(
       adminId,
       adminUsername,
       memberId,
+      memberUserId,
       taskId,
       fileId,
       notificationId,
