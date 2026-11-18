@@ -41,6 +41,9 @@ type Checkout = [FakeClient, (error?: unknown) => void];
 const checkout = (ds: { driver: { obtainMasterConnection: () => unknown } }) =>
   ds.driver.obtainMasterConnection() as Promise<Checkout>;
 
+// The function currently installed as `client.query`, compared by identity
+const queryOf = (client: FakeClient): unknown => Reflect.get(client, 'query');
+
 describe('bindTenantToConnections', () => {
   it('writes an empty tenant when there is no scope, so nothing is visible', async () => {
     const client = new FakeClient();
@@ -136,10 +139,19 @@ describe('bindTenantToConnections', () => {
     const client = new FakeClient();
     const { driver, dataSource } = fakeDataSource(client, []);
     bindTenantToConnections(dataSource);
-    for (let i = 0; i < 3; i++) {
-      const [pg, release] = await checkout({ driver });
-      await pg.query('SELECT 3');
-      release();
+    let wrapped: unknown;
+    for (const tenantId of [undefined, A, B]) {
+      const useConnection = async () => {
+        const [pg, release] = await checkout({ driver });
+        // The first checkout instruments the client; later ones must reuse that wrapper
+        wrapped ??= queryOf(pg);
+        expect(queryOf(pg)).toBe(wrapped);
+        await pg.query('SELECT 3');
+        release();
+      };
+      await (tenantId
+        ? TenantContext.runAs({ tenantId }, useConnection)
+        : useConnection());
     }
     expect(client.calls.filter((c) => c.text === 'SELECT 3')).toHaveLength(3);
   });
