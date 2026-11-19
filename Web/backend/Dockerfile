@@ -10,6 +10,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
+# The image carries compiled JavaScript only: no source maps, no type declarations
+RUN find dist -type f \( -name '*.map' -o -name '*.d.ts' \) -delete
 # SQL migrations own the schema; pending ones are applied before the server starts.
 # Replicas starting together are serialised by the migrator's advisory lock, but releases
 # with incompatible schema changes are still deployed drained, one migrating instance and
