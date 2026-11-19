@@ -5,12 +5,15 @@ export interface TenantScope {
   readonly tenantId: string;
 }
 
-type ScopeErrorCode =
-  | 'no_scope_store'
-  | 'scope_already_set'
-  | 'no_tenant_scope'
-  | 'invalid_tenant_id'
-  | 'tenant_scope_mismatch';
+export const TENANT_SCOPE_ERROR_CODES = [
+  'no_scope_store',
+  'scope_already_set',
+  'no_tenant_scope',
+  'invalid_tenant_id',
+  'tenant_scope_mismatch',
+] as const;
+
+type ScopeErrorCode = (typeof TENANT_SCOPE_ERROR_CODES)[number];
 
 export class TenantScopeError extends Error {
   constructor(

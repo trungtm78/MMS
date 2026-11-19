@@ -8,6 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { TENANT_SCOPE_ERROR_CODES } from '../../database/tenancy/tenant-context';
 
 const ERROR_CODES: Record<number, string> = {
   400: 'E001', // Bad request / validation
@@ -43,6 +44,17 @@ function detailsOf(
     : undefined;
 }
 
+// A tenant scope failure (TenantScopeError, or the QueryFailedError TypeORM wraps it in, which
+// copies its code) means the server ran tenant data access outside or across the request's
+// scope: a programming error, never the client's. A stable reason, nothing more.
+function tenantScopeReason(exception: unknown): string | undefined {
+  const code = (exception as { code?: unknown } | null)?.code;
+  return typeof code === 'string' &&
+    (TENANT_SCOPE_ERROR_CODES as readonly string[]).includes(code)
+    ? code
+    : undefined;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -57,19 +69,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ? exception.getStatus()
       : HttpStatus.INTERNAL_SERVER_ERROR;
     const errors = isHttp ? validationMessages(exception) : undefined;
-    const details = isHttp ? detailsOf(exception) : undefined;
+    const scopeReason = isHttp ? undefined : tenantScopeReason(exception);
+    const details = isHttp
+      ? detailsOf(exception)
+      : scopeReason
+        ? { reason: scopeReason }
+        : undefined;
 
     // Application errors carry a code (e.g. "leave_request_not_pending"); unexpected
     // errors never reveal their details
     const message = !isHttp
-      ? 'Internal server error'
+      ? scopeReason
+        ? 'tenant_scope_error'
+        : 'Internal server error'
       : errors
         ? 'validation_failed'
         : exception.message;
 
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} → ${status}`,
+        `${request.method} ${request.url} → ${status}${scopeReason ? ` (tenant scope: ${scopeReason})` : ''}`,
         (exception as Error).stack,
       );
     }

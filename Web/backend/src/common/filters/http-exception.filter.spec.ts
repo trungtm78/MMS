@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
+import { TenantScopeError } from '../../database/tenancy/tenant-context';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 function run(exception: unknown) {
@@ -98,5 +99,49 @@ describe('HttpExceptionFilter', () => {
       message: 'Internal server error',
     });
     expect(JSON.stringify(body)).not.toContain('relation');
+  });
+
+  // Each code means the server ran tenant data access outside or across the request's scope:
+  // a programming error, never the client's (a 401 would sign the user out)
+  describe('tenant scope errors', () => {
+    it.each([
+      [
+        'a TenantScopeError',
+        new TenantScopeError('tenant_scope_mismatch', 'mismatch'),
+      ],
+      [
+        'a query error carrying its code',
+        Object.assign(new Error('query failed'), { code: 'no_tenant_scope' }),
+      ],
+    ])(
+      'answers %s as a server error with a stable reason',
+      (_label, exception) => {
+        const { code, body } = run(exception);
+
+        expect(code).toBe(500);
+        expect(body).toMatchObject({
+          code: 'E005',
+          message: 'tenant_scope_error',
+          details: { reason: (exception as { code: string }).code },
+        });
+      },
+    );
+
+    it('does not leak the error message of a scope failure', () => {
+      const { body } = run(
+        new TenantScopeError('tenant_scope_mismatch', 'secret-tenant-detail'),
+      );
+
+      expect(JSON.stringify(body)).not.toContain('secret-tenant-detail');
+    });
+
+    it('leaves another database error as an unexplained server error', () => {
+      const { body } = run(
+        Object.assign(new Error('duplicate'), { code: '23505' }),
+      );
+
+      expect(body).toMatchObject({ message: 'Internal server error' });
+      expect(body.details).toBeUndefined();
+    });
   });
 });
