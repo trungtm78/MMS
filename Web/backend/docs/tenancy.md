@@ -11,8 +11,10 @@ gate is in `PROGRESS.md`.
 `users`, `units`, `militia_profiles`, `tasks`, `task_assignments`, `files`,
 `notifications`, `notification_receipts`, `audit_logs`. The other ~60 tables have no
 `tenant_id` yet (M1). Production keeps running in `legacy` mode until M1 lands, and **no
-client can sign in under `enforced` yet**: the web app, PoliceApp and MilitianApp send no
-`tenantCode` (the three clients get the tenant-code screen in M1/M4).
+shipped client sends a `tenantCode` yet**: the web app, PoliceApp and MilitianApp get the
+tenant-code screen in M1c/M4. Until then `enforced` signs a client that sends none in to the tenant
+named by `LEGACY_DEFAULT_TENANT_CODE` (a warning per sign-in; transitional, removed in the release
+after M1c; unset = 400 `tenant_code_required`).
 
 ## The two modes
 
@@ -23,7 +25,7 @@ or `enforced` fails startup with a `TenancyConfigError`.
 | --- | --- | --- |
 | Use it for | Every real deployment until M1 | The tenancy e2e suites, and the M1 rollout |
 | Tenant on the connection | Never written. The **database default** (`ALTER DATABASE <db> SET app.tenant_id = '<first tenant>'`, set by migration 037) is the only thing that gives a session a tenant. Boot refuses a database that lost it | Written on **every** connection checkout from the request scope; "no scope" is written as the empty string and sees nothing. Boot refuses a database that still has the default |
-| Sign-in | `{username, password}` as before; a stray `tenantCode` is ignored | `POST /auth/login {tenantCode, username, password}`; tokens carry `tid`; a token without `tid` is refused. No shipped client sends `tenantCode` yet |
+| Sign-in | `{username, password}` as before; a stray `tenantCode` is ignored | `POST /auth/login {tenantCode, username, password}`; tokens carry `tid`; a token without `tid` is refused. No shipped client sends `tenantCode` yet: see `LEGACY_DEFAULT_TENANT_CODE` (transitional fallback, removed after M1c) |
 | Database user | A **superuser, a BYPASSRLS role, or `mms_app` (or a member of it)**. The policies are `TO mms_app` and FORCE ROW LEVEL SECURITY applies them to the table owner, so any other plain role sees empty tables. Boot refuses it (`legacy_role_blocked_by_rls`). The sample env files' `DB_USER=mms` is a superuser, so it works | Must be `mms_app` (`NOSUPERUSER NOBYPASSRLS`); a superuser or BYPASSRLS role is refused at boot |
 | Socket rooms | `t:legacy:...` | `t:<tenantId>:...`; a missing tenant maps to `t:none:...`, which nobody joins |
 | Uploads | Flat: `<UPLOAD_DIR>/<key>` | `<UPLOAD_DIR>/<tenantId>/<key>` |
