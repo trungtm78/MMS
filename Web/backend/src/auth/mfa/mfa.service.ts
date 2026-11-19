@@ -167,6 +167,7 @@ export class MfaService {
   ): Promise<
     { status: 'SUCCESS'; recoveryCodesRemaining?: number } & SignedInSession
   > {
+    this.challenges.enterTenantOf(input.mfaToken);
     const outcome = await this.dataSource.transaction(async (mgr) => {
       const challenge = await this.challenges.load(
         mgr,
@@ -241,6 +242,7 @@ export class MfaService {
 
   // During sign-in: the setup challenge from the login response
   async startEnrollment(mfaToken: string): Promise<EnrollmentStart> {
+    this.challenges.enterTenantOf(mfaToken);
     return this.dataSource.transaction(async (mgr) => {
       const challenge = await this.challenges.load(mgr, mfaToken, 'setup');
       const user = await this.loadUser(mgr, challenge.userId);
@@ -294,6 +296,7 @@ export class MfaService {
     | ({ status: 'SUCCESS'; recoveryCodes: string[] } & SignedInSession)
     | ({ recoveryCodes: string[] } & SignedInSession)
   > {
+    this.challenges.enterTenantOf(input.mfaToken);
     const outcome = await this.dataSource.transaction(async (mgr) => {
       const challenge = await this.challenges.load(
         mgr,

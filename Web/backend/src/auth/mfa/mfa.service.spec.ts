@@ -1,6 +1,6 @@
 // Second factor for sign-in: which accounts are challenged, how codes are checked, how
 // enrolment hands out recovery codes, and how the factor is removed again
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { generateSync } from 'otplib';
 import { decryptSecret, encryptSecret } from './mfa-secret-crypto';
@@ -153,6 +153,7 @@ const dataSource = {
 };
 
 const challenges = {
+  enterTenantOf: jest.fn(),
   issue: jest.fn(),
   load: jest.fn(),
   recordFailure: jest.fn(),
@@ -244,6 +245,34 @@ describe('MfaService', () => {
     );
   });
   afterEach(() => jest.useRealTimers());
+
+  it.each([
+    [
+      'verify',
+      (s: MfaService) =>
+        s.verify({ mfaToken: 'ch-1.opaque', method: 'totp', code: '123456' }),
+    ],
+    ['startEnrollment', (s: MfaService) => s.startEnrollment('ch-1.opaque')],
+    [
+      'confirmEnrollment',
+      (s: MfaService) =>
+        s.confirmEnrollment({ mfaToken: 'ch-1.opaque', code: '123456' }, {}),
+    ],
+  ])(
+    '%s enters the tenant of the token before it opens its transaction',
+    async (_name, call) => {
+      challenges.enterTenantOf.mockImplementationOnce(() => {
+        throw new UnauthorizedException('mfa_token_invalid');
+      });
+
+      await expect(call(service)).rejects.toMatchObject({
+        message: 'mfa_token_invalid',
+        status: HttpStatus.UNAUTHORIZED,
+      });
+      expect(challenges.enterTenantOf).toHaveBeenCalledWith('ch-1.opaque');
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    },
+  );
 
   describe('beginLogin', () => {
     const account = { id: USER_ID, username: 'ca_ward_01' };

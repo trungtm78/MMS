@@ -2,15 +2,20 @@
 // purpose, short-lived, and closed after a handful of wrong codes
 import { HttpStatus } from '@nestjs/common';
 import { createHmac } from 'crypto';
+import { TenantContext } from '../../database/tenancy/tenant-context';
+import { thrownBy } from '../../../test/support/thrown-by';
 import {
   CHALLENGE_TTL_SECONDS,
   MAX_CHALLENGE_ATTEMPTS,
   MfaChallengeService,
+  challengeTenantOf,
 } from './mfa-challenge.service';
 
 const KEY = Buffer.from('d'.repeat(64), 'hex');
 const ID = '6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d';
 const NOW = new Date('2026-10-01T02:00:00Z');
+const TID = 'a1000000-0000-4000-8000-000000000001';
+const OTHER_TID = 'b2000000-0000-4000-8000-000000000002';
 
 const mgr = { query: jest.fn() };
 const ds = { query: jest.fn() };
@@ -159,6 +164,127 @@ describe('MfaChallengeService', () => {
         HttpStatus.TOO_MANY_REQUESTS,
         'mfa_attempts_exceeded',
       );
+    });
+  });
+
+  describe('the tenant of a challenge', () => {
+    const SECRET = 's'.repeat(43);
+    const previousMode = process.env.TENANCY_MODE;
+    afterEach(() => {
+      if (previousMode === undefined) delete process.env.TENANCY_MODE;
+      else process.env.TENANCY_MODE = previousMode;
+    });
+
+    it('prefixes the token with the tenant of the sign-in under enforced mode', async () => {
+      process.env.TENANCY_MODE = 'enforced';
+      ds.query.mockResolvedValueOnce([{ id: ID }]);
+      const { token } = await TenantContext.runAs({ tenantId: TID }, () =>
+        service.issue('user-1', 'verify'),
+      );
+      const [tenant, id, secret] = token.split('.');
+      expect(tenant).toBe(TID);
+      expect(id).toBe(ID);
+      expect(secret).toHaveLength(43);
+      expect(token).toHaveLength(117);
+      expect(challengeTenantOf(token)).toBe(TID);
+    });
+
+    it('refuses to issue a token without a tenant scope under enforced mode', async () => {
+      process.env.TENANCY_MODE = 'enforced';
+      ds.query.mockResolvedValueOnce([{ id: ID }]);
+      await expect(service.issue('user-1', 'verify')).rejects.toMatchObject({
+        code: 'no_tenant_scope',
+      });
+    });
+
+    it('keeps the legacy token, which names no tenant', async () => {
+      delete process.env.TENANCY_MODE;
+      ds.query.mockResolvedValueOnce([{ id: ID }]);
+      const { token } = await service.issue('user-1', 'verify');
+      expect(token.split('.')).toHaveLength(2);
+      expect(challengeTenantOf(token)).toBeNull();
+    });
+
+    it('enters the tenant of the token before anything is read', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      TenantContext.start(() => {
+        service.enterTenantOf(`${TID}.${ID}.${SECRET}`);
+        expect(TenantContext.current()).toEqual({ tenantId: TID });
+      });
+    });
+
+    it('accepts a token of the tenant the request already runs under', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      TenantContext.start(() => {
+        TenantContext.adopt({ tenantId: TID });
+        service.enterTenantOf(`${TID}.${ID}.${SECRET}`);
+        expect(TenantContext.current()).toEqual({ tenantId: TID });
+      });
+    });
+
+    it.each([
+      ['a token without a tenant', `${ID}.${SECRET}`],
+      ['a malformed token', 'nonsense'],
+      ['an empty token', ''],
+    ])(
+      'answers %s like any invalid token under enforced mode',
+      (_label, token) => {
+        process.env.TENANCY_MODE = 'enforced';
+        TenantContext.start(() => {
+          expect(thrownBy(() => service.enterTenantOf(token))).toMatchObject({
+            message: 'mfa_token_invalid',
+            status: HttpStatus.UNAUTHORIZED,
+          });
+        });
+      },
+    );
+
+    it('answers a token of another tenant than the session like any invalid token', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      TenantContext.start(() => {
+        TenantContext.adopt({ tenantId: OTHER_TID });
+        expect(
+          thrownBy(() => service.enterTenantOf(`${TID}.${ID}.${SECRET}`)),
+        ).toMatchObject({ message: 'mfa_token_invalid' });
+      });
+    });
+
+    it('answers a token with no request scope store like any invalid token', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      expect(
+        thrownBy(() => service.enterTenantOf(`${TID}.${ID}.${SECRET}`)),
+      ).toMatchObject({ message: 'mfa_token_invalid' });
+    });
+
+    it('enters nothing in legacy mode', () => {
+      delete process.env.TENANCY_MODE;
+      TenantContext.start(() => {
+        service.enterTenantOf(`${ID}.${SECRET}`);
+        expect(TenantContext.current()).toBeUndefined();
+      });
+    });
+
+    it('loads a challenge from a token with or without the tenant prefix', async () => {
+      // The row lookup is by challenge id: the prefix only chose the tenant
+      const stored = {
+        id: ID,
+        user_id: 'user-1',
+        purpose: 'verify',
+        secret_hash: hashOf(SECRET),
+        pending_totp_secret: null,
+        attempts: 0,
+        expires_at: new Date(NOW.getTime() + 60_000),
+        consumed_at: null,
+      };
+      mgr.query.mockResolvedValue([stored]);
+      await expect(
+        service.load(mgr as never, `${TID}.${ID}.${SECRET}`, 'verify'),
+      ).resolves.toMatchObject({ id: ID });
+      await expect(
+        service.load(mgr as never, `${ID}.${SECRET}`, 'verify'),
+      ).resolves.toMatchObject({ id: ID });
+      expect(paramsOf(mgr.query, 0)).toEqual([ID]);
+      expect(paramsOf(mgr.query, 1)).toEqual([ID]);
     });
   });
 

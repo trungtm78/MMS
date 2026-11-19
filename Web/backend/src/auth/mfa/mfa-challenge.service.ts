@@ -1,5 +1,6 @@
-// Login and enrolment challenges (auth_challenges). The client holds "<id>.<secret>";
-// the database holds only an HMAC of the secret, so a leaked table cannot be replayed.
+// Login and enrolment challenges (auth_challenges). The client holds "<id>.<secret>"
+// ("<tenant>.<id>.<secret>" under enforced tenancy); the database holds only an HMAC of the
+// secret, so a leaked table cannot be replayed.
 // Callers load a challenge inside their transaction (row lock), count wrong codes and
 // consume it exactly once.
 import {
@@ -13,6 +14,11 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { DataSource, EntityManager } from 'typeorm';
 import { queryRows } from '../../database/query-rows';
+import {
+  TenantContext,
+  TenantScopeError,
+} from '../../database/tenancy/tenant-context';
+import { isTenancyEnforced } from '../../database/tenancy/tenancy-mode';
 
 export type ChallengePurpose = 'verify' | 'setup';
 
@@ -46,8 +52,18 @@ interface ChallengeRow {
 
 type Queryable = Pick<DataSource | EntityManager, 'query'>;
 
-const TOKEN_PATTERN =
-  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/i;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+// "<tenant>.<id>.<secret>" under enforced mode (the verify call has no scope yet, and the
+// challenge row is behind RLS), "<id>.<secret>" in legacy mode
+const TOKEN_PATTERN = new RegExp(
+  `^(?:(${UUID})\\.)?(${UUID})\\.([A-Za-z0-9_-]{43})$`,
+  'i',
+);
+
+/** The tenant a challenge token names, or null when it names none. */
+export function challengeTenantOf(token: string): string | null {
+  return TOKEN_PATTERN.exec(token ?? '')?.[1]?.toLowerCase() ?? null;
+}
 
 const invalidToken = () => new UnauthorizedException('mfa_token_invalid');
 
@@ -67,6 +83,8 @@ export class MfaChallengeService {
     purpose: ChallengePurpose,
     options: { pendingSecret?: string; runner?: Queryable } = {},
   ): Promise<{ token: string; expiresAt: Date }> {
+    // Before the insert: a sign-in without a scope must not leave an orphan challenge
+    const tenant = isTenancyEnforced() ? TenantContext.requireTenantId() : null;
     const secret = randomBytes(32).toString('base64url');
     const expiresAt = new Date(
       Date.now() + CHALLENGE_TTL_SECONDS[purpose] * 1000,
@@ -84,7 +102,27 @@ export class MfaChallengeService {
         expiresAt,
       ],
     );
-    return { token: `${row.id}.${secret}`, expiresAt };
+    return {
+      token: tenant ? `${tenant}.${row.id}.${secret}` : `${row.id}.${secret}`,
+      expiresAt,
+    };
+  }
+
+  /**
+   * Enters the tenant a sign-in challenge was issued in, before anything reads it (enforced
+   * mode). A token without a tenant, or naming another tenant than the one the request
+   * already runs under, gets the answer of any invalid token.
+   */
+  enterTenantOf(token: string): void {
+    if (!isTenancyEnforced()) return;
+    const tenantId = challengeTenantOf(token);
+    if (tenantId === null) throw invalidToken();
+    try {
+      TenantContext.adopt({ tenantId });
+    } catch (error) {
+      if (error instanceof TenantScopeError) throw invalidToken();
+      throw error;
+    }
   }
 
   // Locks the challenge row for the caller's transaction. Every way a token can be wrong
@@ -96,7 +134,8 @@ export class MfaChallengeService {
   ): Promise<LoadedChallenge> {
     const match = TOKEN_PATTERN.exec(token ?? '');
     if (!match) throw invalidToken();
-    const [, id, secret] = match;
+    // The tenant group is ignored here: enterTenantOf entered the scope before this call
+    const [, , id, secret] = match;
 
     const rows = await mgr.query<ChallengeRow[]>(
       `SELECT id, user_id, purpose, secret_hash, pending_totp_secret, attempts,
