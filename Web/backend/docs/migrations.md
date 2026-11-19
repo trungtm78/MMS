@@ -22,10 +22,14 @@ the pending ones in filename order and records each in `schema_migrations`.
   starting together apply each file exactly once. The others poll for the lock
   (`pg_try_advisory_lock`, so a waiting migrator holds no snapshot) for at most
   `MIGRATION_LOCK_WAIT`; see "The advisory lock and the waits" below.
-- **No blocked tables.** A statement waits at most `MIGRATION_LOCK_TIMEOUT` for a table
-  lock, so a migration never queues every query on a busy table behind it. The online
-  statements of a non-transactional file (index builds, `VALIDATE CONSTRAINT`) never block
-  a writer and use the longer `MIGRATION_ONLINE_LOCK_TIMEOUT` instead.
+- **Bounded lock waits.** A statement waits at most `MIGRATION_LOCK_TIMEOUT` for a table
+  lock and then fails, instead of waiting for ever. While it waits, queries on that table
+  queue behind it, so on a busy table the bound is also how long they can stall: a
+  statement that needs an exclusive lock should run when the table is quiet. The bound is
+  **per statement**: a file of many statements can wait that long for each of them, and
+  there is no `statement_timeout`. The online statements of a non-transactional file (index
+  builds, `VALIDATE CONSTRAINT`) never block a writer and use the longer
+  `MIGRATION_ONLINE_LOCK_TIMEOUT` instead.
 - **No guessing on an existing database.** A database without migration history that
   already contains application tables is refused; see below.
 
@@ -332,23 +336,52 @@ ones are `schema_migrations`, `tenants`, `roles`, `permissions`, `role_permissio
 
 **039 is an incompatible release**: the conflict targets of `system_settings`, `incidents`
 and `conversations` change, so old code that names the old targets fails once 039 is
-applied. Deploy it drained, with no old instance running, as described under "Releases
-with incompatible changes". The recipe:
+applied, and the old version cannot run on the post-039 schema at all. Deploy it drained,
+with no old instance running, as described under "Releases with incompatible changes".
 
-1. **Any time before the window**, with the old version still serving: run the migrator as a
-   release step with `--through=038_tenant_columns_online.sql`. It builds its indexes
-   without blocking writers and can take long on large tables; it is safe to interrupt and
-   repeat (the runner drops the INVALID index an interrupted build leaves). Do not leave it
-   to the migration at boot: `MIGRATION_LOCK_WAIT` is shorter than the online bound, so a
-   replica that boots meanwhile would fail.
+**Precondition of 039: only the first tenant owns data.** 038 gives every row that existed
+to the first tenant, and 039 turns that label into foreign keys. 039 therefore starts by
+checking every tenant table, and refuses (rolling back, changing nothing) when any row
+belongs to another tenant: `tenant isolation cutover refused, rows of another tenant: users,
+...`. A tenant row without data is fine. To recover, delete the rows of the other tenants
+together with everything that references them, or restore a backup that lacks them, then
+run the migrator again; 038 is already recorded and is not repeated.
+
+The recipe:
+
+1. **Before the window**, with the old version still serving: set `RUN_MIGRATIONS=false` on
+   the old instances **first**, then run the migrator as a release step with
+   `--through=038_tenant_columns_online.sql`. Once 038 is recorded, an old image that
+   migrates at start finds an applied file it does not have (`MigrationMissingError`), exits 1
+   and, with the Docker image's `migrate || exit 1`, never starts: an old instance that
+   restarts between this step and the window would fail to boot. (Or keep this step directly
+   before the window.) 038 builds its indexes without blocking writers and can take long on
+   large tables; it is safe to interrupt and repeat (the runner drops the INVALID index an
+   interrupted build leaves). Its `ADD COLUMN` and `SET DEFAULT` statements still take a
+   brief exclusive lock on each table: on a busy table readers can queue behind them for
+   seconds, so run it in a quiet hour. Do not leave it to the migration at boot:
+   `MIGRATION_LOCK_WAIT` is shorter than the online bound, so a replica that boots meanwhile
+   would fail.
 2. **Drain and stop the old version.** Back up with `pg_dump --create` (see "Backups and
-   restores").
-3. **Inside the window**: run the migrator with
-   `--through=039_tenant_isolation_cutover.sql`. 039 is one short transaction.
-4. **Start the new version.** Migrating at start applies 040 online and then 041, or run the
-   migrator as a step first and start the instances with `RUN_MIGRATIONS=false`. Traffic is
-   served while 040 validates. Unset `MIGRATION_THROUGH` first: left set it stops before
-   040, warns and exits 0.
+   restores"). This dump is the rollback path (below).
+3. **Inside the window**: first check for long transactions, which would make 039's lock
+   requests wait (and block the tables behind them):
+   `SELECT pid, now() - xact_start AS age, state, left(query, 60) FROM pg_stat_activity
+   WHERE xact_start IS NOT NULL AND pid <> pg_backend_pid() ORDER BY xact_start;` Stop
+   what is old. Then run the migrator with `--through=039_tenant_isolation_cutover.sql`. 039
+   is one transaction holding `ACCESS EXCLUSIVE` locks on about 70 tables until it commits
+   (the statements wait for their locks one after the other, each up to
+   `MIGRATION_LOCK_TIMEOUT`, so the worst case is the sum); nothing serves in the meantime
+   because the old version is stopped.
+4. **Run 040 and 041 as a release step, then start the new version.** Unset
+   `MIGRATION_THROUGH` and run the migrator again against the owner connection
+   (`npm run db:migrate:prod` or the CLI): it applies 040, 171 full scans that include
+   `users`, `audit_logs` and `gps_points`, then 041. Start the new instances with
+   `RUN_MIGRATIONS=false`. Do **not** leave 040 to the migration at start: the image
+   migrates before `node dist/main`, so the migrating instance serves nothing until 040 and
+   041 finish, the other replicas poll `MIGRATION_LOCK_WAIT` (10 min) and exit 1, and if 040
+   fails at boot no instance starts at all. As a release step a failure is just a failed
+   step: fix it, run it again.
 5. **Check**: the migrator reports `0 pending`, and 041 is in `schema_migrations`.
 
 ```sh
@@ -359,6 +392,12 @@ node dist/database/migrations/migrate.cli.js                                    
 
 On a database at 037, a plain run applies all four files in order; the steps above only
 split that run around the drained window. A second run is a no-op.
+
+**Rollback after 039:** restore the dump of step 2 (`pg_restore --create` or the plain SQL
+replay), then start the old version. Nothing else works: the old version cannot run on the
+post-039 schema, and no migration is ever run backwards. Before 039 commits (step 1 only, or a
+refused or failed 039) nothing needs undoing: 038 only adds columns and indexes the old
+version ignores.
 
 Things to know about the result:
 
@@ -377,3 +416,13 @@ Things to know about the result:
   it: the default privileges of 036 are gone. The schema guard fails a table that forgot.
 - **Lock windows.** The windows measured on a synthetic production-sized database are in
   "Rehearsal" below. (TO BE WRITTEN IN TASK 23: this section does not exist yet.)
+
+### Known limits until M1b
+
+- **Legacy mode runs without a tenant predicate.** The legacy application role is a
+  superuser or `BYPASSRLS` (RLS does not apply), the code queries without `tenant_id`, and
+  039 replaced the single-column unique keys with `(tenant_id, ...)` keys. A lookup by a
+  column that used to be globally unique, such as the chat `direct_key` lookup in
+  `chat.service.ts` or the `system_settings` read by `key` in `auth.service.ts`, can no longer
+  use its old index and may scan the table. These are small tables; the enforced mode of
+  M1b adds the predicate and makes the composite keys the access path.
