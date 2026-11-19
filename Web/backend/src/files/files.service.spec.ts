@@ -34,7 +34,8 @@ const mockRunner = { query: jest.fn() };
 const mockAssignments = { getAssignedDqtvIds: jest.fn() };
 const settings: Record<string, string | undefined> = {};
 const mockConfig = { get: jest.fn((key: string) => settings[key]) };
-const mockJobs = { forEachTenant: jest.fn() };
+type TenantJob = (tenantId: string | null) => Promise<void>;
+const mockJobs = { run: jest.fn() };
 
 const callsOf = (mock: jest.Mock) => mock.mock.calls as unknown[][];
 const sqlOf = (mock: jest.Mock, call: number) => String(callsOf(mock)[call][0]);
@@ -65,7 +66,11 @@ describe('FilesService', () => {
     }).compile();
     service = mod.get(FilesService);
     mockDs.query.mockReset();
-    mockJobs.forEachTenant.mockReset();
+    // By default the runner runs the job once, unscoped, as in legacy mode
+    mockJobs.run.mockReset();
+    mockJobs.run.mockImplementation((job: TenantJob) =>
+      job(null).then(() => []),
+    );
     mockRunner.query.mockReset();
     mockAssignments.getAssignedDqtvIds.mockReset();
   });
@@ -150,7 +155,7 @@ describe('FilesService', () => {
 
     const buildService = (
       config: Record<string, string>,
-      runner: { forEachTenant: jest.Mock } = { forEachTenant: jest.fn() },
+      runner: { run: jest.Mock } = { run: jest.fn() },
     ) =>
       new FilesService(
         mockDs as unknown as DataSource,
@@ -256,10 +261,10 @@ describe('FilesService', () => {
 
     it('purges once per tenant in enforced mode', async () => {
       enforce();
-      const forEachTenant = jest.fn().mockResolvedValue([]);
-      const tenants = buildService({ UPLOAD_DIR: '/d' }, { forEachTenant });
+      const run = jest.fn().mockResolvedValue([]);
+      const tenants = buildService({ UPLOAD_DIR: '/d' }, { run });
       await tenants.purgeAbandonedUploadsOnSchedule();
-      expect(forEachTenant).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledTimes(1);
     });
 
     it('purges the rows and the content of every tenant under its own scope', async () => {
@@ -278,14 +283,12 @@ describe('FilesService', () => {
         const key = scopes.length === 1 ? keyOfA : keyOfB;
         return Promise.resolve([[{ storageKey: key }], 1]);
       });
-      mockJobs.forEachTenant.mockImplementation(
-        async (job: (tenantId: string) => Promise<void>) => {
-          for (const tenantId of [TID, OTHER]) {
-            await TenantContext.runAs({ tenantId }, () => job(tenantId));
-          }
-          return [];
-        },
-      );
+      mockJobs.run.mockImplementation(async (job: TenantJob) => {
+        for (const tenantId of [TID, OTHER]) {
+          await TenantContext.runAs({ tenantId }, () => job(tenantId));
+        }
+        return [];
+      });
       const log = jest
         .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
@@ -299,20 +302,23 @@ describe('FilesService', () => {
       expect(log).toHaveBeenCalledWith('Purged 2 abandoned uploads');
     });
 
-    it('reports a failed per-tenant run to the log instead of failing the scheduler', async () => {
-      enforce();
-      mockJobs.forEachTenant.mockRejectedValueOnce(new Error('no tenants'));
-      const error = jest
-        .spyOn(Logger.prototype, 'error')
+    it('names the tenants it could not purge beside the purged count', async () => {
+      mockDs.query.mockResolvedValueOnce([[{ storageKey: KEY }], 1]);
+      mockJobs.run.mockImplementation(async (job: TenantJob) => {
+        await job(TID);
+        return [
+          { tenantId: TID, ok: true },
+          { tenantId: OTHER, ok: false, error: 'x' },
+        ];
+      });
+      const log = jest
+        .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
 
-      await expect(
-        service.purgeAbandonedUploadsOnSchedule(),
-      ).resolves.toBeUndefined();
+      await service.purgeAbandonedUploadsOnSchedule();
 
-      expect(error).toHaveBeenCalledWith(
-        'Purging abandoned uploads failed: no tenants',
-        expect.stringContaining('no tenants'),
+      expect(log).toHaveBeenCalledWith(
+        `Purged 1 abandoned uploads; not purged for ${OTHER} (see the errors above)`,
       );
     });
 
@@ -321,7 +327,7 @@ describe('FilesService', () => {
 
       await service.purgeAbandonedUploadsOnSchedule();
 
-      expect(mockJobs.forEachTenant).not.toHaveBeenCalled();
+      expect(mockJobs.run).toHaveBeenCalledTimes(1);
       expect(mockDs.query).toHaveBeenCalledTimes(1);
     });
   });
@@ -1132,9 +1138,15 @@ describe('FilesService', () => {
     });
 
     it('reports a failed scheduled run to the log instead of failing the scheduler', async () => {
+      // The real runner: it logs the failure and answers it as the outcome of the run
+      const runner = new TenantJobRunner({ query: jest.fn() } as never);
+      mockJobs.run.mockImplementation((job: TenantJob) => runner.run(job));
       mockDs.query.mockRejectedValueOnce(new Error('db down'));
       const error = jest
         .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const log = jest
+        .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
 
       await expect(
@@ -1142,8 +1154,11 @@ describe('FilesService', () => {
       ).resolves.toBeUndefined();
 
       expect(error).toHaveBeenCalledWith(
-        'Purging abandoned uploads failed: db down',
+        'Job failed (legacy mode): db down',
         expect.stringContaining('db down'),
+      );
+      expect(log).toHaveBeenCalledWith(
+        'Purged 0 abandoned uploads; not purged for legacy (see the errors above)',
       );
     });
   });

@@ -2,18 +2,24 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 
 @Injectable()
 export class GpsRetentionService {
   private readonly logger = new Logger(GpsRetentionService.name);
 
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly tenantJobs: TenantJobRunner,
+  ) {}
 
+  // gps_points is a tenant table: each tenant's points are purged under its scope (a
+  // failing tenant is logged by the runner and does not stop the others)
   @Cron('0 2 * * *') // every day at 02:00
   async purgeOldGpsPoints(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 90);
-    try {
+    await this.tenantJobs.run(async (tenantId) => {
       // The Postgres driver answers a DELETE without RETURNING with [rows, rowCount]
       const [, deleted] = await this.dataSource.query<
         [unknown[], number | null]
@@ -21,10 +27,8 @@ export class GpsRetentionService {
         cutoff.toISOString(),
       ]);
       this.logger.log(
-        `GPS retention: deleted ${deleted ?? 0} rows older than 90 days`,
+        `GPS retention, tenant ${tenantId ?? 'legacy'}: deleted ${deleted ?? 0} rows older than 90 days`,
       );
-    } catch (err) {
-      this.logger.error('GPS retention: failed to purge old GPS points', err);
-    }
+    });
   }
 }

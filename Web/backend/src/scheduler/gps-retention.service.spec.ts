@@ -1,16 +1,25 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { GpsRetentionService } from './gps-retention.service';
 
 describe('GpsRetentionService', () => {
   let service: GpsRetentionService;
   let mockQuery: jest.Mock<Promise<unknown>, [sql: string, params: unknown[]]>;
+  let mockJobs: { run: jest.Mock };
 
   beforeEach(async () => {
     mockQuery = jest
       .fn<Promise<unknown>, [sql: string, params: unknown[]]>()
       .mockResolvedValue([[], 5]);
+
+    // By default the runner runs the job once, unscoped, as in legacy mode
+    mockJobs = {
+      run: jest.fn((job: (tenantId: string | null) => Promise<void>) =>
+        job(null).then(() => []),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -19,6 +28,7 @@ describe('GpsRetentionService', () => {
           provide: getDataSourceToken(),
           useValue: { query: mockQuery },
         },
+        { provide: TenantJobRunner, useValue: mockJobs },
       ],
     }).compile();
 
@@ -75,14 +85,45 @@ describe('GpsRetentionService', () => {
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('42'));
     });
 
-    it('swallows errors and logs them without rethrowing', async () => {
-      mockQuery.mockRejectedValueOnce(new Error('DB connection lost'));
-      const errorSpy = jest
-        .spyOn(Logger.prototype, 'error')
+    it('purges each tenant through the job runner and logs the count of each', async () => {
+      const log = jest
+        .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
+      mockJobs.run.mockImplementation(
+        async (job: (tenantId: string | null) => Promise<void>) => {
+          await job('a1000000-0000-4000-8000-000000000001');
+          await job('b2000000-0000-4000-8000-000000000002');
+          return [];
+        },
+      );
+
+      await service.purgeOldGpsPoints();
+
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'a1000000-0000-4000-8000-000000000001: deleted 5',
+        ),
+      );
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'b2000000-0000-4000-8000-000000000002: deleted 5',
+        ),
+      );
+    });
+
+    it('leaves a failed purge to the job runner, which logs it per tenant', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('DB connection lost'));
+      mockJobs.run.mockImplementation(
+        async (job: (tenantId: string | null) => Promise<void>) => {
+          await expect(job('t')).rejects.toMatchObject({
+            message: 'DB connection lost',
+          });
+          return [{ tenantId: 't', ok: false, error: 'DB connection lost' }];
+        },
+      );
 
       await expect(service.purgeOldGpsPoints()).resolves.toBeUndefined();
-      expect(errorSpy).toHaveBeenCalled();
     });
   });
 });

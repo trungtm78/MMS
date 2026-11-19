@@ -1,7 +1,9 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { TenantContext } from '../database/tenancy/tenant-context';
 import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { useUtcServerClock, VN_NEW_YEAR_0030 } from '../../test/support/clock';
 
@@ -10,7 +12,12 @@ const mockGateway = {
   broadcastNotification: jest.fn(),
   emitToTenant: jest.fn(),
 };
-const mockJobs = { forEachTenant: jest.fn() };
+const mockJobs = {
+  run: jest.fn((job: (tenantId: string | null) => Promise<void>) =>
+    job(null).then(() => []),
+  ),
+};
+const TID = 'a1000000-0000-4000-8000-000000000001';
 
 describe('ComplianceAlertsService', () => {
   let service: ComplianceAlertsService;
@@ -110,33 +117,42 @@ describe('ComplianceAlertsService', () => {
       expect(mockGateway.broadcastNotification).not.toHaveBeenCalled();
       jest.useRealTimers();
     });
-
-    it('does not throw when DB query fails', async () => {
-      jest.useFakeTimers().setSystemTime(new Date('2026-12-01'));
-      mockDataSource.query.mockRejectedValueOnce(
-        new Error('DB connection failed'),
-      );
-
-      await expect(service.checkComplianceAlerts()).resolves.not.toThrow();
-      jest.useRealTimers();
-    });
   });
 
   describe('tenancy', () => {
-    afterEach(() => delete process.env.TENANCY_MODE);
+    describe('scheduling', () => {
+      useUtcServerClock(new Date('2026-12-20T03:00:00Z'));
 
-    it('checks once per tenant in enforced mode', async () => {
-      process.env.TENANCY_MODE = 'enforced';
-      mockJobs.forEachTenant.mockImplementation(
-        (job: (id: string) => Promise<void>) => job('t'),
-      );
-      await service.checkComplianceAlerts();
-      expect(mockJobs.forEachTenant).toHaveBeenCalledTimes(1);
-    });
+      it('runs the check through the job runner, which decides the tenants', async () => {
+        mockDataSource.query.mockResolvedValueOnce([]);
 
-    it('checks directly in legacy mode', async () => {
-      await service.checkComplianceAlerts();
-      expect(mockJobs.forEachTenant).not.toHaveBeenCalled();
+        await service.checkComplianceAlerts();
+
+        expect(mockJobs.run).toHaveBeenCalledTimes(1);
+        // The closure ran the check: it read the at-risk members
+        expect(mockDataSource.query).toHaveBeenCalledWith(
+          expect.stringContaining('FROM militia_profiles mp'),
+          [2026],
+        );
+      });
+
+      it('lets a failed check fail its tenant, logged with the tenant, instead of swallowing it', async () => {
+        const error = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation();
+        try {
+          mockDataSource.query.mockRejectedValueOnce(new Error('db down'));
+          await expect(
+            TenantContext.runAs({ tenantId: TID }, () => service.runCheck()),
+          ).rejects.toMatchObject({ message: 'db down' });
+          expect(error).toHaveBeenCalledWith(
+            expect.stringContaining(`tenant ${TID}`),
+            expect.anything(),
+          );
+        } finally {
+          error.mockRestore();
+        }
+      });
     });
 
     describe('in December', () => {

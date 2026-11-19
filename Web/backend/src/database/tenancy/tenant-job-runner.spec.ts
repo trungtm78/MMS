@@ -89,3 +89,64 @@ describe('TenantJobRunner', () => {
     );
   });
 });
+
+describe('TenantJobRunner.run', () => {
+  const previousMode = process.env.TENANCY_MODE;
+  afterEach(() => {
+    if (previousMode === undefined) delete process.env.TENANCY_MODE;
+    else process.env.TENANCY_MODE = previousMode;
+  });
+
+  it('runs the job once, unscoped, in legacy mode, without listing tenants', async () => {
+    delete process.env.TENANCY_MODE;
+    const query = jest.fn();
+    const runner = new TenantJobRunner({ query } as unknown as DataSource);
+    const seen: (string | null | undefined)[] = [];
+
+    const outcomes = await runner.run((tenantId) => {
+      seen.push(tenantId, TenantContext.current()?.tenantId);
+      return Promise.resolve();
+    });
+
+    expect(seen).toEqual([null, undefined]);
+    expect(query).not.toHaveBeenCalled();
+    expect(outcomes).toEqual([{ tenantId: null, ok: true }]);
+  });
+
+  it('reports a legacy failure as the outcome of the one run', async () => {
+    delete process.env.TENANCY_MODE;
+    const runner = new TenantJobRunner({
+      query: jest.fn(),
+    } as unknown as DataSource);
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    try {
+      await expect(
+        runner.run(() => Promise.reject(new Error('boom'))),
+      ).resolves.toEqual([{ tenantId: null, ok: false, error: 'boom' }]);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('boom'),
+        expect.anything(),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('runs the job once per tenant, each under its scope, in enforced mode', async () => {
+    process.env.TENANCY_MODE = 'enforced';
+    const query = jest.fn().mockResolvedValue([{ id: T1 }, { id: T2 }]);
+    const runner = new TenantJobRunner({ query } as unknown as DataSource);
+    const seen: string[] = [];
+
+    const outcomes = await runner.run((tenantId) => {
+      seen.push(`${tenantId}:${TenantContext.current()?.tenantId}`);
+      return Promise.resolve();
+    });
+
+    expect(seen).toEqual([`${T1}:${T1}`, `${T2}:${T2}`]);
+    expect(outcomes).toEqual([
+      { tenantId: T1, ok: true },
+      { tenantId: T2, ok: true },
+    ]);
+  });
+});

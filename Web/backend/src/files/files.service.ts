@@ -481,29 +481,18 @@ export class FilesService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async purgeAbandonedUploadsOnSchedule(): Promise<void> {
-    try {
-      const purged = isTenancyEnforced()
-        ? await this.purgeEveryTenant()
-        : await this.purgeAbandonedUploads();
-      if (purged > 0) {
-        this.logger.log(`Purged ${purged} abandoned uploads`);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Purging abandoned uploads failed: ${errorMessage(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
-  }
-
-  // One purge per tenant, each under that tenant's scope: Row-Level Security limits the
-  // rows to the tenant and contentPath names the tenant's directory
-  private async purgeEveryTenant(): Promise<number> {
     let purged = 0;
-    await this.tenantJobs.forEachTenant(async () => {
+    // Per tenant under enforced mode: RLS limits the rows and contentPath names the
+    // tenant's directory; once in legacy mode
+    const outcomes = await this.tenantJobs.run(async () => {
       purged += await this.purgeAbandonedUploads();
     });
-    return purged;
+    const failed = outcomes.filter((outcome) => !outcome.ok);
+    if (purged > 0 || failed.length > 0) {
+      this.logger.log(
+        `Purged ${purged} abandoned uploads${failed.length > 0 ? `; not purged for ${failed.map((f) => f.tenantId ?? 'legacy').join(', ')} (see the errors above)` : ''}`,
+      );
+    }
   }
 
   private async removeContent(storageKey: string): Promise<void> {

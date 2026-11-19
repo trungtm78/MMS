@@ -24,6 +24,7 @@ import { TenantContext } from '../src/database/tenancy/tenant-context';
 import { FilesService } from '../src/files/files.service';
 import { NotificationsGateway } from '../src/notifications/notifications.gateway';
 import { ComplianceAlertsService } from '../src/scheduler/compliance-alerts.service';
+import { GpsRetentionService } from '../src/scheduler/gps-retention.service';
 import {
   ADMIN_PASSWORD,
   createTenantDatabase,
@@ -110,6 +111,19 @@ describe('tenant slice (e2e)', () => {
       jest.useRealTimers();
     }
   };
+
+  // Tenant B gets a second active member with no training, so the compliance check counts
+  // one at-risk member for A and two for B (the two payloads must not be identical). Once
+  // only: a second call finds the member of the first.
+  const giveBASecondAtRiskMember = () =>
+    db.admin((c) =>
+      c.query(
+        `INSERT INTO militia_profiles (tenant_id, militia_code, full_name, cccd, dob, unit_id, join_date)
+         SELECT $1, 'DQ-SECOND-B', 'Second CANARY-B', '888888888888', '1991-01-01', $2, '2022-01-01'
+          WHERE NOT EXISTS (SELECT 1 FROM militia_profiles WHERE tenant_id = $1 AND militia_code = 'DQ-SECOND-B')`,
+        [b.id, b.unitId],
+      ),
+    );
 
   // A token signed with the real secret from the claims of an issued one, `change`d
   const forge = (
@@ -1008,6 +1022,7 @@ describe('tenant slice (e2e)', () => {
         const [sa, sb] = await Promise.all([open('a'), open('b')]);
         const gotA = received(sa, 'compliance_alert');
         const gotB = received(sb, 'compliance_alert');
+        await giveBASecondAtRiskMember();
 
         await checkComplianceAtYearEnd();
 
@@ -1017,7 +1032,7 @@ describe('tenant slice (e2e)', () => {
           { type: 'compliance_alert', atRiskCount: 1 },
         ]);
         expect(gotB).toMatchObject([
-          { type: 'compliance_alert', atRiskCount: 1 },
+          { type: 'compliance_alert', atRiskCount: 2 },
         ]);
       });
     });
@@ -1058,6 +1073,7 @@ describe('tenant slice (e2e)', () => {
 
     it('writes the compliance audit row of each tenant under that tenant', async () => {
       const known = new Set((await complianceRows()).map((row) => row.id));
+      await giveBASecondAtRiskMember();
 
       await checkComplianceAtYearEnd();
 
@@ -1072,8 +1088,44 @@ describe('tenant slice (e2e)', () => {
       ).toEqual(
         [
           { tenant: a.id, atRisk: 1 },
-          { tenant: b.id, atRisk: 1 },
+          { tenant: b.id, atRisk: 2 },
         ].sort((x, y) => x.tenant.localeCompare(y.tenant)),
+      );
+    });
+
+    it('purges the old GPS points of every tenant under that tenant', async () => {
+      const old = new Date(Date.now() - 100 * 86_400_000).toISOString();
+      await db.admin(async (c) => {
+        // Earlier tests record positions of their own: start from none
+        await c.query(`DELETE FROM gps_points WHERE tenant_id IN ($1, $2)`, [
+          a.id,
+          b.id,
+        ]);
+        await c.query(
+          `INSERT INTO gps_points (tenant_id, militia_id, lat, lng, captured_at)
+           VALUES ($1, $2, 10.7, 106.6, $5), ($1, $2, 10.7, 106.6, now()),
+                  ($3, $4, 10.7, 106.6, $5), ($3, $4, 10.7, 106.6, now())`,
+          [a.id, a.memberId, b.id, b.memberId, old],
+        );
+      });
+
+      await app.get(GpsRetentionService).purgeOldGpsPoints();
+
+      const left = await db.admin(
+        async (c) =>
+          (
+            await c.query<{ tenant: string; recent: boolean }>(
+              `SELECT tenant_id::text AS tenant, captured_at > now() - interval '1 day' AS recent
+                 FROM gps_points WHERE tenant_id IN ($1, $2) ORDER BY 1`,
+              [a.id, b.id],
+            )
+          ).rows,
+      );
+      expect(left).toEqual(
+        [
+          { tenant: a.id, recent: true },
+          { tenant: b.id, recent: true },
+        ].sort((x, y) => (x.tenant < y.tenant ? -1 : 1)),
       );
     });
   });

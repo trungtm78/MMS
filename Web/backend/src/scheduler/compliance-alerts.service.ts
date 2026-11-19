@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { businessDate } from '../common/time/business-date';
 import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
-import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
+import { TenantContext } from '../database/tenancy/tenant-context';
 
 @Injectable()
 export class ComplianceAlertsService {
@@ -19,13 +19,16 @@ export class ComplianceAlertsService {
 
   @Cron('0 8 * * *') // 8am daily
   async checkComplianceAlerts(): Promise<void> {
-    if (!isTenancyEnforced()) return this.runCheck();
-    await this.tenantJobs.forEachTenant(() => this.runCheck());
+    await this.tenantJobs.run(() => this.runCheck());
   }
 
-  /** The check for the tenant in scope (the whole ward in legacy mode). */
+  /**
+   * The check for the tenant in scope (the whole ward in legacy mode). A failure is logged
+   * with the tenant and rethrown, so the job runner reports that tenant as failed.
+   */
   async runCheck(): Promise<void> {
-    this.logger.log('Running compliance alerts check...');
+    const tenant = TenantContext.current()?.tenantId ?? 'legacy';
+    this.logger.log(`Running compliance alerts check for tenant ${tenant}...`);
 
     try {
       // The training year is the Vietnamese calendar year; count whole calendar days
@@ -100,7 +103,11 @@ export class ComplianceAlertsService {
         [JSON.stringify(summary)],
       );
     } catch (err) {
-      this.logger.error('Compliance alerts check failed', err);
+      this.logger.error(
+        `Compliance alerts check failed for tenant ${tenant}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err;
     }
   }
 }
