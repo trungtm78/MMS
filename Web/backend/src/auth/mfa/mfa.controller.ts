@@ -22,7 +22,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MFA_METHODS, MfaService, type MfaMethod } from './mfa.service';
 
-// A challenge token is "<uuid>.<43 base64url chars>" (80); codes are 6 digits or XXXXX-XXXXX
+// A challenge token is "<uuid>.<43 base64url chars>" (80) in legacy mode and
+// "<tenant uuid>.<uuid>.<43 base64url chars>" (117) under enforced; codes are 6 digits or XXXXX-XXXXX
 const TOKEN_MAX_LENGTH = 128;
 const CODE_MAX_LENGTH = 64;
 
