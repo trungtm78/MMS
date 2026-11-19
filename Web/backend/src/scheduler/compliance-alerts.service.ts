@@ -17,14 +17,19 @@ export class ComplianceAlertsService {
     private readonly tenantJobs: TenantJobRunner,
   ) {}
 
-  @Cron('0 8 * * *') // 8am daily
+  // A check that is still running at the next tick is not started again
+  @Cron('0 8 * * *', { waitForCompletion: true }) // 8am daily
   async checkComplianceAlerts(): Promise<void> {
-    await this.tenantJobs.run(() => this.runCheck());
+    await this.tenantJobs.run(
+      'ComplianceAlertsService.checkComplianceAlerts',
+      () => this.runCheck(),
+    );
   }
 
   /**
-   * The check for the tenant in scope (the whole ward in legacy mode). A failure is logged
-   * with the tenant and rethrown, so the job runner reports that tenant as failed.
+   * The check for the tenant in scope (the whole ward in legacy mode). A failure is rethrown,
+   * so the job runner reports that tenant as failed and logs it once, with the tenant and
+   * the stack.
    */
   async runCheck(): Promise<void> {
     const tenant = TenantContext.current()?.tenantId ?? 'legacy';
@@ -103,9 +108,9 @@ export class ComplianceAlertsService {
         [JSON.stringify(summary)],
       );
     } catch (err) {
+      // One line, no stack: the runner logs the failure with its stack
       this.logger.error(
-        `Compliance alerts check failed for tenant ${tenant}`,
-        err instanceof Error ? err.stack : String(err),
+        `Compliance alerts check failed for tenant ${tenant}: ${err instanceof Error ? err.message : String(err)}`,
       );
       throw err;
     }

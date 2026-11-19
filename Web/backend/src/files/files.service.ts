@@ -465,6 +465,14 @@ export class FilesService {
    * while a row without content would answer 404 to a record that still names it.
    */
   async purgeAbandonedUploads(): Promise<number> {
+    return this.purgeAbandonedBatches(() => undefined);
+  }
+
+  // Counts through `onBatch` as it goes, so a caller still knows what went when a later
+  // batch throws
+  private async purgeAbandonedBatches(
+    onBatch: (rows: number) => void,
+  ): Promise<number> {
     let purged = 0;
     for (;;) {
       const rows = await queryRows<{ storageKey: string }>(
@@ -475,22 +483,30 @@ export class FilesService {
       // A batch is bounded, so its files are removed together; removeContent never rejects
       await Promise.all(rows.map((row) => this.removeContent(row.storageKey)));
       purged += rows.length;
+      onBatch(rows.length);
       if (rows.length < ABANDONED_UPLOAD_BATCH) return purged;
     }
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  // A run still going at the next hour is not started again
+  @Cron(CronExpression.EVERY_HOUR, { waitForCompletion: true })
   async purgeAbandonedUploadsOnSchedule(): Promise<void> {
     let purged = 0;
     // Per tenant under enforced mode: RLS limits the rows and contentPath names the
-    // tenant's directory; once in legacy mode
-    const outcomes = await this.tenantJobs.run(async () => {
-      purged += await this.purgeAbandonedUploads();
-    });
+    // tenant's directory; once in legacy mode. The count includes the batches of a tenant
+    // that failed after them.
+    const outcomes = await this.tenantJobs.run(
+      'FilesService.purgeAbandonedUploadsOnSchedule',
+      async () => {
+        await this.purgeAbandonedBatches((rows) => {
+          purged += rows;
+        });
+      },
+    );
     const failed = outcomes.filter((outcome) => !outcome.ok);
     if (purged > 0 || failed.length > 0) {
       this.logger.log(
-        `Purged ${purged} abandoned uploads${failed.length > 0 ? `; not purged for ${failed.map((f) => f.tenantId ?? 'legacy').join(', ')} (see the errors above)` : ''}`,
+        `Purged ${purged} abandoned uploads${failed.length > 0 ? `; incomplete for ${failed.map((f) => f.tenantId ?? 'the whole database').join(', ')} (see the errors above)` : ''}`,
       );
     }
   }

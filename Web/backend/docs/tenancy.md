@@ -70,12 +70,17 @@ Other ways into a scope, all through `TenantContext`:
   `runAs({ tenantId: tid })`; every `@SubscribeMessage` handler runs through
   `WsTenantScopeInterceptor`, which wraps the handler in
   `TenantContext.runAs({ tenantId: client.data.user.tid })`.
-- **Scheduled jobs.** `TenantJobRunner.forEachTenant(job)` lists the tenants through the
-  `maintenance_tenant_ids()` SECURITY DEFINER function and runs `job(tenantId)` under
-  `runAs` for each. One failing tenant is logged and does not stop the others; the result
-  is a `TenantJobOutcome[]`. **Callers must branch on `isTenancyEnforced()`**: in legacy
-  mode the runner would run the job once per tenant on an unscoped session, so call the
-  job once directly instead (see `FilesService` purge and `ComplianceAlertsService`).
+- **Scheduled jobs.** `TenantJobRunner.run(jobName, job)` is the way a job runs, and callers
+  do not branch on the mode: in legacy mode it runs `job(null)` once, unscoped; in enforced
+  mode it lists the tenants through the `maintenance_tenant_ids()` SECURITY DEFINER function
+  and runs `job(tenantId)` under `runAs` for each. A failing tenant, a failure to list the
+  tenants and a tenant that does not settle within `TENANT_JOB_TIMEOUT_MS` (default 600000,
+  a positive whole number of milliseconds, read when the runner is built) are each logged
+  under the job name and do not stop the others; `run` never throws and answers a
+  `TenantJobOutcome[]`. A promise cannot be cancelled: a timed-out job is abandoned, not
+  stopped, and may still be writing while the next tenant runs (its late result is logged
+  under its own tenant). The `@Cron` of the three per-tenant jobs sets
+  `waitForCompletion: true`, so a run that is still going at the next tick is skipped.
 - **The seeder** runs as the first tenant (`a1000000-0000-4000-8000-000000000001`, code
   `phu-dinh`).
 
@@ -243,8 +248,8 @@ problem and not as a surprise at connect time.)
 - `ON CONFLICT` targets must name the per-tenant unique constraint
   (`ON CONFLICT (tenant_id, code)`); this includes scripts and test fixtures outside
   `Web/backend` (the Playwright global setup is one).
-- Scheduled work goes through `TenantJobRunner.forEachTenant`, branching on
-  `isTenancyEnforced()`.
+- Scheduled work goes through `TenantJobRunner.run`, with `waitForCompletion: true` on its
+  `@Cron`.
 - Socket rooms come only from `src/notifications/rooms.ts`. There is no global
   broadcast; use `emitToTenant`.
 - File paths come only from `FilesService.tenantUploadDir()` and `contentPath()`.

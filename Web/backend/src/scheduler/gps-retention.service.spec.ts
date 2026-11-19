@@ -1,6 +1,9 @@
+import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
+import { SCHEDULE_CRON_OPTIONS } from '@nestjs/schedule/dist/schedule.constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import type { DataSource } from 'typeorm';
 import { TenantJobRunner } from '../database/tenancy/tenant-job-runner';
 import { GpsRetentionService } from './gps-retention.service';
 
@@ -16,8 +19,9 @@ describe('GpsRetentionService', () => {
 
     // By default the runner runs the job once, unscoped, as in legacy mode
     mockJobs = {
-      run: jest.fn((job: (tenantId: string | null) => Promise<void>) =>
-        job(null).then(() => []),
+      run: jest.fn(
+        (_name: string, job: (tenantId: string | null) => Promise<void>) =>
+          job(null).then(() => []),
       ),
     };
 
@@ -90,7 +94,10 @@ describe('GpsRetentionService', () => {
         .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
       mockJobs.run.mockImplementation(
-        async (job: (tenantId: string | null) => Promise<void>) => {
+        async (
+          _name: string,
+          job: (tenantId: string | null) => Promise<void>,
+        ) => {
           await job('a1000000-0000-4000-8000-000000000001');
           await job('b2000000-0000-4000-8000-000000000002');
           return [];
@@ -112,18 +119,69 @@ describe('GpsRetentionService', () => {
       );
     });
 
-    it('leaves a failed purge to the job runner, which logs it per tenant', async () => {
-      mockQuery.mockRejectedValueOnce(new Error('DB connection lost'));
-      mockJobs.run.mockImplementation(
-        async (job: (tenantId: string | null) => Promise<void>) => {
-          await expect(job('t')).rejects.toMatchObject({
-            message: 'DB connection lost',
-          });
-          return [{ tenantId: 't', ok: false, error: 'DB connection lost' }];
-        },
+    it('waits for a run to complete before the next tick starts another', () => {
+      const options: unknown = Reflect.getMetadata(
+        SCHEDULE_CRON_OPTIONS,
+        Object.getOwnPropertyDescriptor(
+          GpsRetentionService.prototype,
+          'purgeOldGpsPoints',
+        )?.value as object,
       );
+      expect(options).toMatchObject({
+        cronTime: '0 2 * * *',
+        waitForCompletion: true,
+      });
+    });
 
-      await expect(service.purgeOldGpsPoints()).resolves.toBeUndefined();
+    describe('with the real job runner', () => {
+      const previousMode = process.env.TENANCY_MODE;
+      const NAME = 'GpsRetentionService.purgeOldGpsPoints';
+      let error: jest.SpyInstance;
+
+      beforeEach(() => {
+        error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      });
+
+      afterEach(() => {
+        if (previousMode === undefined) delete process.env.TENANCY_MODE;
+        else process.env.TENANCY_MODE = previousMode;
+      });
+
+      const useRealRunner = (runnerQuery: jest.Mock) => {
+        const runner = new TenantJobRunner({
+          query: runnerQuery,
+        } as unknown as DataSource);
+        mockJobs.run.mockImplementation(
+          (name: string, job: (tenantId: string | null) => Promise<void>) =>
+            runner.run(name, job),
+        );
+      };
+
+      it('resolves and logs the failure when the purge fails', async () => {
+        delete process.env.TENANCY_MODE;
+        useRealRunner(jest.fn());
+        mockQuery.mockRejectedValueOnce(new Error('DB connection lost'));
+
+        await expect(service.purgeOldGpsPoints()).resolves.toBeUndefined();
+
+        expect(error).toHaveBeenCalledWith(
+          `${NAME}: Job failed (legacy mode): DB connection lost`,
+          expect.stringContaining('DB connection lost'),
+        );
+      });
+
+      it('resolves and logs under the job name when the tenants cannot be listed', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        useRealRunner(jest.fn().mockRejectedValue(new Error('listing failed')));
+
+        await expect(service.purgeOldGpsPoints()).resolves.toBeUndefined();
+
+        expect(error).toHaveBeenCalledWith(
+          `${NAME}: could not list the tenants: listing failed`,
+          expect.any(String),
+        );
+        expect(mockQuery).not.toHaveBeenCalled();
+      });
     });
   });
 });

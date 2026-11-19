@@ -2,7 +2,9 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
+import { SCHEDULE_CRON_OPTIONS } from '@nestjs/schedule/dist/schedule.constants';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -68,7 +70,7 @@ describe('FilesService', () => {
     mockDs.query.mockReset();
     // By default the runner runs the job once, unscoped, as in legacy mode
     mockJobs.run.mockReset();
-    mockJobs.run.mockImplementation((job: TenantJob) =>
+    mockJobs.run.mockImplementation((_name: string, job: TenantJob) =>
       job(null).then(() => []),
     );
     mockRunner.query.mockReset();
@@ -259,14 +261,6 @@ describe('FilesService', () => {
       });
     });
 
-    it('purges once per tenant in enforced mode', async () => {
-      enforce();
-      const run = jest.fn().mockResolvedValue([]);
-      const tenants = buildService({ UPLOAD_DIR: '/d' }, { run });
-      await tenants.purgeAbandonedUploadsOnSchedule();
-      expect(run).toHaveBeenCalledTimes(1);
-    });
-
     it('purges the rows and the content of every tenant under its own scope', async () => {
       enforce();
       const keyOfA = KEY;
@@ -283,12 +277,13 @@ describe('FilesService', () => {
         const key = scopes.length === 1 ? keyOfA : keyOfB;
         return Promise.resolve([[{ storageKey: key }], 1]);
       });
-      mockJobs.run.mockImplementation(async (job: TenantJob) => {
-        for (const tenantId of [TID, OTHER]) {
-          await TenantContext.runAs({ tenantId }, () => job(tenantId));
-        }
-        return [];
-      });
+      // The real runner: it lists the tenants and scopes the job to each
+      const runner = new TenantJobRunner({
+        query: jest.fn().mockResolvedValue([{ id: TID }, { id: OTHER }]),
+      } as never);
+      mockJobs.run.mockImplementation((name: string, job: TenantJob) =>
+        runner.run(name, job),
+      );
       const log = jest
         .spyOn(Logger.prototype, 'log')
         .mockImplementation(() => undefined);
@@ -304,7 +299,7 @@ describe('FilesService', () => {
 
     it('names the tenants it could not purge beside the purged count', async () => {
       mockDs.query.mockResolvedValueOnce([[{ storageKey: KEY }], 1]);
-      mockJobs.run.mockImplementation(async (job: TenantJob) => {
+      mockJobs.run.mockImplementation(async (_name: string, job: TenantJob) => {
         await job(TID);
         return [
           { tenantId: TID, ok: true },
@@ -318,17 +313,59 @@ describe('FilesService', () => {
       await service.purgeAbandonedUploadsOnSchedule();
 
       expect(log).toHaveBeenCalledWith(
-        `Purged 1 abandoned uploads; not purged for ${OTHER} (see the errors above)`,
+        `Purged 1 abandoned uploads; incomplete for ${OTHER} (see the errors above)`,
       );
     });
 
     it('purges once, without a tenant scope, in legacy mode', async () => {
-      mockDs.query.mockResolvedValueOnce([[], 0]);
+      const scopes: (string | undefined)[] = [];
+      mockDs.query.mockImplementationOnce(() => {
+        scopes.push(TenantContext.current()?.tenantId);
+        return Promise.resolve([[], 0]);
+      });
+      const runner = new TenantJobRunner({ query: jest.fn() } as never);
+      mockJobs.run.mockImplementation((name: string, job: TenantJob) =>
+        runner.run(name, job),
+      );
 
       await service.purgeAbandonedUploadsOnSchedule();
 
-      expect(mockJobs.run).toHaveBeenCalledTimes(1);
       expect(mockDs.query).toHaveBeenCalledTimes(1);
+      expect(scopes).toEqual([undefined]);
+    });
+
+    it('counts the batches a tenant purged before a later batch failed', async () => {
+      const keys = Array.from({ length: ABANDONED_UPLOAD_BATCH }, () =>
+        randomUUID(),
+      );
+      mockDs.query
+        .mockResolvedValueOnce([keys.map((storageKey) => ({ storageKey })), 1])
+        .mockRejectedValueOnce(new Error('db down'));
+      const runner = new TenantJobRunner({ query: jest.fn() } as never);
+      mockJobs.run.mockImplementation((name: string, job: TenantJob) =>
+        runner.run(name, job),
+      );
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const log = jest
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => undefined);
+
+      await service.purgeAbandonedUploadsOnSchedule();
+
+      expect(log).toHaveBeenCalledWith(
+        `Purged ${ABANDONED_UPLOAD_BATCH} abandoned uploads; incomplete for the whole database (see the errors above)`,
+      );
+    });
+
+    it('waits for a run to complete before the next hour starts another', () => {
+      const options: unknown = Reflect.getMetadata(
+        SCHEDULE_CRON_OPTIONS,
+        Object.getOwnPropertyDescriptor(
+          FilesService.prototype,
+          'purgeAbandonedUploadsOnSchedule',
+        )?.value as object,
+      );
+      expect(options).toMatchObject({ waitForCompletion: true });
     });
   });
 
@@ -1140,7 +1177,9 @@ describe('FilesService', () => {
     it('reports a failed scheduled run to the log instead of failing the scheduler', async () => {
       // The real runner: it logs the failure and answers it as the outcome of the run
       const runner = new TenantJobRunner({ query: jest.fn() } as never);
-      mockJobs.run.mockImplementation((job: TenantJob) => runner.run(job));
+      mockJobs.run.mockImplementation((name: string, job: TenantJob) =>
+        runner.run(name, job),
+      );
       mockDs.query.mockRejectedValueOnce(new Error('db down'));
       const error = jest
         .spyOn(Logger.prototype, 'error')
@@ -1154,12 +1193,40 @@ describe('FilesService', () => {
       ).resolves.toBeUndefined();
 
       expect(error).toHaveBeenCalledWith(
-        'Job failed (legacy mode): db down',
+        'FilesService.purgeAbandonedUploadsOnSchedule: Job failed (legacy mode): db down',
         expect.stringContaining('db down'),
       );
       expect(log).toHaveBeenCalledWith(
-        'Purged 0 abandoned uploads; not purged for legacy (see the errors above)',
+        'Purged 0 abandoned uploads; incomplete for the whole database (see the errors above)',
       );
+    });
+
+    it('resolves and logs under the job name when the tenants cannot be listed', async () => {
+      process.env.TENANCY_MODE = 'enforced';
+      try {
+        const runner = new TenantJobRunner({
+          query: jest.fn().mockRejectedValue(new Error('listing failed')),
+        } as never);
+        mockJobs.run.mockImplementation((name: string, job: TenantJob) =>
+          runner.run(name, job),
+        );
+        const error = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+        jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+        await expect(
+          service.purgeAbandonedUploadsOnSchedule(),
+        ).resolves.toBeUndefined();
+
+        expect(error).toHaveBeenCalledWith(
+          'FilesService.purgeAbandonedUploadsOnSchedule: could not list the tenants: listing failed',
+          expect.any(String),
+        );
+        expect(mockDs.query).not.toHaveBeenCalled();
+      } finally {
+        delete process.env.TENANCY_MODE;
+      }
     });
   });
 
