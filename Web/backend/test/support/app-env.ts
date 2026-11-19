@@ -1,4 +1,4 @@
-import { backendTenancyEnv } from './e2e-tenancy';
+import { assertAppliedTenancyMode, backendTenancyEnv } from './e2e-tenancy';
 
 // Environment of an e2e suite that boots AppModule on its own, freshly created database.
 // Import this module before AppModule: the backend reads its configuration while AppModule
@@ -41,3 +41,4 @@ Object.assign(process.env, {
 
 // E2E_TENANCY=enforced: the backend runs as mms_app in enforced mode (support/e2e-tenancy.ts)
 Object.assign(process.env, backendTenancyEnv());
+assertAppliedTenancyMode();

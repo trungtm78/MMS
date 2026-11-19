@@ -5,6 +5,10 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { migrateDatabase } from '../../src/database/migrations/migrate';
 import { FIRST_TENANT_ID } from '../../src/database/tenancy/first-tenant';
+import { alterRole } from './e2e-roles.cjs';
+
+// Retries only the concurrent-update error, with backoff (e2e-roles.cjs)
+export { alterRole };
 
 export const TENANT_1 = FIRST_TENANT_ID;
 export const SLICE_TABLES = [
@@ -57,22 +61,18 @@ export async function withClient<T>(
   }
 }
 
-// Two Jest processes altering the same cluster-wide role can meet "tuple concurrently
-// updated" (XX000): retry that one; anything else is a real failure
-export async function alterRole(
-  client: Client,
-  role: string,
-  password: string,
-): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await client.query(`ALTER ROLE ${role} LOGIN PASSWORD '${password}'`);
-      return;
-    } catch (error) {
-      if ((error as { code?: string }).code !== 'XX000' || attempt >= 5)
-        throw error;
-    }
-  }
+/** The error of a failed creation whose cleanup failed too: carries the text of both. */
+export function creationFailure(
+  name: string,
+  error: unknown,
+  dropError: unknown,
+): AggregateError {
+  const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  return new AggregateError(
+    [error, dropError],
+    `Creating ${name} failed (${text(error)}), and dropping the half-built database failed too (${text(dropError)})`,
+    { cause: error },
+  );
 }
 
 export interface TenantDatabase {
@@ -122,10 +122,7 @@ export async function createTenantDatabase(
     try {
       await dropDatabase();
     } catch (dropError) {
-      throw new AggregateError(
-        [error, dropError],
-        `Creating ${name} failed, and dropping the half-built database failed too`,
-      );
+      throw creationFailure(name, error, dropError);
     }
     throw error;
   }

@@ -19,6 +19,7 @@ import { businessDate, shiftIsoDate } from '../src/common/time/business-date';
 import { configureHttpApp } from '../src/app.setup';
 import { withClient } from './support/db';
 import {
+  assertAppliedTenancyMode,
   backendTenancyEnv,
   prepareDatabaseForTenancy,
 } from './support/e2e-tenancy';
@@ -136,6 +137,7 @@ describe('Features T18 (e2e)', () => {
       THROTTLE_MFA_LIMIT: '100000',
       ...backendTenancyEnv(),
     });
+    assertAppliedTenancyMode();
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { AppModule } =
       require('../src/app.module') as typeof import('../src/app.module');

@@ -20,6 +20,7 @@ import { configureHttpApp } from '../src/app.setup';
 import { FilesService } from '../src/files/files.service';
 import { withClient } from './support/db';
 import {
+  assertAppliedTenancyMode,
   backendTenancyEnv,
   prepareDatabaseForTenancy,
 } from './support/e2e-tenancy';
@@ -179,6 +180,7 @@ describe('Client gaps T20 (e2e)', () => {
       UPLOAD_DIR: uploadDir,
       ...backendTenancyEnv(),
     });
+    assertAppliedTenancyMode();
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { AppModule } =
       require('../src/app.module') as typeof import('../src/app.module');

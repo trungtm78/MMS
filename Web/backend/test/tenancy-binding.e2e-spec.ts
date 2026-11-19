@@ -27,6 +27,13 @@ import {
 
 jest.setTimeout(180_000);
 
+// The cluster's admin URL, and the user it names (as the other suites read it)
+const adminUrlOfRun = (): URL => {
+  const url = process.env.MIGRATION_TEST_ADMIN_URL;
+  if (!url) throw new Error('MIGRATION_TEST_ADMIN_URL is not set');
+  return new URL(url);
+};
+
 describe('tenant binding on a real pool (e2e)', () => {
   let db: TenantDatabase;
   let ds: DataSource;
@@ -393,7 +400,7 @@ describe('tenantAwareDataSource (e2e)', () => {
       async () =>
         (await connectionsOf(
           db,
-          new URL(process.env.MIGRATION_TEST_ADMIN_URL ?? '').username,
+          decodeURIComponent(adminUrlOfRun().username),
         )) === 0,
       'the refused data source closing its connections',
     );
@@ -465,7 +472,7 @@ describe('tenantAwareDataSource (e2e)', () => {
     afterEach(async () => {
       // The sources of the test must be closed before their role can be dropped
       await Promise.all(sources.splice(0).map((ds) => ds.destroy()));
-      const admin = new URL(process.env.MIGRATION_TEST_ADMIN_URL ?? '');
+      const admin = adminUrlOfRun();
       const client = new Client({ connectionString: admin.toString() });
       await client.connect();
       try {

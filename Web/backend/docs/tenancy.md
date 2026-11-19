@@ -260,29 +260,52 @@ export MIGRATION_TEST_ADMIN_URL=postgres://mms:<password>@localhost:5440/postgre
 export TEST_REDIS_URL=redis://localhost:6379
 ```
 
-- **Point `MIGRATION_TEST_ADMIN_URL` at a throwaway cluster only.** The suites run
-  `ALTER ROLE mms_app/mms_platform LOGIN PASSWORD '<committed test password>'`, which
-  changes cluster-wide roles, and nothing sets them back to `NOLOGIN`. On a cluster that
-  serves a real deployment this would hand out logins on `mms_app` with a password that is
-  in the repository.
-- **`--runInBand` is mandatory.** `mms_app` and `mms_platform` are cluster-wide roles whose
-  passwords the suites set; two Jest workers would race on them. Each suite creates its
-  own database and drops it afterwards.
-- **Run one file per Jest process** for the gate:
-
-  ```sh
-  for f in test/*.e2e-spec.ts; do
-    npx jest --config ./test/jest-e2e.json --runInBand "$f" || break
-  done
-  ```
-
-  Running the whole directory in one process can fail `app.e2e-spec`, intermittently: its
+- **Use the runner.** `npm run test:e2e` (legacy), `test:e2e:legacy`, `test:e2e:enforced`
+  and `test:e2e:all` (both modes) run `scripts/run-e2e.mjs`, which starts **one Jest
+  process per suite file, one after the other** (`--runInBand`), prints a `RUN` line and a
+  `PASS`/`FAIL` line with the duration for each, and exits non-zero when a suite failed,
+  when it timed out (`E2E_SUITE_TIMEOUT_MS`, default 30 minutes), or when the arguments
+  matched no suite. Arguments: `--mode=legacy|enforced|both` (or `--mode <x>`) and any
+  number of file-name fragments, each of which must match a suite
+  (`npm run test:e2e:enforced -- tenancy-slice`). The output of a failed suite stays in
+  `test-results/<mode>--<file>.log` (the logs of the previous run are removed first);
+  `test-results/e2e-summary.json` records the filter, the results and whether the run was
+  interrupted. The runner strips `TENANCY_MODE`, `LEGACY_DEFAULT_TENANT_CODE`, `DB_USER`
+  and `DB_PASSWORD` from the shell before each suite, so the mode a run applies is the mode
+  it asked for; `test/tenancy-harness.e2e-spec.ts` asserts that.
+- **Point `MIGRATION_TEST_ADMIN_URL` at a throwaway cluster only.** An e2e run changes the
+  cluster-wide roles `mms_app` and `mms_platform`: a suite gives them `LOGIN` and a random
+  password (generated per Jest process, never committed). The runner puts both back to
+  `NOLOGIN` with no password after every Jest process whatever its exit status, when it
+  ends, and when it receives SIGINT or SIGTERM; Jest's global teardown
+  (`test/support/e2e-roles.global-teardown.ts`) does the same when a process exits
+  normally. Both use `test/support/e2e-roles.cjs`, which retries a concurrent role update
+  (`tuple concurrently updated`) with backoff. The roles are still open to `LOGIN` while a
+  suite runs, and a process killed outside the runner (running `npx jest` directly, then
+  an OOM kill or `kill -9`) leaves them open until the next run or until you run
+  `ALTER ROLE mms_app NOLOGIN PASSWORD NULL` (and `mms_platform`). The runner does not
+  refuse a cluster that holds other databases: the suites never touch them, but the
+  roles are shared by every database of the cluster, so a cluster that serves a real
+  deployment of this application would lose its `mms_app` login while a run lasts. Do not
+  point the suites at one.
+- **Never run two e2e runs against one cluster at the same time.** The roles are
+  cluster-wide: each Jest process sets its own random password and each run locks the roles
+  when a suite ends, so a second run (or a second runner, or `npx jest` beside the runner)
+  makes the first one fail to log in. `npx jest --config ./test/jest-e2e.json` on the whole
+  directory has the same problem inside one run (parallel workers), which is why
+  `npm run test:e2e` goes through the runner. A run killed hard can leave throwaway
+  databases behind (`mms_e2e_*`, `mms_tn_*`, `mms_apitest_*`); drop them by hand.
+- **To run one file directly** use `npx jest --config ./test/jest-e2e.json --runInBand
+  test/<file>` (with `E2E_TENANCY=enforced` for an enforced run) and lock the roles yourself
+  afterwards if the process did not exit normally.
+- **One file per Jest process is the gate.** Running the whole directory in one process
+  can fail `app.e2e-spec`, intermittently: its
   Terminus health check allows 300 MB of `memory_heap`, and the heap of a single Jest
   process grows with the number of suites it has loaded, so the check answers 503 once
   enough suites ran before it (it did in the first full runs of earlier M0 tasks and
   passed in later ones). The check is correct for a server; it is the harness that makes
-  the threshold visible, so one file per process (or a configurable threshold, an M1 item)
-  is the fix, not a change to the product.
+  the threshold visible, so one file per process (what the runner does) is the fix, not a
+  change to the product.
 - The slice suite `tenancy-slice` imports `test/support/enforced-env.ts`, which sets
   `TENANCY_MODE=enforced`, `DB_USER=mms_app`, its test password and a temporary
   `UPLOAD_DIR`, and boots the whole application. `tenancy-binding` does **not** import it:
@@ -290,9 +313,12 @@ export TEST_REDIS_URL=redis://localhost:6379
   `createTenantDatabase()`. `test/support/tenancy.ts` creates those databases (resetting
   the legacy default, as enforced mode requires; `keepLegacyDefault: true` keeps it), the
   two seeded tenants and the helpers.
-- **The other suites run in legacy mode.** The 12 suites that existed before tenancy were
-  not changed in the final M0 task; six of them were adapted earlier to migration 037 (the
-  per-tenant conflict targets of their fixtures) and to the socket room helper, with their
-  assertions unchanged: `api-contract`, `client-gaps-t20`, `features-t18`,
-  `frontend-routes-t23`, `incidents-tasks-scope` and `socket-adapter-redis`.
+- **The other suites run in either mode.** `E2E_TENANCY=legacy` (the default) runs the
+  backend as the admin user in legacy mode; `E2E_TENANCY=enforced` runs it as `mms_app` with
+  `TENANCY_MODE=enforced`, on a database without the legacy default, with the transitional
+  `LEGACY_DEFAULT_TENANT_CODE` for their tenant-less sign-ins and fixture connections
+  defaulting to the first tenant (`test/support/e2e-tenancy.ts`: the only place the modes
+  differ; the suites' assertions are the same in both). A suite that boots the application
+  calls `assertAppliedTenancyMode()` after setting its environment, so a run whose applied
+  mode differs from the requested one fails at once.
 - Unit tests need no database: `npx jest`.

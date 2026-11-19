@@ -26,15 +26,43 @@ export function e2eTenancy(env: NodeJS.ProcessEnv = process.env): E2eTenancy {
 
 export const isEnforcedRun = (): boolean => e2eTenancy() === 'enforced';
 
-/** The backend settings of the run's mode, merged last over a suite's own DB_* settings. */
+/**
+ * The backend settings of the run's mode, merged last over a suite's own DB_* settings. A
+ * legacy run pins the mode and blanks the sign-in fallback, so a TENANCY_MODE or
+ * LEGACY_DEFAULT_TENANT_CODE left in the shell cannot make the applied mode differ from the
+ * requested one (the runner strips them too: scripts/run-e2e.mjs).
+ */
 export function backendTenancyEnv(): Record<string, string> {
-  if (!isEnforcedRun()) return {};
+  if (!isEnforcedRun()) {
+    return { TENANCY_MODE: 'legacy', LEGACY_DEFAULT_TENANT_CODE: '' };
+  }
   return {
     TENANCY_MODE: 'enforced',
     DB_USER: 'mms_app',
     DB_PASSWORD: APP_PASSWORD,
     LEGACY_DEFAULT_TENANT_CODE: FIRST_TENANT_CODE,
   };
+}
+
+/**
+ * Call right after a suite applied `backendTenancyEnv()` to process.env: fails loudly when
+ * the environment the backend will read is not the mode this run asked for (E2E_TENANCY).
+ */
+export function assertAppliedTenancyMode(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const requested = e2eTenancy(env);
+  const applied = (env.TENANCY_MODE ?? 'legacy').trim().toLowerCase();
+  if (applied !== requested) {
+    throw new Error(
+      `E2E_TENANCY=${requested} but TENANCY_MODE is ${JSON.stringify(env.TENANCY_MODE)} in the environment the backend will read`,
+    );
+  }
+  if (requested === 'enforced' && env.DB_USER !== 'mms_app') {
+    throw new Error(
+      `E2E_TENANCY=enforced but DB_USER is ${JSON.stringify(env.DB_USER)}: the backend must run as mms_app`,
+    );
+  }
 }
 
 /** The `options` startup parameter of fixture connections: the first tenant when enforced. */
