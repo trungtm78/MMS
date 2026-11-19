@@ -211,9 +211,14 @@ export class AuthRevocationFeed
     if (message.channel !== AUTH_REVOCATION_CHANNEL) return;
     const event = parseAuthRevocation(message.payload ?? '');
     if (!event) {
+      // Dropping an announcement it cannot read would leave the session it ended open:
+      // every subscriber checks everything it holds instead
       this.logger.warn(
-        `Ignored an auth revocation notification it could not read: ${message.payload ?? '(empty)'}`,
+        `Could not read an auth revocation notification, re-checking every session: ${message.payload ?? '(empty)'}`,
       );
+      for (const subscriber of [...this.subscribers]) {
+        this.call(() => subscriber.resync());
+      }
       return;
     }
     for (const subscriber of [...this.subscribers]) {

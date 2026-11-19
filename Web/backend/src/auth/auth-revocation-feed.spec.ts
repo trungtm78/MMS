@@ -116,6 +116,7 @@ describe('AuthRevocationFeed', () => {
 
   it.each([
     ['not JSON', 'nope'],
+    ['empty', ''],
     ['an unknown kind', JSON.stringify({ kind: 'x', userId: USER })],
     [
       'a session without an id',
@@ -129,19 +130,46 @@ describe('AuthRevocationFeed', () => {
       'an account without a version',
       JSON.stringify({ kind: 'account', userId: USER, active: true }),
     ],
-  ])('ignores a payload that is %s, saying so', async (_label, payload) => {
-    await feed.onApplicationBootstrap();
+    [
+      'a session with a tenant that is not a UUID',
+      JSON.stringify({
+        kind: 'session',
+        userId: USER,
+        sessionId: SID,
+        tenantId: 'x',
+      }),
+    ],
+    [
+      'a session with a tenant of the wrong type',
+      JSON.stringify({
+        kind: 'session',
+        userId: USER,
+        sessionId: SID,
+        tenantId: 7,
+      }),
+    ],
+  ])(
+    'asks for a resync on a payload that is %s, saying so',
+    async (_label, payload) => {
+      await feed.onApplicationBootstrap();
+      const before = resyncs;
 
-    connections[0].notify(payload);
+      connections[0].notify(payload);
 
-    expect(revoked).toEqual([]);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Ignored an auth revocation notification'),
-    );
-  });
+      // A revocation that cannot be read must not be dropped: every socket is checked again
+      expect(revoked).toEqual([]);
+      expect(resyncs).toBe(before + 1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Could not read an auth revocation notification',
+        ),
+      );
+    },
+  );
 
   it('ignores notifications of other channels', async () => {
     await feed.onApplicationBootstrap();
+    const before = resyncs;
 
     connections[0].notify(
       JSON.stringify({ kind: 'session', userId: USER, sessionId: SID }),
@@ -149,6 +177,7 @@ describe('AuthRevocationFeed', () => {
     );
 
     expect(revoked).toEqual([]);
+    expect(resyncs).toBe(before);
   });
 
   it('a subscriber that throws does not keep the event from the others', async () => {

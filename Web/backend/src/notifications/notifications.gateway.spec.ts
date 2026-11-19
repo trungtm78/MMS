@@ -891,29 +891,15 @@ describe('NotificationsGateway', () => {
     });
   });
 
-  // One emit over several rooms: a socket in more than one of them receives the event once
-  describe('emitToRooms', () => {
-    it('sends the event once to every socket in any of the rooms', () => {
-      const targets = [rooms.gpsWard(undefined), rooms.user(undefined, 'ca-1')];
-
-      gateway.emitToRooms(targets, 'gps:update', { id: 'm1' });
-
-      expect(to).toHaveBeenCalledWith(targets);
-      expect(emit).toHaveBeenCalledWith('gps:update', { id: 'm1' });
-    });
-
-    it('sends nothing without rooms', () => {
-      gateway.emitToRooms([], 'gps:update', { id: 'm1' });
-
-      expect(to).not.toHaveBeenCalled();
-      expect(emit).not.toHaveBeenCalled();
-    });
-  });
-
   // Emitters address the tenant of the current scope (the request or job that emits)
   describe('tenant-scoped emitters', () => {
     const inTenant = <T>(tenantId: string, fn: () => T) =>
       TenantContext.runAs({ tenantId }, fn);
+
+    // Tenant rooms exist under enforced tenancy; the legacy mode has one namespace
+    beforeEach(() => {
+      process.env.TENANCY_MODE = 'enforced';
+    });
 
     it.each([
       [
@@ -949,6 +935,7 @@ describe('NotificationsGateway', () => {
     );
 
     it('addresses the legacy namespace outside any tenant scope', () => {
+      delete process.env.TENANCY_MODE;
       gateway.emitToUnit('KV1', 'probe', {});
       gateway.emitToTenant('probe', {});
 
@@ -961,7 +948,6 @@ describe('NotificationsGateway', () => {
     // Every socket of an enforced deployment is in the rooms of a tenant: an emit that names
     // none reaches nobody, which is worth a line in the log
     it('warns when it is emitted outside any scope under enforced tenancy', () => {
-      process.env.TENANCY_MODE = 'enforced';
       const warn = jest
         .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
@@ -975,6 +961,7 @@ describe('NotificationsGateway', () => {
     });
 
     it('does not warn about a missing scope in legacy mode', () => {
+      delete process.env.TENANCY_MODE;
       const warn = jest
         .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
@@ -1004,6 +991,7 @@ describe('NotificationsGateway', () => {
     });
 
     it('emitToGpsAudience addresses the legacy namespace outside any tenant scope', () => {
+      delete process.env.TENANCY_MODE;
       gateway.emitToGpsAudience('KV1', ['ca-1'], { id: 'm1' });
 
       expect(to).toHaveBeenCalledWith([
@@ -1013,11 +1001,71 @@ describe('NotificationsGateway', () => {
       ]);
     });
 
-    // The system-wide emit is gone: nothing can reach the sockets of every tenant by name
-    it('has no system-wide broadcast', () => {
-      expect(
-        (gateway as unknown as Record<string, unknown>)['broadcast'],
-      ).toBeUndefined();
+    // Nothing can reach the sockets of every tenant: each public emitter, run under
+    // tenant A, addresses rooms of tenant A only, and with no scope under enforced
+    // tenancy sends nothing at all
+    describe('every public emitter', () => {
+      const emitters: Record<string, () => void> = {
+        emitToUnit: () => gateway.emitToUnit('KV1', 'probe', {}),
+        emitToUser: () => gateway.emitToUser('u1', 'probe', {}),
+        emitToTenant: () => gateway.emitToTenant('probe', {}),
+        emitToConversation: () =>
+          gateway.emitToConversation(CONV_ID, 'probe', {}),
+        emitToGpsAudience: () =>
+          gateway.emitToGpsAudience('KV1', ['ca-1', 'ca-2'], {}),
+      };
+
+      it('is covered by this table', () => {
+        // emitToConversationOf is private: the socket events that use it are covered by
+        // 'chat events under enforced tenancy'
+        const publicEmitters = Object.getOwnPropertyNames(
+          NotificationsGateway.prototype,
+        ).filter(
+          (name) => /^emit/.test(name) && name !== 'emitToConversationOf',
+        );
+
+        expect(publicEmitters.sort()).toEqual(Object.keys(emitters).sort());
+      });
+
+      it.each(Object.entries(emitters))(
+        '%s addresses only rooms of the tenant it runs under',
+        (_name, emitNow) => {
+          inTenant(TID_A, emitNow);
+
+          expect(to).toHaveBeenCalledTimes(1);
+          const targets = (
+            to.mock.calls as unknown as [string | string[]][]
+          )[0][0];
+          const named = Array.isArray(targets) ? targets : [targets];
+          expect(named.length).toBeGreaterThan(0);
+          for (const room of named) {
+            expect(
+              room === `t:${TID_A}` || room.startsWith(`t:${TID_A}:`),
+            ).toBe(true);
+          }
+          expect(emit).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      it.each(Object.entries(emitters))(
+        '%s sends nothing without a tenant scope, and says so',
+        (_name, emitNow) => {
+          const warn = jest
+            .spyOn(Logger.prototype, 'warn')
+            .mockImplementation(() => undefined);
+          try {
+            emitNow();
+
+            expect(to).not.toHaveBeenCalled();
+            expect(emit).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledWith(
+              expect.stringContaining('outside any tenant scope'),
+            );
+          } finally {
+            warn.mockRestore();
+          }
+        },
+      );
     });
   });
 

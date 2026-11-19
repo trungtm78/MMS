@@ -4,6 +4,8 @@ import { gpsRoomOf, gpsUnitRoom, gpsWardRoom } from './gps-rooms';
 const TID = '11111111-1111-4111-8111-111111111111';
 
 describe('gps rooms', () => {
+  afterEach(() => delete process.env.TENANCY_MODE);
+
   it('names the staff rooms through the tenant rooms', () => {
     expect(gpsWardRoom(TID)).toBe(rooms.gpsWard(TID));
     expect(gpsUnitRoom(TID, 'KV1')).toBe(rooms.gpsUnit(TID, 'KV1'));
@@ -23,7 +25,8 @@ describe('gps rooms', () => {
       );
     });
 
-    it('keeps the unit rooms of two tenants apart', () => {
+    it('keeps the unit rooms of two tenants apart under enforced tenancy', () => {
+      process.env.TENANCY_MODE = 'enforced';
       const other = '22222222-2222-4222-8222-222222222222';
       const staff = { role: 'police_area', unitScope: 'KV1' };
 

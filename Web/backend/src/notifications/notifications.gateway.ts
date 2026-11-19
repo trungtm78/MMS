@@ -181,12 +181,7 @@ export class NotificationsGateway
 
   // The tenant of whoever emits (the request, job or socket event that is running)
   private currentTid(): string | undefined {
-    const tid = TenantContext.current()?.tenantId;
-    if (tid === undefined && isTenancyEnforced()) {
-      // Every socket is in the rooms of a tenant: with none named, nobody receives it
-      this.logger.warn('A socket event was emitted outside any tenant scope');
-    }
-    return tid;
+    return TenantContext.current()?.tenantId;
   }
 
   // Same rules as JwtAuthGuard: only access tokens, and only while their session is live
@@ -343,9 +338,13 @@ export class NotificationsGateway
 
   // Jobs and requests can emit before the gateway is initialised (tests, start-up): nothing
   // is delivered then, and the log says so instead of an error on undefined. Every emitter
-  // goes through here, so nothing is ever sent server-wide.
+  // goes through here, so nothing is ever sent server-wide. The rooms are named from `tid`
+  // here, after the check: under enforced tenancy an emit that names no tenant is dropped
+  // (it would only address a namespace nobody joins), and the log says so. One emit may
+  // address several rooms: a socket in more than one of them receives it once.
   private deliverTo(
-    targets: string | string[],
+    tid: string | undefined,
+    targetsOf: (tid: string | undefined) => string | string[],
     event: string,
     data: unknown,
   ): void {
@@ -355,13 +354,15 @@ export class NotificationsGateway
       );
       return;
     }
+    if (tid === undefined && isTenancyEnforced()) {
+      this.logger.warn(
+        `Event ${event} emitted outside any tenant scope; not delivered`,
+      );
+      return;
+    }
+    const targets = targetsOf(tid);
     if (Array.isArray(targets) && targets.length === 0) return;
     this.server.to(targets).emit(event, data);
-  }
-
-  // One emit over several rooms: a socket in more than one of them receives it once
-  emitToRooms(targets: string[], event: string, data: unknown) {
-    this.deliverTo(targets, event, data);
   }
 
   // The emitters below address the tenant of the scope they run in (the request or job
@@ -369,17 +370,27 @@ export class NotificationsGateway
 
   // Broadcast to all clients in a unit
   emitToUnit(unitCode: string, event: string, data: unknown) {
-    this.deliverTo(rooms.unit(this.currentTid(), unitCode), event, data);
+    this.deliverTo(
+      this.currentTid(),
+      (tid) => rooms.unit(tid, unitCode),
+      event,
+      data,
+    );
   }
 
   // Send to specific user
   emitToUser(userId: string, event: string, data: unknown) {
-    this.deliverTo(rooms.user(this.currentTid(), userId), event, data);
+    this.deliverTo(
+      this.currentTid(),
+      (tid) => rooms.user(tid, userId),
+      event,
+      data,
+    );
   }
 
   // To every socket of the current tenant (replaces the old system-wide broadcast)
   emitToTenant(event: string, data: unknown) {
-    this.deliverTo(rooms.tenant(this.currentTid()), event, data);
+    this.deliverTo(this.currentTid(), rooms.tenant, event, data);
   }
 
   // gps:update reaches ward-wide staff, staff of the member's unit and the CA officers the
@@ -390,9 +401,9 @@ export class NotificationsGateway
     caOfficerIds: string[],
     data: unknown,
   ): void {
-    const tid = this.currentTid();
     this.deliverTo(
-      [
+      this.currentTid(),
+      (tid) => [
         gpsWardRoom(tid),
         gpsUnitRoom(tid, unitCode),
         ...caOfficerIds.map((id) => rooms.user(tid, id)),
@@ -414,7 +425,12 @@ export class NotificationsGateway
     event: string,
     data: unknown,
   ) {
-    this.deliverTo(rooms.conversation(tid, conversationId), event, data);
+    this.deliverTo(
+      tid,
+      (scoped) => rooms.conversation(scoped, conversationId),
+      event,
+      data,
+    );
   }
 
   // ── Chat handlers (P2-11) ────────────────────────────────────────────────
