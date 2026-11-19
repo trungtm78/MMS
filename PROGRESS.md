@@ -72,6 +72,19 @@ Verification (final run, 2026-11-18, Windows, Postgres 5440 / Redis 6379): `tsc 
 - **Task 8:** `handleConnection` should disconnect when enforced and `tid` is not a UUID (a tid-less socket would join `t:none`/legacy namespaces); the GPS emit path reads `TenantContext.current()` directly and skips the no-scope warning; the interceptor unit test lacks a `defer()`-subscribed-outside-`runAs` case; the interceptor refusal gives no ack (cosmetic, unreachable); `closeRevoked` scans all local sockets.
 - **Task 9:** `runCheck` swallows errors, so `TenantJobRunner` always reports ok and the tenant-attributed error log never fires (its "Running" and "check failed" logs carry no tenant id: add `TenantContext.current()?.tenantId` or rethrow when enforced); the enforced unit test is date-dependent and never asserts the closure invokes `runCheck`; the legacy unit test only asserts the runner is not called; both tenants' alert payloads are identical in the e2e (make the at-risk counts differ for an exact delivery proof); `emitToTenant` has no null guard on the server.
 
+### M1a (schema-wide isolation) enforced-mode run
+Plan: docs/superpowers/plans/2026-11-18-multi-tenant-m1a-schema-wide-isolation.md (Phase E). Task 24 tidies this section.
+
+#### M1a enforced-mode findings
+| Suite | Test | Kind | Root cause | Fix (commit) |
+|---|---|---|---|---|
+| api-contract | chat > creates a group conversation, stores a message and lists both | B | The test calls `ChatService.saveMessage` directly, outside any request (the only product caller is the controller, inside a request), so the connection has no tenant scope and RLS refuses the insert into `messages` (`new row violates row-level security policy`) | Wrapped the call in `asFixtureTenant`; no `expect` line changed (bcdb884) |
+| app | (none) | | 2 of 2 pass under enforced at baseline | |
+| realtime-session | (none) | | 7 of 7 pass under enforced at baseline | |
+| gps-live | (none) | | 5 of 5 pass under enforced at baseline | |
+
+Round 1 result: 1 failing test of 118 in the four suites (kind B); 0 kind A, 0 kind C. Both modes green for all four suites.
+
 ## 2026-11-18 session — commit, PR #11, review, fixes
 User request: commit everything, push to GitHub, open a PR, review and merge (supersedes the old "never push" constraint for this PR). On review findings + red tests the user chose "fix everything, then merge".
 - Commits a8801f7..8c4bcea: infra/docs, backend, web, PoliceApp, MilitianApp (the previously uncommitted M3 work)
