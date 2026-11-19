@@ -2079,6 +2079,18 @@ describe('tenant isolation cutover (039)', () => {
     });
   });
 
+  it('validates every foreign key it added, online (040)', async () => {
+    const pending = await withClient(url, async (c) =>
+      (
+        await c.query<{ name: string }>(
+          `SELECT conrelid::regclass::text || '.' || conname AS name FROM pg_constraint
+            WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND NOT convalidated`,
+        )
+      ).rows.map((r) => r.name),
+    );
+    expect(pending).toEqual([]);
+  });
+
   it('keeps a session without a tenant on the first tenant while the legacy default exists', async () => {
     const tenant = await withClient(
       url,
@@ -2091,5 +2103,72 @@ describe('tenant isolation cutover (039)', () => {
         ).rows[0].tenant,
     );
     expect(tenant).toBe(FIRST_TENANT);
+  });
+});
+
+describe('tenant catalog assertion (041)', () => {
+  /** A database migrated through 040, altered by `tamper`, then offered the rest. */
+  async function migrateAfter(tamper: string): Promise<unknown> {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('040_tenant_validate_online.sql'),
+    });
+    await withClient(url, (c) => c.query(tamper));
+    return migrateDatabase({
+      connectionString: url,
+      directory: MIGRATIONS_DIR,
+    });
+  }
+
+  it('passes on a database the migrations built, and the whole sequence is recorded', async () => {
+    const url = await createDatabase();
+    const report = await migrateDatabase({
+      connectionString: url,
+      directory: MIGRATIONS_DIR,
+    });
+    expect(report.applied.slice(-3)).toEqual([
+      '039_tenant_isolation_cutover.sql',
+      '040_tenant_validate_online.sql',
+      '041_tenant_assert.sql',
+    ]);
+    expect(await recordedMigrations(url)).toEqual(ALL_FILES);
+  });
+
+  it.each([
+    [
+      'a foreign key that is not validated',
+      `ALTER TABLE alerts DROP CONSTRAINT alerts_tenant_id_fkey;
+       ALTER TABLE alerts ADD CONSTRAINT alerts_tenant_id_fkey
+         FOREIGN KEY (tenant_id) REFERENCES tenants (id) NOT VALID`,
+      'alerts_tenant_id_fkey',
+    ],
+    [
+      'a tenant table without forced row-level security',
+      `ALTER TABLE weapons NO FORCE ROW LEVEL SECURITY`,
+      'weapons',
+    ],
+    [
+      'a tenant table without row-level security',
+      `ALTER TABLE weapons DISABLE ROW LEVEL SECURITY`,
+      'weapons',
+    ],
+    [
+      'a single-column key between two tenant tables',
+      `ALTER TABLE alerts ADD COLUMN probe_user uuid REFERENCES users (id)`,
+      'alerts_probe_user_fkey',
+    ],
+    [
+      'an invalid index',
+      `UPDATE pg_index SET indisvalid = false
+        WHERE indexrelid = 'ix_alerts_tenant_created'::regclass`,
+      'ix_alerts_tenant_created',
+    ],
+  ])('refuses %s', async (_name, tamper, culprit) => {
+    await expect(migrateAfter(tamper)).rejects.toMatchObject({
+      name: 'MigrationFailedError',
+      fileName: '041_tenant_assert.sql',
+      message: expect.stringContaining(culprit) as unknown,
+    });
   });
 });

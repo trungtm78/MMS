@@ -109,6 +109,8 @@ describe('splitSqlStatements', () => {
     expect(counts['037_tenant_slice_rls.sql']).toBe(8);
     expect(counts['038_tenant_columns_online.sql']).toBe(280);
     expect(counts['039_tenant_isolation_cutover.sql']).toBe(25);
+    expect(counts['040_tenant_validate_online.sql']).toBe(171);
+    expect(counts['041_tenant_assert.sql']).toBe(1);
     Object.entries(counts).forEach(([name, count]) =>
       expect({ name, nonEmpty: count > 0 }).toEqual({ name, nonEmpty: true }),
     );
