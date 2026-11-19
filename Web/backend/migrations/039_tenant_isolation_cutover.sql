@@ -19,14 +19,19 @@
 --    up referencing rows labelled with the first tenant: 040 would then fail on a schema the
 --    old version can no longer run on. Refused here instead, while the transaction still
 --    rolls everything back. A tenant row without data does not block. Every tenant table is
---    checked, through the tenant_id-led indexes 038 built (two range scans, no table scan).
+--    checked, through the tenant_id-led indexes 038 built (two range probes per table).
+--    038 leaves the new column without planner statistics, and without them the planner
+--    prefers a sequential scan of a large table: sequential scans are disabled for the
+--    probe only (restored below) so it stays an index probe whatever autovacuum did.
 DO $$
 DECLARE
     first_tenant constant uuid := 'a1000000-0000-4000-8000-000000000001';
     t text;
     owned boolean;
     foreign_tables text[] := '{}';
+    seqscan_before text := current_setting('enable_seqscan');
 BEGIN
+    PERFORM set_config('enable_seqscan', 'off', true);
     FOR t IN
         SELECT c.relname FROM pg_class c
          WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
@@ -42,6 +47,7 @@ BEGIN
             foreign_tables := foreign_tables || t;
         END IF;
     END LOOP;
+    PERFORM set_config('enable_seqscan', seqscan_before, true);
     IF cardinality(foreign_tables) > 0 THEN
         RAISE EXCEPTION 'tenant isolation cutover refused, rows of another tenant: %. Every row that existed before 038 belongs to the first tenant (%), and the cutover would give a row of another tenant references into rows of the first. Nothing was changed by this file. Delete the rows of the other tenants together with everything that references them (or restore a backup without them), then run the migrator again',
             array_to_string(foreign_tables, ', '), first_tenant;
