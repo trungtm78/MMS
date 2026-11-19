@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { bindTenantToConnections } from './tenancy/bind-tenant';
 import {
+  assertLegacyDefaultTenantCode,
   assertLegacyRoleSeesTenantData,
   assertLegacyTenantDefaultPresent,
   assertNoLegacyTenantDefault,
@@ -66,6 +67,10 @@ describe('tenantAwareDataSource', () => {
       calls.push('roleGuard');
       return Promise.resolve();
     });
+    jest.mocked(assertLegacyDefaultTenantCode).mockImplementation(() => {
+      calls.push('legacyCodeGuard');
+      return Promise.resolve();
+    });
     jest.mocked(assertLegacyTenantDefaultPresent).mockImplementation(() => {
       calls.push('legacyDefaultPresentGuard');
       return Promise.resolve();
@@ -76,9 +81,13 @@ describe('tenantAwareDataSource', () => {
     });
   });
 
+  const originalCode = process.env.LEGACY_DEFAULT_TENANT_CODE;
   afterEach(() => {
     if (originalMode === undefined) delete process.env.TENANCY_MODE;
     else process.env.TENANCY_MODE = originalMode;
+    if (originalCode === undefined)
+      delete process.env.LEGACY_DEFAULT_TENANT_CODE;
+    else process.env.LEGACY_DEFAULT_TENANT_CODE = originalCode;
   });
 
   describe('in legacy mode', () => {
@@ -100,6 +109,7 @@ describe('tenantAwareDataSource', () => {
       expect(assertLegacyRoleSeesTenantData).toHaveBeenCalledWith(fake);
       expect(assertNoLegacyTenantDefault).not.toHaveBeenCalled();
       expect(assertRuntimeRoleEnforcesRls).not.toHaveBeenCalled();
+      expect(assertLegacyDefaultTenantCode).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -146,10 +156,12 @@ describe('tenantAwareDataSource', () => {
         'initialize',
         'legacyDefaultGuard',
         'roleGuard',
+        'legacyCodeGuard',
       ]);
       expect(bindTenantToConnections).toHaveBeenCalledWith(fake);
       expect(assertNoLegacyTenantDefault).toHaveBeenCalledWith(fake);
       expect(assertRuntimeRoleEnforcesRls).toHaveBeenCalledWith(fake);
+      expect(assertLegacyDefaultTenantCode).toHaveBeenCalledWith(fake, null);
       expect(assertLegacyTenantDefaultPresent).not.toHaveBeenCalled();
       expect(assertLegacyRoleSeesTenantData).not.toHaveBeenCalled();
     });
@@ -168,6 +180,29 @@ describe('tenantAwareDataSource', () => {
         expect(fake.destroy).toHaveBeenCalledTimes(1);
       },
     );
+
+    it('checks LEGACY_DEFAULT_TENANT_CODE against the database, lower-cased', async () => {
+      process.env.LEGACY_DEFAULT_TENANT_CODE = ' Phu-Dinh ';
+
+      await expect(tenantAwareDataSource(options)).resolves.toBe(fake);
+
+      expect(assertLegacyDefaultTenantCode).toHaveBeenCalledWith(
+        fake,
+        'phu-dinh',
+      );
+    });
+
+    it('closes the data source and rethrows when LEGACY_DEFAULT_TENANT_CODE names no active tenant', async () => {
+      process.env.LEGACY_DEFAULT_TENANT_CODE = 'phu-dinh';
+      const refusal = new TenancyConfigError(
+        'legacy_default_tenant_code_unknown',
+      );
+      jest.mocked(assertLegacyDefaultTenantCode).mockRejectedValue(refusal);
+
+      await expect(tenantAwareDataSource(options)).rejects.toBe(refusal);
+
+      expect(fake.destroy).toHaveBeenCalledTimes(1);
+    });
 
     it('reports the guard error even when closing the data source fails too', async () => {
       const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();

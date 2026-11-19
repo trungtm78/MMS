@@ -1,4 +1,5 @@
 import {
+  assertLegacyDefaultTenantCode,
   assertLegacyRoleSeesTenantData,
   assertLegacyTenantDefaultPresent,
   assertNoLegacyTenantDefault,
@@ -233,5 +234,39 @@ describe('assertLegacyRoleSeesTenantData', () => {
     expect(sql).toMatch(/rolname\s*=\s*'mms_app'/);
     expect(sql).toMatch(/pg_has_role\(current_user/);
     expect(sql).toMatch(/rolname\s*=\s*current_user/);
+  });
+});
+
+describe('assertLegacyDefaultTenantCode', () => {
+  const ds = (rows: unknown[]) => ({
+    query: jest.fn().mockResolvedValue(rows),
+  });
+
+  it('accepts no setting, and a code naming an active tenant', async () => {
+    const unset = ds([]);
+    await expect(
+      assertLegacyDefaultTenantCode(unset, null),
+    ).resolves.toBeUndefined();
+    expect(unset.query).not.toHaveBeenCalled();
+    const active = ds([{ status: 'active' }]);
+    await expect(
+      assertLegacyDefaultTenantCode(active, 'phu-dinh'),
+    ).resolves.toBeUndefined();
+    expect(active.query).toHaveBeenCalledWith(
+      'SELECT status FROM auth_tenant_by_code($1)',
+      ['phu-dinh'],
+    );
+  });
+
+  it.each([
+    [[], 'no such tenant'],
+    [[{ status: 'suspended' }], 'status suspended'],
+  ])('refuses a code that names no active tenant (%j)', async (rows, why) => {
+    await expect(
+      assertLegacyDefaultTenantCode(ds(rows), 'phu-dinh'),
+    ).rejects.toMatchObject({
+      name: 'TenancyConfigError',
+      message: expect.stringContaining(why) as unknown,
+    });
   });
 });

@@ -6,6 +6,7 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
 import './pg-types';
 import { bindTenantToConnections } from './tenancy/bind-tenant';
 import {
+  assertLegacyDefaultTenantCode,
   assertLegacyRoleSeesTenantData,
   assertLegacyTenantDefaultPresent,
   assertNoLegacyTenantDefault,
@@ -67,6 +68,10 @@ export async function tenantAwareDataSource(
     if (enforced) {
       await assertNoLegacyTenantDefault(dataSource);
       await assertRuntimeRoleEnforcesRls(dataSource);
+      await assertLegacyDefaultTenantCode(
+        dataSource,
+        settings.legacyDefaultTenantCode,
+      );
     } else {
       await assertLegacyTenantDefaultPresent(dataSource);
       await assertLegacyRoleSeesTenantData(dataSource);

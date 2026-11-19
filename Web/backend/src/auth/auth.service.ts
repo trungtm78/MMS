@@ -7,6 +7,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,7 +24,10 @@ import { User, type UserRole } from '../database/entities/user.entity';
 import { Session } from '../database/entities/refresh-token.entity';
 import { sortRolesByPriority } from '../common/constants/roles';
 import { TenantContext } from '../database/tenancy/tenant-context';
-import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
+import {
+  isTenancyEnforced,
+  tenancySettings,
+} from '../database/tenancy/tenancy-mode';
 
 export interface JwtPayload {
   sub: string; // user UUID
@@ -98,6 +102,8 @@ const DUMMY_HASH =
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -168,28 +174,35 @@ export class AuthService {
     return row.code;
   }
 
-  // The code the user typed: none in legacy mode, a 400 when enforced mode gets none. This
-  // is input validation, answered before any lockout slot is taken.
-  private requireTenantCode(tenantCode: string | undefined): string | null {
+  // The tenant code a sign-in names: none in legacy mode. Under enforced mode a blank code
+  // falls back to LEGACY_DEFAULT_TENANT_CODE while clients that send none are in use (spec
+  // D17, removed one release after the tenant-code clients of M1c ship); without it a blank
+  // code is a 400, answered before any lockout slot is taken.
+  private signInTenantCode(tenantCode: string | undefined): string | null {
     if (!isTenancyEnforced()) return null;
     const code = (tenantCode ?? '').trim();
-    if (!code) throw new BadRequestException('tenant_code_required');
-    return code;
+    if (code) return code;
+    const fallback = tenancySettings().legacyDefaultTenantCode;
+    if (fallback === null)
+      throw new BadRequestException('tenant_code_required');
+    this.logger.warn(
+      `Sign-in without a tenant code: using the transitional LEGACY_DEFAULT_TENANT_CODE "${fallback}". Update the client to send tenantCode`,
+    );
+    return fallback;
   }
 
   /**
-   * The tenant a sign-in is for. Legacy mode has none. Enforced mode resolves the code the
-   * user typed inside the sign-in attempt: an unknown or inactive tenant looks exactly like
-   * a wrong password (same answer, same bcrypt work, same failure counted against the
-   * name), so codes cannot be probed, not even through the lockout. The tenant is adopted
-   * into the request scope, so every later query of the sign-in runs under it.
+   * The tenant a sign-in is for. Legacy mode has none. Enforced mode resolves the code
+   * inside the sign-in attempt: an unknown or inactive tenant looks exactly like a wrong
+   * password (same answer, same bcrypt work, same failure counted against the name), so
+   * codes cannot be probed, not even through the lockout. The tenant is adopted into the
+   * request scope, so every later query of the sign-in runs under it.
    */
-  async resolveLoginTenant(
-    tenantCode: string | undefined,
+  private async resolveLoginTenant(
+    code: string | null,
     password: string,
     attempt: LoginAttempt,
   ): Promise<string | null> {
-    const code = this.requireTenantCode(tenantCode);
     if (code === null) return null;
     const [tenant] = await this.dataSource.query<
       { id: string; status: string }[]
@@ -212,10 +225,10 @@ export class AuthService {
     password: string,
     tenantCode?: string,
   ): Promise<ValidatedUser> {
-    this.requireTenantCode(tenantCode);
+    const code = this.signInTenantCode(tenantCode);
     const attempt = await this.loginAttempts.begin(username);
     try {
-      await this.resolveLoginTenant(tenantCode, password, attempt);
+      await this.resolveLoginTenant(code, password, attempt);
       return await this.checkCredentials(username, password, attempt);
     } finally {
       // A no-op once settled; frees the slot when an unexpected error ended the attempt

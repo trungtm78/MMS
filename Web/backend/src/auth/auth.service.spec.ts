@@ -8,6 +8,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { FIRST_TENANT_ID } from '../database/tenancy/first-tenant';
@@ -118,6 +119,9 @@ describe('AuthService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // clearAllMocks keeps implementations: reset the one mock whose answers tests script by
+    // implementation, so none leaks into the next test
+    mockDataSource.query.mockReset();
     mockLoginAttempts.begin.mockResolvedValue(mockAttempt);
 
     mockSessionRepo.createQueryBuilder.mockReturnValue({
@@ -831,48 +835,102 @@ describe('AuthService', () => {
       });
     });
 
-    describe('resolveLoginTenant', () => {
-      test('has no tenant in legacy mode and never looks one up', async () => {
-        delete process.env.TENANCY_MODE;
-
-        await expect(
-          service.resolveLoginTenant('phu-dinh', PW, mockAttempt),
-        ).resolves.toBeNull();
-        await expect(
-          service.resolveLoginTenant(undefined, PW, mockAttempt),
-        ).resolves.toBeNull();
-        expect(mockDataSource.query).not.toHaveBeenCalled();
-        expect(mockAttempt.failed).not.toHaveBeenCalled();
+    describe('the transitional tenant code', () => {
+      const previousCode = process.env.LEGACY_DEFAULT_TENANT_CODE;
+      afterEach(() => {
+        if (previousCode === undefined)
+          delete process.env.LEGACY_DEFAULT_TENANT_CODE;
+        else process.env.LEGACY_DEFAULT_TENANT_CODE = previousCode;
       });
 
-      test('asks for a tenant code in enforced mode', async () => {
+      const userRow = makeRawRow();
+      // A user that can sign in: the user row, one role, no unit scope
+      const answerAsUser = (sql: string) =>
+        Promise.resolve(
+          sql === LOOKUP
+            ? [{ id: TID, status: 'active' }]
+            : sql.includes('FROM users WHERE username')
+              ? [userRow]
+              : sql.includes('FROM user_roles')
+                ? [{ code: 'police_ward' }]
+                : [],
+        );
+
+      const signIn = (tenantCode: string | undefined) =>
+        TenantContext.start(() =>
+          service.validateUser('caphuong', PW, tenantCode),
+        );
+
+      test('signs a client that sends no code in to LEGACY_DEFAULT_TENANT_CODE, and says so', async () => {
         process.env.TENANCY_MODE = 'enforced';
+        process.env.LEGACY_DEFAULT_TENANT_CODE = 'phu-dinh';
+        const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        try {
+          mockDataSource.query.mockImplementation(answerAsUser);
 
-        await expect(
-          TenantContext.start(() =>
-            service.resolveLoginTenant(undefined, PW, mockAttempt),
-          ),
-        ).rejects.toThrow(new BadRequestException('tenant_code_required'));
-        expect(mockDataSource.query).not.toHaveBeenCalled();
-      });
+          await expect(signIn(undefined)).resolves.toMatchObject({
+            id: userRow.id,
+          });
+          await expect(signIn('  ')).resolves.toMatchObject({
+            id: userRow.id,
+          });
 
-      test('adopts the active tenant into the request scope and returns its id', async () => {
-        process.env.TENANCY_MODE = 'enforced';
-        mockDataSource.query.mockResolvedValueOnce([
-          { id: TID, status: 'active' },
-        ]);
-
-        const scoped = await TenantContext.start(async () => {
-          const id = await service.resolveLoginTenant(
+          expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, [
             'phu-dinh',
-            PW,
-            mockAttempt,
+          ]);
+          expect(warn).toHaveBeenCalledTimes(2);
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('LEGACY_DEFAULT_TENANT_CODE'),
           );
-          return { id, adopted: TenantContext.current()?.tenantId };
-        });
+        } finally {
+          warn.mockRestore();
+        }
+      });
 
-        expect(scoped).toEqual({ id: TID, adopted: TID });
-        expect(mockAttempt.failed).not.toHaveBeenCalled();
+      test('still prefers the code the client sent, without a warning', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        process.env.LEGACY_DEFAULT_TENANT_CODE = 'phu-dinh';
+        const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        try {
+          mockDataSource.query.mockResolvedValueOnce([]);
+
+          await expect(signIn('other')).rejects.toThrow(
+            new UnauthorizedException('invalid_credentials'),
+          );
+          expect(mockDataSource.query).toHaveBeenCalledWith(LOOKUP, ['other']);
+          expect(warn).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      test('is ignored in legacy mode, which looks no tenant up', async () => {
+        delete process.env.TENANCY_MODE;
+        process.env.LEGACY_DEFAULT_TENANT_CODE = 'phu-dinh';
+        mockDataSource.query.mockImplementation(answerAsUser);
+
+        await signIn(undefined);
+
+        expect(mockDataSource.query).not.toHaveBeenCalledWith(
+          LOOKUP,
+          expect.anything(),
+        );
+      });
+
+      test('spends the bcrypt work before it counts an unknown tenant as a failure', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        mockDataSource.query.mockResolvedValueOnce([]);
+
+        await expect(signIn('nope')).rejects.toThrow(
+          new UnauthorizedException('invalid_credentials'),
+        );
+        const compared = jest
+          .mocked(bcrypt.compare)
+          .mock.invocationCallOrder.at(-1);
+        const failed = mockAttempt.failed.mock.invocationCallOrder.at(-1);
+        expect(compared).toBeDefined();
+        expect(failed).toBeDefined();
+        expect(compared as number).toBeLessThan(failed as number);
       });
     });
 

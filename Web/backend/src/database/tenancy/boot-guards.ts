@@ -135,3 +135,23 @@ export async function assertLegacyRoleSeesTenantData(
     );
   }
 }
+
+// LEGACY_DEFAULT_TENANT_CODE signs clients that send no tenant code in to one tenant
+// (spec D17). A code naming no active tenant would make every such sign-in fail like a
+// wrong password, with only a warning per attempt to show for it: refuse to start instead.
+export async function assertLegacyDefaultTenantCode(
+  dataSource: Pick<DataSource, 'query'>,
+  code: string | null,
+): Promise<void> {
+  if (code === null) return;
+  const rows = await dataSource.query<{ status: string }[]>(
+    'SELECT status FROM auth_tenant_by_code($1)',
+    [code],
+  );
+  const status = rows[0]?.status;
+  if (status !== 'active') {
+    throw new TenancyConfigError(
+      `legacy_default_tenant_code_unknown: LEGACY_DEFAULT_TENANT_CODE=${JSON.stringify(code)} names no active tenant (${status === undefined ? 'no such tenant' : `status ${status}`}). Fix the code or remove the setting`,
+    );
+  }
+}
