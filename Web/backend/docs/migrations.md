@@ -10,18 +10,22 @@ the pending ones in filename order and records each in `schema_migrations`.
 
 ## Guarantees
 
-- **One transaction per file.** A file runs in one transaction together with its
-  `schema_migrations` row, so a failure leaves nothing half applied. The error names the
-  file.
+- **One transaction per file, unless the file says otherwise.** A file runs in one
+  transaction together with its `schema_migrations` row, so a failure leaves nothing half
+  applied. The error names the file. The exception is a file marked non-transactional
+  (see below), which is recorded only after its last statement succeeded.
 - **History is immutable.** The migrator stores each file's SHA-256 checksum and refuses
   to run when an applied file was edited (`MigrationChecksumError`). It also refuses when
   an applied file was deleted or renamed (`MigrationMissingError`). To change the schema,
   add a new file.
 - **One migrator at a time.** A Postgres advisory lock serialises migrators, so replicas
-  starting together apply each file exactly once. The others wait at most
-  `MIGRATION_LOCK_WAIT`.
+  starting together apply each file exactly once. The others poll for the lock
+  (`pg_try_advisory_lock`, so a waiting migrator holds no snapshot) for at most
+  `MIGRATION_LOCK_WAIT`; see "The advisory lock and the waits" below.
 - **No blocked tables.** A statement waits at most `MIGRATION_LOCK_TIMEOUT` for a table
-  lock, so a migration never queues every query on a busy table behind it.
+  lock, so a migration never queues every query on a busy table behind it. The online
+  statements of a non-transactional file (index builds, `VALIDATE CONSTRAINT`) never block
+  a writer and use the longer `MIGRATION_ONLINE_LOCK_TIMEOUT` instead.
 - **No guessing on an existing database.** A database without migration history that
   already contains application tables is refused; see below.
 
@@ -31,13 +35,81 @@ the pending ones in filename order and records each in `schema_migrations`.
 | --- | --- | --- |
 | `RUN_MIGRATIONS` | `true` | Docker image only: migrate before starting the server. |
 | `MIGRATIONS_DIR` | `./migrations` | Directory holding the SQL files. |
-| `MIGRATION_LOCK_TIMEOUT` | `10s` | Longest one statement waits for a table lock. |
-| `MIGRATION_LOCK_WAIT` | `10min` | Longest to wait for another running migrator. |
+| `MIGRATION_LOCK_TIMEOUT` | `10s` | Longest one statement waits for a table lock. In a non-transactional file it applies to every statement except the online ones below. |
+| `MIGRATION_ONLINE_LOCK_TIMEOUT` | `30min` | Longest an online statement of a non-transactional file (`CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `VALIDATE CONSTRAINT`) waits for a lock or for older transactions. `0s` waits for ever. |
+| `MIGRATION_LOCK_WAIT` | `10min` | Longest to wait for another running migrator. `0s` means try once and fail at once if another migrator holds the lock. |
+| `MIGRATION_THROUGH` | unset | Apply pending files up to and including this exact file name and leave the later ones pending. The CLI flag `--through=` does the same and takes precedence. |
 | `MIGRATION_BASELINE_THROUGH` | unset | One start only: adopt a database migrated before migration history existed. The CLI flag `--baseline-through=` does the same and takes precedence. |
+
+Durations are a number and a unit: `ms`, `s` or `min` (`500ms`, `10s`, `30min`).
 
 The connection comes from `DATABASE_URL`. Without it, the migrator uses `DB_HOST`,
 `DB_PORT`, `DB_USER`, `DB_PASSWORD` and `DB_NAME`, with the same defaults as the
 application.
+
+### The advisory lock and the waits
+
+A migrator takes one Postgres advisory lock for its whole run. A second migrator does not
+block inside the server: it polls `pg_try_advisory_lock` until it gets the lock or
+`MIGRATION_LOCK_WAIT` passes, and then fails. `MIGRATION_LOCK_WAIT=0s` is the strict
+form: try once and fail at once when the lock is taken.
+
+`MIGRATION_LOCK_WAIT` (10 min by default) is **shorter** than the online bound
+(`MIGRATION_ONLINE_LOCK_TIMEOUT`, 30 min), and a single online file can run for longer than
+either. A replica that boots while another migrator is still running a long online file
+therefore gives up and fails to start. That is why a release that contains a long online
+file (038) runs it as its own `--through` step ahead of the window, instead of leaving it
+to the migration at boot (see "Rollout of the tenant isolation" below). Set
+`RUN_MIGRATIONS=false` on the instances and migrate in a release step when that is not
+enough.
+
+`MIGRATION_THROUGH` (or `--through=`) is for that preparation step only. Left set at a
+normal boot, the migrator applies the files up to it, prints the pending ones and a warning
+(`WARNING: the schema is not complete ...`), and **exits 0**: the instance starts on a
+schema that lacks the later files. Remove it after the step.
+
+## Non-transactional migrations
+
+`CREATE INDEX CONCURRENTLY` cannot run in a transaction, and an online `VALIDATE
+CONSTRAINT` should not hold its locks longer than its own scan. A file whose leading comment
+lines contain the exact line
+
+    -- mms:migration no-transaction
+
+is run statement by statement on the migration session: each statement commits on its own,
+the advisory lock stays held, and each waits at most `MIGRATION_LOCK_TIMEOUT` for a lock,
+except the online statements, which wait at most `MIGRATION_ONLINE_LOCK_TIMEOUT` (an index
+build waits for older transactions, and cancelling it would leave an INVALID index). The
+file is recorded in `schema_migrations` only after its last statement succeeded.
+
+A failure leaves the statements before it applied and the file unrecorded: the next start
+runs the **whole file again**. So every statement must be safe to run twice. The runner
+reads the file after removing the comments and **refuses, before running any file, a marked
+file with any statement outside this allowlist**:
+
+| Statement | Why it can run twice |
+| --- | --- |
+| `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <name> ON ...` | skipped when the index exists |
+| `DROP INDEX CONCURRENTLY IF EXISTS <name>` | skipped when it is gone |
+| `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...` | skipped when the column exists |
+| `ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...` | sets the same default again |
+| `ALTER TABLE ... VALIDATE CONSTRAINT <name>` | a no-op once valid |
+| `ANALYZE` | harmless |
+| `COMMENT ON ...` | sets the same comment again |
+
+Everything else is refused, among it `BEGIN`/`COMMIT`/`ROLLBACK` and any other
+transaction control, a non-concurrent index statement, an `ALTER TABLE` with several
+actions, `DO` blocks, and `INSERT`/`UPDATE`/`DELETE`. A check that must fail the release
+(a `DO` block raising an exception) therefore lives in an ordinary transactional file, as
+`041_tenant_assert.sql` does.
+
+An interrupted concurrent build leaves an INVALID index that `IF NOT EXISTS` would skip for
+ever. Before running a marked file the runner drops (`CONCURRENTLY`) every INVALID index the
+file builds, and after the file it checks that each of them is valid before recording the
+file. Checksums work as for any file.
+
+`--through=<file>` (or `MIGRATION_THROUGH`) stops after that file, reporting the rest as
+pending. It is how a release runs its online preparation ahead of its drained window.
 
 ## Upgrading a database migrated before migration history existed
 
@@ -138,7 +210,7 @@ the new schema.
 
   Release notes must say which kind a release is.
 
-## Multi-tenancy migrations (036 and 037)
+## Multi-tenancy migrations (036 and 037, M0)
 
 Migrations 036 and 037 start the multi-tenant work (M0, see `tenancy.md`). They are the
 first migrations that need a privileged migrator, and 037 is an incompatible release.
@@ -214,3 +286,94 @@ warning (audit data is lost), and the application now refuses to boot. So:
 - After 037, give `mms_app` a login (`ALTER ROLE mms_app LOGIN PASSWORD '...'`) only when
   you run `TENANCY_MODE=enforced`; a legacy deployment keeps its current database user as
   long as that user is a superuser, a BYPASSRLS role or `mms_app` (see above).
+
+## Multi-tenancy migrations 038 to 041 (M1a)
+
+They extend the isolation of the M0 slice to every tenant table (66 tables; the 6 global
+ones are `schema_migrations`, `tenants`, `roles`, `permissions`, `role_permissions` and
+`login_attempts`, see `tenancy.md`). The sequence is:
+
+| File | Kind | Does |
+| --- | --- | --- |
+| `036_tenants.sql` | transactional | the `tenants` registry, `app_tenant_id()`, the roles `mms_app` and `mms_platform`, the grants (M0) |
+| `037_tenant_slice_rls.sql` | transactional, **incompatible** | `tenant_id`, RLS and per-tenant keys on nine tables, and the legacy database default (M0) |
+| `038_tenant_columns_online.sql` | non-transactional, **online** | `tenant_id` on the remaining 57 tables and every index the cutover needs |
+| `039_tenant_isolation_cutover.sql` | transactional, short, **incompatible** | keys, foreign keys `NOT VALID`, RLS and privileges, in one window |
+| `040_tenant_validate_online.sql` | non-transactional, **online** | `VALIDATE CONSTRAINT` of the 171 keys 039 added `NOT VALID` |
+| `041_tenant_assert.sql` | transactional | catalog assertions only; changes nothing |
+
+- **`038_tenant_columns_online.sql`**: `tenant_id` on the 57 remaining tables, added with
+  the first tenant as a constant default (kept in the catalog: no rewrite, no UPDATE, so the
+  record-keeping triggers of 026 never fire), then defaulting to `app_tenant_id()`; every
+  index the cutover needs, built `CONCURRENTLY`: 24 parent keys `(tenant_id, id)`, 15
+  per-tenant natural keys, 113 composite foreign-key indexes and 14 tenant list indexes. It
+  changes no behaviour and can run while the old version serves.
+- **`039_tenant_isolation_cutover.sql`**: attaches the per-tenant unique keys
+  (`ADD CONSTRAINT ... USING INDEX`, no scan), rewrites the 114 foreign keys between tenant
+  tables as composite `(tenant_id, ...)` keys `NOT VALID` with the same names and delete
+  rules (`ON DELETE SET NULL (<col>)` for the nullable ones), enables and forces RLS with the
+  `tenant_isolation` policy on the 57 tables, adds their `tenant_id` foreign keys `NOT
+  VALID`, removes the default privileges of 036 (every later migration grants its tables
+  explicitly; the schema guard test checks it), makes `roles`, `permissions` and
+  `role_permissions` read-only for `mms_app`, and adds `tenantId` to the revocation
+  announcements of 035. It asserts the catalog at its end: all or nothing.
+- **`040_tenant_validate_online.sql`**: nothing but `ALTER TABLE ... VALIDATE CONSTRAINT`,
+  one statement per key (57 `tenant_id` keys and 114 composite keys), each in its own
+  transaction: `SHARE UPDATE EXCLUSIVE` on the child and `ROW SHARE` on the parent, so reads
+  and writes go on while each one scans. Re-running a validated key is a no-op.
+- **`041_tenant_assert.sql`**: one `DO` block that fails the migration unless the catalog
+  says: 66 tenant tables, each with RLS enabled and forced and the `tenant_isolation`
+  policy, each with one validated `tenant_id` key to `tenants`; no foreign key of the
+  schema left `NOT VALID`; exactly 114 foreign keys between tenant tables, each composite
+  (`tenant_id` paired with the parent's `tenant_id`); no invalid or unready index. A failed
+  assertion leaves 041 unrecorded, and the next start asserts again.
+
+### Rollout of the tenant isolation
+
+**039 is an incompatible release**: the conflict targets of `system_settings`, `incidents`
+and `conversations` change, so old code that names the old targets fails once 039 is
+applied. Deploy it drained, with no old instance running, as described under "Releases
+with incompatible changes". The recipe:
+
+1. **Any time before the window**, with the old version still serving: run the migrator as a
+   release step with `--through=038_tenant_columns_online.sql`. It builds its indexes
+   without blocking writers and can take long on large tables; it is safe to interrupt and
+   repeat (the runner drops the INVALID index an interrupted build leaves). Do not leave it
+   to the migration at boot: `MIGRATION_LOCK_WAIT` is shorter than the online bound, so a
+   replica that boots meanwhile would fail.
+2. **Drain and stop the old version.** Back up with `pg_dump --create` (see "Backups and
+   restores").
+3. **Inside the window**: run the migrator with
+   `--through=039_tenant_isolation_cutover.sql`. 039 is one short transaction.
+4. **Start the new version.** Migrating at start applies 040 online and then 041, or run the
+   migrator as a step first and start the instances with `RUN_MIGRATIONS=false`. Traffic is
+   served while 040 validates. Unset `MIGRATION_THROUGH` first: left set it stops before
+   040, warns and exits 0.
+5. **Check**: the migrator reports `0 pending`, and 041 is in `schema_migrations`.
+
+```sh
+node dist/database/migrations/migrate.cli.js --through=038_tenant_columns_online.sql    # step 1
+node dist/database/migrations/migrate.cli.js --through=039_tenant_isolation_cutover.sql # step 3
+node dist/database/migrations/migrate.cli.js                                             # step 4
+```
+
+On a database at 037, a plain run applies all four files in order; the steps above only
+split that run around the drained window. A second run is a no-op.
+
+Things to know about the result:
+
+- **A guard written into an old migration cannot be re-run on a post-039 database.** 029,
+  for example, re-checks that its tables' foreign keys are single-column keys, which 039 made
+  composite. The runner never runs an applied file twice, and the baseline path only records
+  files, so nothing in normal operation does it. Do not run `psql -f` of an old file against
+  a migrated database.
+- **Backups must use `pg_dump --create`** (the legacy database default of 037 is
+  database-level, and the cutover leaves it in place): see "Backups and restores". The
+  advice there about restoring the roles first applies as before.
+- The legacy database default (`app.tenant_id`) is untouched: a legacy deployment keeps
+  writing and reading the first tenant on all 66 tables. A `mms_app` or member of it sees
+  exactly that tenant, as it did on nine tables in M0.
+- After 039, a migration that creates a table must grant it explicitly to the roles that need
+  it: the default privileges of 036 are gone. The schema guard fails a table that forgot.
+- **Lock windows.** The windows measured on a synthetic production-sized database are in
+  "Rehearsal" below. (TO BE WRITTEN IN TASK 23: this section does not exist yet.)
