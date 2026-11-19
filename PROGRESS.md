@@ -1,4 +1,15 @@
 # PROGRESS
+
+## HANDOFF 2026-11-19 (multi-tenant M1a, branch feat/multi-tenant)
+
+- M1a plan: `docs/superpowers/plans/2026-11-18-multi-tenant-m1a-schema-wide-isolation.md` (24 tasks).
+- **Done and reviewed:** Tasks 1-20 with their fix waves. Every e2e suite passes in both modes: `node scripts/run-e2e.mjs --mode=both` gave 44/44 (22 files x legacy/enforced); unit 2780; tsc and eslint clean.
+- **In flight, NOT finished:** Task 21 (cross-tenant route sweep). The last commit `wip(tenancy): Task 21 route sweep, unfinished` holds a partial edit of `test/support/route-sweep.ts` and `test/tenancy-route-sweep.e2e-spec.ts`; it was never run. Restart Task 21 from the plan and treat that commit as a draft.
+- **Remaining in M1a:** Task 21 (sweep; also add: MFA token with swapped tenant prefix gets the same 401, Redis adapter cross-tenant delivery test), Task 22 (differential sweep), Task 23 (lock-window rehearsal on a large synthetic database), Task 24 (gate, docs), then one whole-branch review and a single fix wave.
+- **Queued for M1b from reviews:** purge job for expired `auth_challenges`; tenant status re-check at MFA completion and on live sessions; optional HMAC over tenant|id|secret for MFA tokens; per-tenant lockout keys; AuditInterceptor `POST:api` bug with redaction; role rename to `tenant_admin`; flip the default mode to enforced.
+- e2e needs `MIGRATION_TEST_ADMIN_URL` and `TEST_REDIS_URL` (see `Web/backend/docs/tenancy.md`); never run two e2e runs on one cluster at once (the roles `mms_app`/`mms_platform` are cluster-wide).
+- Demo deploy of `master` lives on branch `demo/deploy` (guide `deploy-demo/DEPLOY-DEMO.md`). Not deployed yet: no SSH access from the build machine; the demo data dump and its AES key are NOT in git (public repository).
+
 Updated: 2026-11-18 | Branch feat/multi-tenant: multi-tenant M0 complete (isolation gate green, composite-FK row open by design), M1 next; never pushed | Earlier milestone M3/7: PR #11 (fix/trial-run-bugs -> master), all work committed and pushed
 
 ## 2026-11-18 multi-tenant M0 (branch feat/multi-tenant): vertical slice done, isolation gate GREEN (one row open by design)

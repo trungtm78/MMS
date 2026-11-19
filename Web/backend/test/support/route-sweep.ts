@@ -3,6 +3,7 @@
 // A route whose parameter or id field is not mapped fails the coverage test, so a new route
 // cannot stay out of the sweep. Read the service query that consumes a parameter before
 // mapping it: the map is what makes the sweep send the other tenant's id where it matters.
+import { randomUUID } from 'crypto';
 import { RequestMethod, type INestApplication } from '@nestjs/common';
 import {
   METHOD_METADATA,
@@ -13,7 +14,11 @@ import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 import type { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
 import { getMetadataStorage } from 'class-validator';
+import * as ExcelJS from 'exceljs';
+import request from 'supertest';
+import { quoteIdent, type SeededRows } from './canary-seeder';
 import { isListed } from './tenancy-catalog';
+import type { TenantDatabase } from './tenancy';
 import { AttendanceEntryDto } from '../../src/training/dto/training-plan.dto';
 import { InventoryItemDto } from '../../src/weapons/dto/record-inventory.dto';
 
@@ -227,8 +232,8 @@ const isDtoClass = (value: unknown): value is DtoClass =>
   typeof value === 'function' &&
   ![Object, String, Number, Boolean, Array].includes(value as never);
 
-const isIdName = (name: string): boolean => /Ids?$/.test(name);
-const isCodeName = (name: string): boolean => /[a-z]Codes?$/.test(name);
+export const isIdName = (name: string): boolean => /Ids?$/.test(name);
+export const isCodeName = (name: string): boolean => /[a-z]Codes?$/.test(name);
 
 type ControllerClass = abstract new (...args: never[]) => object;
 
@@ -472,7 +477,7 @@ export const codeOfField = (
 ): { table: string; column: string } | undefined => lookup(CODE_FIELDS, field);
 
 /** A single @Body('x') / @Query('x') as a field, for the same lookups as a DTO field. */
-const singleField = (name: string): IdField => ({
+export const singleField = (name: string): IdField => ({
   path: name,
   name,
   dto: '',
@@ -635,4 +640,367 @@ export function routerRoutes(
       return verbs.map((verb) => `${verb} ${local === '' ? '/' : local}`);
     })
     .sort(bySort);
+}
+
+/**
+ * Routes answering 400 to a valid id of another tenant BEFORE looking anything up, with the
+ * reason (read from the service). Empty until a route proves it; never added to get green.
+ */
+export const ACCEPTED_400: Readonly<Record<string, string>> = {};
+
+// Sample strings tried, in order, against a @Matches pattern
+const PATTERN_SAMPLES = [
+  '0901234567',
+  'SWEEP-1',
+  'sweep_user',
+  'sweep',
+  '2026-06-15',
+];
+const TODAY = new Date().toISOString().slice(0, 10);
+
+// Values of the single @Query('x') / @Body('x') parameters that are no reference: the ones
+// their pipes would refuse as text. Any other single is sent as 'sweep'.
+const SINGLE_VALUES: Readonly<Record<string, string>> = {
+  page: '1',
+  limit: '10',
+  year: '2026',
+  month: '2026-06',
+  from: TODAY,
+  to: TODAY,
+  date: TODAY,
+  asOf: TODAY,
+  trendMonths: '3',
+  top: '5',
+  read: 'false',
+  mine: 'false',
+};
+
+type Metadata = ReturnType<
+  ReturnType<typeof getMetadataStorage>['getTargetValidationMetadatas']
+>[number];
+
+function constraintOf(entries: Metadata[], name: string): unknown {
+  const entry = entries.find((e) => e.name === name);
+  return (entry?.constraints as unknown[] | undefined)?.[0];
+}
+
+function stringFor(
+  dto: DtoClass,
+  property: string,
+  entries: Metadata[],
+  problems: string[],
+): string {
+  const pattern = constraintOf(entries, 'matches');
+  const lengthMin = constraintOf(entries, 'isLength');
+  const min = Math.max(
+    Number(constraintOf(entries, 'minLength') ?? 0),
+    Number(lengthMin ?? 0),
+    1,
+  );
+  const max = Number(
+    constraintOf(entries, 'maxLength') ??
+      (
+        entries.find((e) => e.name === 'isLength')?.constraints as
+          | unknown[]
+          | undefined
+      )?.[1] ??
+      200,
+  );
+  if (pattern instanceof RegExp) {
+    const sample = PATTERN_SAMPLES.find(
+      (s) => pattern.test(s) && s.length <= max,
+    );
+    if (sample) return sample;
+    problems.push(
+      `${dto.name}.${property}: no sample matches ${String(pattern)}`,
+    );
+    return 'sweep';
+  }
+  if (entries.some((e) => e.name === 'isEmail')) return 'sweep@example.com';
+  return 'sweep'.padEnd(min, 'x').slice(0, Math.max(min, Math.min(max, 5)));
+}
+
+/**
+ * The value an id field takes: the id of the other tenant's row of its table. The polymorphic
+ * audit_logs.entity_id is no row id: the canary audit row carries a known entity_id instead.
+ */
+function idValue(
+  field: IdField,
+  table: string | undefined,
+  ids: SeededRows,
+): unknown {
+  if (table === undefined) return undefined;
+  const row = ids.get(table);
+  return table === 'audit_logs' && field.name === 'entityId'
+    ? row?.entity_id
+    : row?.id;
+}
+
+/**
+ * A payload the DTO's validators accept: every id and code field takes the id (or code) of
+ * the rows of `ids` (the other tenant's canary rows); an optional field that is no reference
+ * is left out.
+ */
+export function synthesizePayload(
+  dto: DtoClass,
+  ids: SeededRows,
+  problems: string[],
+  options: { optional?: 'none' | 'first' } = {},
+): Record<string, unknown> {
+  const metadata = getMetadataStorage().getTargetValidationMetadatas(
+    dto,
+    '',
+    true,
+    false,
+  );
+  const byProperty = new Map<string, Metadata[]>();
+  for (const entry of metadata) {
+    byProperty.set(entry.propertyName, [
+      ...(byProperty.get(entry.propertyName) ?? []),
+      entry,
+    ]);
+  }
+  const payload: Record<string, unknown> = {};
+  let sendFirstOptional = options.optional === 'first';
+  for (const [property, entries] of byProperty) {
+    const has = (name: string) =>
+      entries.some((e) => e.name === name || e.type === name);
+    const field: IdField = {
+      path: property,
+      name: property,
+      dto: dto.name,
+      array: false,
+      code: isCodeName(property),
+    };
+    const isArray = (): boolean =>
+      entries.some((e) => e.each === true) ||
+      /(Ids|Codes)$/.test(property) ||
+      has('isArray');
+    if (isFreeText(field)) {
+      payload[property] = stringFor(dto, property, entries, problems);
+      continue;
+    }
+    if (field.code) {
+      const entry = codeOfField(field);
+      const value = entry && ids.get(entry.table)?.[entry.column];
+      if (value === undefined) {
+        problems.push(`${dto.name}.${property}: no code of the other tenant`);
+        continue;
+      }
+      payload[property] = isArray() ? [value] : value;
+      continue;
+    }
+    if (has('isUuid') || isIdName(property)) {
+      const id = idValue(field, tableOfField(field), ids);
+      if (id === undefined) {
+        problems.push(
+          `${dto.name}.${property}: no row of the other tenant to point at`,
+        );
+        continue;
+      }
+      payload[property] = isArray() ? [id] : id;
+      continue;
+    }
+    if (has('conditionalValidation')) {
+      if (!sendFirstOptional) continue;
+      sendFirstOptional = false;
+    }
+    if (has('nestedValidation')) {
+      const declaredType: unknown = Reflect.getMetadata(
+        'design:type',
+        dto.prototype as object,
+        property,
+      );
+      const nested =
+        NESTED_DTOS[`${dto.name}.${property}`] ??
+        (isDtoClass(declaredType) ? declaredType : undefined);
+      if (!nested) {
+        problems.push(
+          `${dto.name}.${property}: nested DTO without an entry in NESTED_DTOS`,
+        );
+        continue;
+      }
+      const inner = synthesizePayload(nested, ids, problems);
+      payload[property] = entries.some((e) => e.each === true)
+        ? [inner]
+        : inner;
+      continue;
+    }
+    const allowed = constraintOf(entries, 'isIn');
+    if (Array.isArray(allowed)) payload[property] = allowed[0] as unknown;
+    else if (has('isBoolean')) payload[property] = false;
+    else if (has('isInt') || has('isNumber') || has('min') || has('max')) {
+      const min = constraintOf(entries, 'min');
+      const max = constraintOf(entries, 'max');
+      payload[property] =
+        typeof min === 'number'
+          ? min
+          : typeof max === 'number'
+            ? Math.min(1, max)
+            : 1;
+    } else if (has('isDateString') || has('isDateOnly'))
+      payload[property] = TODAY;
+    else if (has('isLatitude')) payload[property] = 10.75;
+    else if (has('isLongitude')) payload[property] = 106.65;
+    else if (has('isArray')) {
+      const size = Number(constraintOf(entries, 'arrayMinSize') ?? 0);
+      payload[property] = Array.from({ length: size }, (_, i) => `sweep${i}`);
+    } else payload[property] = stringFor(dto, property, entries, problems);
+  }
+  return payload;
+}
+
+/**
+ * The payload of a route's own DTO: when every field is optional, the first one is sent, so an
+ * update route is not refused for an empty body before it looks anything up.
+ */
+function payloadOf(
+  dto: DtoClass,
+  ids: SeededRows,
+  problems: string[],
+): Record<string, unknown> {
+  const payload = synthesizePayload(dto, ids, problems);
+  return Object.keys(payload).length > 0
+    ? payload
+    : synthesizePayload(dto, ids, problems, { optional: 'first' });
+}
+
+export interface SweepCall {
+  path: string;
+  query: Record<string, unknown>;
+  body: Record<string, unknown>;
+  problems: string[];
+}
+
+/** The call of `route` that points every parameter and id field at the rows of `ids`. */
+export function buildCall(route: SweptRoute, ids: SeededRows): SweepCall {
+  const problems: string[] = [];
+  const params = isListed(PATH_PARAMS, route.key) ? PATH_PARAMS[route.key] : {};
+  const path = route.path.replace(/:(\w+)/g, (_, param: string) => {
+    const table = isListed(params, param) ? params[param] : undefined;
+    const id = table === undefined ? undefined : ids.get(table)?.id;
+    if (typeof id !== 'string') {
+      problems.push(`:${param}: no row to point at`);
+      return randomUUID();
+    }
+    return id;
+  });
+  const query = route.queryDto ? payloadOf(route.queryDto, ids, problems) : {};
+  const body = route.bodyDto ? payloadOf(route.bodyDto, ids, problems) : {};
+  const singles = (
+    target: Record<string, unknown>,
+    names: string[],
+    where: string,
+  ) => {
+    for (const name of names) {
+      const field = singleField(name);
+      if (isFreeText(field)) {
+        target[name] = 'sweep';
+      } else if (field.code) {
+        const entry = codeOfField(field);
+        target[name] = entry && ids.get(entry.table)?.[entry.column];
+        if (target[name] === undefined)
+          problems.push(`${where}.${name}: no code`);
+      } else if (isIdName(name)) {
+        target[name] = idValue(field, tableOfField(field), ids);
+        if (target[name] === undefined)
+          problems.push(`${where}.${name}: no id`);
+      } else {
+        target[name] = isListed(SINGLE_VALUES, name)
+          ? SINGLE_VALUES[name]
+          : 'sweep';
+      }
+    }
+  };
+  singles(query, route.queryFields, 'query');
+  singles(body, route.bodyFields, 'body');
+  return { path, query, body, problems };
+}
+
+export interface SweepResponse {
+  status: number;
+  type: string;
+  body: Buffer;
+}
+
+type Agent = ReturnType<typeof request>;
+
+/** Sends `call` as `method` with a bearer token, keeping the raw body whatever its type. */
+export async function send(
+  agent: Agent,
+  method: string,
+  path: string,
+  token: string,
+  call: Pick<SweepCall, 'query' | 'body'>,
+): Promise<SweepResponse> {
+  const verb = method.toLowerCase() as
+    | 'get'
+    | 'post'
+    | 'put'
+    | 'patch'
+    | 'delete';
+  let req = agent[verb](path)
+    .set('Authorization', `Bearer ${token}`)
+    .query(call.query)
+    .buffer(true)
+    .parse((res, done) => {
+      const raw = res as unknown as NodeJS.ReadableStream;
+      const chunks: Buffer[] = [];
+      raw.on('data', (chunk: Buffer) => chunks.push(chunk));
+      raw.on('end', () => done(null, Buffer.concat(chunks)));
+    });
+  if (
+    verb !== 'get' &&
+    (verb !== 'delete' || Object.keys(call.body).length > 0)
+  )
+    req = req.send(call.body);
+  const res = await req;
+  return {
+    status: res.status,
+    type: String(res.headers['content-type'] ?? ''),
+    body: res.body as Buffer,
+  };
+}
+
+/** Everything a person could read in the answer: the text, or every cell of a workbook. */
+export async function responseText(response: SweepResponse): Promise<string> {
+  const isWorkbook =
+    response.type.includes('spreadsheetml') ||
+    (response.body.length > 2 &&
+      response.body.subarray(0, 2).toString('latin1') === 'PK');
+  if (!isWorkbook) return response.body.toString('utf8');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(response.body as unknown as ArrayBuffer);
+  const texts: string[] = [];
+  workbook.eachSheet((sheet) => {
+    texts.push(
+      sheet.name,
+      sheet.headerFooter?.oddHeader ?? '',
+      sheet.headerFooter?.oddFooter ?? '',
+    );
+    sheet.eachRow({ includeEmpty: false }, (row) =>
+      row.eachCell({ includeEmpty: false }, (cell) => texts.push(cell.text)),
+    );
+  });
+  return texts.join('\n');
+}
+
+/** One digest per tenant table of the rows of `tenantId`: any change to them changes it. */
+export async function tenantDigest(
+  db: TenantDatabase,
+  tenantId: string,
+  tables: string[],
+): Promise<Record<string, string>> {
+  return db.admin(async (c) => {
+    const digests: Record<string, string> = {};
+    for (const table of tables) {
+      const { rows } = await c.query<{ digest: string }>(
+        `SELECT md5(COALESCE(string_agg(t::text, '|' ORDER BY t::text), '')) AS digest
+           FROM ${quoteIdent(table)} t WHERE t.tenant_id = $1`,
+        [tenantId],
+      );
+      digests[table] = rows[0].digest;
+    }
+    return digests;
+  });
 }
