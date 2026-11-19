@@ -85,10 +85,19 @@ Plan: docs/superpowers/plans/2026-11-18-multi-tenant-m1a-schema-wide-isolation.m
 | client-gaps-t20 | POST /files/upload and GET /files/:id > records an upload and answers {id, url, name, mimeType, size} with the API prefix | B | The test reads the stored content at `<uploadDir>/<storage_key>` (the flat legacy layout), but the product writes it under `<uploadDir>/<tenantId>/` in enforced mode (`FilesService.contentPath`), so the read fails with ENOENT. The product path is the intended one | `storedContentPath` for the read and `storedFileCount` for the stored-file counts; no `expect` line changed (8bd3878) |
 | client-gaps-t20 | POST /files/upload and GET /files/:id > purges day-old unattached uploads and their content, keeping recent, referenced and locked ones | B | The test calls `FilesService.purgeAbandonedUploads()` directly with no scope, so RLS shows it no rows and it purges 0. The product only reaches it through `purgeAbandonedUploadsOnSchedule`, which runs it once per tenant inside a scope (`TenantJobRunner`); the stored paths follow the same per-tenant layout as above | `asFixtureTenant(...)` around the call and `storedContentPath` for the two file checks; no `expect` line changed (8bd3878) |
 | features-t18 | (none) | | 65 of 65 pass under enforced at baseline. The migration-guard tests (`migrateDatabase` on scratch databases, never booting the application) stay in legacy semantics in both modes | |
+| frontend-routes-t23 | (none) | | 68 of 68 pass under enforced at baseline | |
+| incidents-tasks-scope | (none) | | 11 of 11 pass under enforced at baseline | |
+| migrations | (none) | | 92 of 92 pass under enforced, unchanged (it creates its own scratch databases and never boots the application on a migrated one) | |
+| socket-adapter-redis | (none) | | 3 of 3 pass under enforced, unchanged | |
+| throttler-guard-redis | (none) | | 5 of 5 pass under enforced, unchanged | |
+| throttler-redis-storage | (none) | | 15 of 15 pass under enforced, unchanged | |
+| tenancy-* (11 suites) and the harness suite | (none) | | all pass in both passes of the whole run (they choose their own mode) | |
 
 Round 1 result: 1 failing test of 118 in the four suites (kind B); 0 kind A, 0 kind C. Both modes green for all four suites.
 
 Round 2 result: 2 failing tests of 109 in client-gaps-t20 and features-t18 (both kind B, both in client-gaps-t20); 0 kind A, 0 kind C. Both modes green for both suites (4/4).
+
+Round 3 result: 0 failing tests in the remaining suites at baseline, 0 kind A, 0 kind B, 0 kind C. Whole run `node scripts/run-e2e.mjs --mode=both`: 44/44 suite runs passed (22 `test/*.e2e-spec.ts` files x 2 modes; legacy 22/22, enforced 22/22), no flake. Phase E exit criterion met: every e2e suite green in both modes. Unit 2780/2780 (156 suites), tsc 0, eslint 0/0. Summary kept in `test-results/e2e-summary.json`.
 
 ## 2026-11-18 session — commit, PR #11, review, fixes
 User request: commit everything, push to GitHub, open a PR, review and merge (supersedes the old "never push" constraint for this PR). On review findings + red tests the user chose "fix everything, then merge".
