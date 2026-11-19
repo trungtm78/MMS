@@ -20,9 +20,12 @@ import { configureHttpApp } from '../src/app.setup';
 import { FilesService } from '../src/files/files.service';
 import { withClient } from './support/db';
 import {
+  asFixtureTenant,
   assertAppliedTenancyMode,
   backendTenancyEnv,
   prepareDatabaseForTenancy,
+  storedContentPath,
+  storedFileCount,
 } from './support/e2e-tenancy';
 
 jest.setTimeout(240_000);
@@ -445,7 +448,7 @@ describe('Client gaps T20 (e2e)', () => {
   // ── Files ─────────────────────────────────────────────────────────────────
 
   describe('POST /files/upload and GET /files/:id', () => {
-    const storedFiles = () => fs.readdirSync(uploadDir).length;
+    const storedFiles = () => storedFileCount(uploadDir);
 
     it('records an upload and answers {id, url, name, mimeType, size} with the API prefix', async () => {
       const res = await upload(
@@ -482,7 +485,7 @@ describe('Client gaps T20 (e2e)', () => {
       });
       expect(
         fs
-          .readFileSync(path.join(uploadDir, row.storage_key as string))
+          .readFileSync(storedContentPath(uploadDir, row.storage_key as string))
           .equals(PNG),
       ).toBe(true);
     });
@@ -613,7 +616,9 @@ describe('Client gaps T20 (e2e)', () => {
           await holder.query(`SELECT id FROM files WHERE id = $1 FOR UPDATE`, [
             locked,
           ]);
-          return await app.get(FilesService).purgeAbandonedUploads();
+          return await asFixtureTenant(() =>
+            app.get(FilesService).purgeAbandonedUploads(),
+          );
         } finally {
           await holder.query('ROLLBACK');
         }
@@ -625,10 +630,12 @@ describe('Client gaps T20 (e2e)', () => {
         [recent, referenced, locked].sort(),
       );
       expect(
-        fs.existsSync(path.join(uploadDir, abandonedRow.storage_key)),
+        fs.existsSync(storedContentPath(uploadDir, abandonedRow.storage_key)),
       ).toBe(false);
       for (const row of left) {
-        expect(fs.existsSync(path.join(uploadDir, row.storage_key))).toBe(true);
+        expect(
+          fs.existsSync(storedContentPath(uploadDir, row.storage_key)),
+        ).toBe(true);
       }
     });
   });
