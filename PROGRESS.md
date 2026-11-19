@@ -82,8 +82,13 @@ Plan: docs/superpowers/plans/2026-11-18-multi-tenant-m1a-schema-wide-isolation.m
 | app | (none) | | 2 of 2 pass under enforced at baseline | |
 | realtime-session | (none) | | 7 of 7 pass under enforced at baseline | |
 | gps-live | (none) | | 5 of 5 pass under enforced at baseline | |
+| client-gaps-t20 | POST /files/upload and GET /files/:id > records an upload and answers {id, url, name, mimeType, size} with the API prefix | B | The test reads the stored content at `<uploadDir>/<storage_key>` (the flat legacy layout), but the product writes it under `<uploadDir>/<tenantId>/` in enforced mode (`FilesService.contentPath`), so the read fails with ENOENT. The product path is the intended one | `storedContentPath` for the read and `storedFileCount` for the stored-file counts; no `expect` line changed (8bd3878) |
+| client-gaps-t20 | POST /files/upload and GET /files/:id > purges day-old unattached uploads and their content, keeping recent, referenced and locked ones | B | The test calls `FilesService.purgeAbandonedUploads()` directly with no scope, so RLS shows it no rows and it purges 0. The product only reaches it through `purgeAbandonedUploadsOnSchedule`, which runs it once per tenant inside a scope (`TenantJobRunner`); the stored paths follow the same per-tenant layout as above | `asFixtureTenant(...)` around the call and `storedContentPath` for the two file checks; no `expect` line changed (8bd3878) |
+| features-t18 | (none) | | 65 of 65 pass under enforced at baseline. The migration-guard tests (`migrateDatabase` on scratch databases, never booting the application) stay in legacy semantics in both modes | |
 
 Round 1 result: 1 failing test of 118 in the four suites (kind B); 0 kind A, 0 kind C. Both modes green for all four suites.
+
+Round 2 result: 2 failing tests of 109 in client-gaps-t20 and features-t18 (both kind B, both in client-gaps-t20); 0 kind A, 0 kind C. Both modes green for both suites (4/4).
 
 ## 2026-11-18 session — commit, PR #11, review, fixes
 User request: commit everything, push to GitHub, open a PR, review and merge (supersedes the old "never push" constraint for this PR). On review findings + red tests the user chose "fix everything, then merge".
