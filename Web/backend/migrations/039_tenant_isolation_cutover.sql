@@ -13,6 +13,41 @@
 -- tables exactly as it did on the nine of the M0 slice. It is removed at the enforced
 -- cutover (M1b).
 
+-- 0. Precondition: only the first tenant owns data. 038 labelled every row that existed
+--    before it with the first tenant and this file turns that label into foreign keys, so a
+--    row of another tenant (the M0 slice lets tenants be created and written to) would end
+--    up referencing rows labelled with the first tenant: 040 would then fail on a schema the
+--    old version can no longer run on. Refused here instead, while the transaction still
+--    rolls everything back. A tenant row without data does not block. Every tenant table is
+--    checked, through the tenant_id-led indexes 038 built (two range scans, no table scan).
+DO $$
+DECLARE
+    first_tenant constant uuid := 'a1000000-0000-4000-8000-000000000001';
+    t text;
+    owned boolean;
+    foreign_tables text[] := '{}';
+BEGIN
+    FOR t IN
+        SELECT c.relname FROM pg_class c
+         WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+           AND c.relname <> 'tenants'
+           AND EXISTS (SELECT 1 FROM pg_attribute a
+                        WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
+         ORDER BY c.relname
+    LOOP
+        EXECUTE format(
+            'SELECT EXISTS (SELECT 1 FROM %1$I WHERE tenant_id < %2$L) OR EXISTS (SELECT 1 FROM %1$I WHERE tenant_id > %2$L)',
+            t, first_tenant) INTO owned;
+        IF owned THEN
+            foreign_tables := foreign_tables || t;
+        END IF;
+    END LOOP;
+    IF cardinality(foreign_tables) > 0 THEN
+        RAISE EXCEPTION 'tenant isolation cutover refused, rows of another tenant: %. Every row that existed before 038 belongs to the first tenant (%), and the cutover would give a row of another tenant references into rows of the first. Nothing was changed by this file. Delete the rows of the other tenants together with everything that references them (or restore a backup without them), then run the migrator again',
+            array_to_string(foreign_tables, ', '), first_tenant;
+    END IF;
+END $$;
+
 -- 1. Parent keys: the (tenant_id, id) unique indexes of 038 become constraints the
 --    composite foreign keys can reference
 DO $$
@@ -196,8 +231,31 @@ END $$;
 --    migration (the schema guard test checks every table against an explicit list).
 --    The global catalogues are read-only for the runtime role: a tenant must not change
 --    what a role means for every other tenant.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM mms_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM mms_platform;
+--    A default ACL belongs to the role that ran ALTER DEFAULT PRIVILEGES, and a bare
+--    "ALTER DEFAULT PRIVILEGES ... REVOKE" only reaches the current role's. 036 may have been
+--    run by another superuser than this file, so every default ACL of the schema is read from
+--    the catalog and revoked for its own role and each of its grantees. 041 asserts that none
+--    is left.
+DO $$
+DECLARE
+    acl record;
+BEGIN
+    FOR acl IN
+        SELECT r.rolname AS owner,
+               CASE d.defaclobjtype WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
+                                    WHEN 'f' THEN 'FUNCTIONS' WHEN 'T' THEN 'TYPES' END AS kind,
+               CASE x.grantee WHEN 0 THEN 'PUBLIC' ELSE quote_ident(g.rolname) END AS grantee
+          FROM pg_default_acl d
+          JOIN pg_roles r ON r.oid = d.defaclrole
+          CROSS JOIN LATERAL aclexplode(d.defaclacl) x
+          LEFT JOIN pg_roles g ON g.oid = x.grantee
+         WHERE d.defaclnamespace = 'public'::regnamespace AND x.grantee <> d.defaclrole
+         GROUP BY 1, 2, 3
+    LOOP
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON %s FROM %s',
+                       acl.owner, acl.kind, acl.grantee);
+    END LOOP;
+END $$;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON roles, permissions, role_permissions
     FROM mms_app;
 DO $$

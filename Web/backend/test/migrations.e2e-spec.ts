@@ -1976,7 +1976,7 @@ describe('online tenant preparation (038)', () => {
     });
   });
 
-  it('runs again from the top after an interruption', async () => {
+  it('is a no-op the second time, and runs again from the top when its record is lost', async () => {
     await withClient(url, (c) =>
       c.query(
         `DELETE FROM schema_migrations WHERE filename = '038_tenant_columns_online.sql'`,
@@ -2159,6 +2159,31 @@ describe('tenant catalog assertion (041)', () => {
       'alerts_probe_user_fkey',
     ],
     [
+      'a second, permissive policy on a tenant table',
+      'CREATE POLICY open_all ON weapons FOR SELECT TO mms_app USING (true)',
+      'exactly one policy',
+    ],
+    [
+      'a tenant_isolation policy that is not the template',
+      'ALTER POLICY tenant_isolation ON weapons USING (true)',
+      'differs from the template on: weapons',
+    ],
+    [
+      'a tenant_id that may be null',
+      'ALTER TABLE weapons ALTER COLUMN tenant_id DROP NOT NULL',
+      'tenant_id is not uuid NOT NULL DEFAULT app_tenant_id() on: weapons',
+    ],
+    [
+      'a default privilege in the schema',
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO mms_app',
+      'default privileges are still set in schema public',
+    ],
+    [
+      'a global table that references a tenant table',
+      'ALTER TABLE login_attempts ADD COLUMN probe_user uuid REFERENCES users (id)',
+      'global tables reference tenant tables: login_attempts.login_attempts_probe_user_fkey',
+    ],
+    [
       'an invalid index',
       `UPDATE pg_index SET indisvalid = false
         WHERE indexrelid = 'ix_alerts_tenant_created'::regclass`,
@@ -2170,5 +2195,250 @@ describe('tenant catalog assertion (041)', () => {
       fileName: '041_tenant_assert.sql',
       message: expect.stringContaining(culprit) as unknown,
     });
+  });
+});
+
+describe('038 interrupted in the middle of the file', () => {
+  it('leaves the file unrecorded and runs again to the same result', async () => {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('037_tenant_slice_rls.sql'),
+    });
+    await withClient(url, (c) =>
+      c.query(
+        `INSERT INTO weapons (type, serial_number, acquired_at, storage_location)
+         VALUES ('AK', 'S38I', '2020-01-01', 'Kho')`,
+      ),
+    );
+    const xmin = () =>
+      withClient(
+        url,
+        async (c) =>
+          (await c.query<{ x: string }>(`SELECT xmin::text AS x FROM weapons`))
+            .rows[0].x,
+      );
+    const xminBefore = await xmin();
+
+    // A reader that never finishes keeps weapons from taking the lock its ADD COLUMN needs:
+    // the statement gives up after the lock timeout, half way through the file (the tables
+    // before it in alphabetical order already have their column)
+    const blocker = new Client({ connectionString: url });
+    await blocker.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM weapons');
+      await expect(
+        migrateDatabase({
+          connectionString: url,
+          directory: migrationsThrough('038_tenant_columns_online.sql'),
+          lockTimeout: '1s',
+        }),
+      ).rejects.toMatchObject({
+        name: 'MigrationFailedError',
+        fileName: '038_tenant_columns_online.sql',
+        message: expect.stringContaining('lock timeout') as unknown,
+      });
+    } finally {
+      await blocker.end();
+    }
+
+    const hasColumn = (table: string) =>
+      withClient(
+        url,
+        async (c) =>
+          (
+            await c.query(
+              `SELECT 1 FROM information_schema.columns
+                WHERE table_name = $1 AND column_name = 'tenant_id'`,
+              [table],
+            )
+          ).rowCount,
+      );
+    expect(await recordedMigrations(url)).not.toContain(
+      '038_tenant_columns_online.sql',
+    );
+    expect(await hasColumn('alerts')).toBe(1);
+    expect(await hasColumn('weapons')).toBe(0);
+
+    const report = await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('038_tenant_columns_online.sql'),
+    });
+    expect(report.applied).toEqual(['038_tenant_columns_online.sql']);
+    expect(await xmin()).toBe(xminBefore);
+    const invalid = await withClient(
+      url,
+      async (c) =>
+        (
+          await c.query(
+            `SELECT 1 FROM pg_index x JOIN pg_class c ON c.oid = x.indrelid
+              WHERE c.relnamespace = 'public'::regnamespace AND NOT x.indisvalid`,
+          )
+        ).rowCount,
+    );
+    expect(invalid).toBe(0);
+  });
+});
+
+describe('039 precondition: only the first tenant owns data', () => {
+  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+
+  /** A database at 037, as the old version leaves it. */
+  async function at037(): Promise<string> {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('037_tenant_slice_rls.sql'),
+    });
+    return url;
+  }
+
+  async function secondTenant(c: Client): Promise<string> {
+    return (
+      await c.query<{ id: string }>(
+        `INSERT INTO tenants (code, name) VALUES ('second-39p', 'Second') RETURNING id`,
+      )
+    ).rows[0].id;
+  }
+
+  it('refuses a database where another tenant already owns rows, and changes nothing', async () => {
+    const url = await at037();
+    await withClient(url, async (c) => {
+      const tenant = await secondTenant(c);
+      const user = (
+        await c.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, username, password_hash, full_name)
+           VALUES ($1, 'b39', 'x', 'B') RETURNING id`,
+          [tenant],
+        )
+      ).rows[0].id;
+      // 038 labels this row with the first tenant, while its user belongs to the second
+      await c.query(
+        `INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
+         VALUES ($1, 'h', now() + interval '1 day')`,
+        [user],
+      );
+    });
+
+    await expect(
+      migrateDatabase({
+        connectionString: url,
+        directory: migrationsThrough('039_tenant_isolation_cutover.sql'),
+      }),
+    ).rejects.toMatchObject({
+      name: 'MigrationFailedError',
+      fileName: '039_tenant_isolation_cutover.sql',
+      message: expect.stringContaining(
+        'rows of another tenant: users',
+      ) as unknown,
+    });
+
+    const state = await withClient(url, async (c) => ({
+      parentKeys: (
+        await c.query(
+          `SELECT 1 FROM pg_constraint WHERE conname = 'uq_users_tenant_row'`,
+        )
+      ).rowCount,
+      rls: (
+        await c.query<{ on: boolean }>(
+          `SELECT relrowsecurity AS "on" FROM pg_class WHERE relname = 'alerts'`,
+        )
+      ).rows[0].on,
+    }));
+    const recorded = await recordedMigrations(url);
+    expect(recorded).toContain('038_tenant_columns_online.sql');
+    expect(recorded).not.toContain('039_tenant_isolation_cutover.sql');
+    expect(state).toEqual({ parentKeys: 0, rls: false });
+  });
+
+  it('looks at every tenant table, not only the nine of the first slice', async () => {
+    const url = await at037();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('038_tenant_columns_online.sql'),
+    });
+    await withClient(url, async (c) => {
+      const tenant = await secondTenant(c);
+      await c.query(
+        `INSERT INTO leave_types (tenant_id, code, name) VALUES ($1, 'p39', 'x')`,
+        [tenant],
+      );
+    });
+    await expect(
+      migrateDatabase({
+        connectionString: url,
+        directory: migrationsThrough('039_tenant_isolation_cutover.sql'),
+      }),
+    ).rejects.toMatchObject({
+      fileName: '039_tenant_isolation_cutover.sql',
+      message: expect.stringContaining('leave_types') as unknown,
+    });
+  });
+
+  it('lets a second tenant without data through, and the first tenant keeps its rows', async () => {
+    const url = await at037();
+    await withClient(url, async (c) => {
+      await secondTenant(c);
+      await c.query(
+        `INSERT INTO users (username, password_hash, full_name) VALUES ('a39', 'x', 'A')`,
+      );
+    });
+    const report = await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('040_tenant_validate_online.sql'),
+    });
+    expect(report.applied.slice(-3)).toEqual([
+      '038_tenant_columns_online.sql',
+      '039_tenant_isolation_cutover.sql',
+      '040_tenant_validate_online.sql',
+    ]);
+    const owners = await withClient(url, async (c) =>
+      (
+        await c.query<{ tenant: string }>(
+          `SELECT DISTINCT tenant_id::text AS tenant FROM users`,
+        )
+      ).rows.map((r) => r.tenant),
+    );
+    expect(owners).toEqual([FIRST_TENANT]);
+  });
+});
+
+describe('039 default privileges of another role', () => {
+  it('revokes a default ACL that a role other than the migrator left in the schema', async () => {
+    const url = await createDatabase();
+    await migrateDatabase({
+      connectionString: url,
+      directory: migrationsThrough('037_tenant_slice_rls.sql'),
+    });
+    const role = `mms_acl_probe_${Date.now()}`;
+    await withClient(adminUrl, (c) =>
+      c.query(`CREATE ROLE ${role} NOLOGIN SUPERUSER`),
+    );
+    try {
+      await withClient(url, (c) =>
+        c.query(
+          `ALTER DEFAULT PRIVILEGES FOR ROLE ${role} IN SCHEMA public
+           GRANT SELECT ON TABLES TO mms_app`,
+        ),
+      );
+      await migrateDatabase({
+        connectionString: url,
+        directory: MIGRATIONS_DIR,
+      });
+      const left = await withClient(
+        url,
+        async (c) =>
+          (
+            await c.query<{ acl: string }>(
+              `SELECT defaclacl::text AS acl FROM pg_default_acl`,
+            )
+          ).rows,
+      );
+      expect(left).toEqual([]);
+    } finally {
+      await withClient(url, (c) => c.query(`DROP OWNED BY ${role}`));
+      await withClient(adminUrl, (c) => c.query(`DROP ROLE ${role}`));
+    }
   });
 });

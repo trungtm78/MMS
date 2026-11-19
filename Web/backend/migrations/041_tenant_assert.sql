@@ -7,7 +7,8 @@
 -- by hand, or an index build can have been interrupted: neither passes this file.
 --
 -- The checks run against the schema as it is when this file is applied, which is why the
--- counts are exact: 72 tables, 66 of them tenant tables.
+-- counts are exact: 66 tenant tables (every table of the public schema except the 6 global
+-- ones named below) and 114 foreign keys between them.
 DO $$
 DECLARE
     global_tables constant text[] := ARRAY['schema_migrations', 'tenants', 'roles',
@@ -29,18 +30,94 @@ BEGIN
             coalesce(cardinality(tenant_tables), 0));
     END IF;
 
-    -- Row-level security is enabled and forced on every one, with the tenant policy
+    -- Row-level security is enabled and forced on every one
     SELECT array_agg(c.relname::text ORDER BY c.relname)
       INTO found
       FROM pg_class c
      WHERE c.oid = ANY (tenant_tables)
-       AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity
-            OR NOT EXISTS (SELECT 1 FROM pg_policy p
-                            WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'));
+       AND NOT (c.relrowsecurity AND c.relforcerowsecurity);
     IF found IS NOT NULL THEN
         problems := problems || format(
-            'row-level security is not enabled, forced and policed on: %s',
+            'row-level security is not enabled and forced on: %s',
             array_to_string(found, ', '));
+    END IF;
+
+    -- The policy is exactly the template: one permissive policy for all commands, for
+    -- mms_app only, on both sides the tenant of the row equals the tenant of the session.
+    -- Its name alone proves nothing: a permissive USING (true) policy under the same name,
+    -- or a second permissive policy, would open the table to every tenant.
+    SELECT array_agg(c.relname::text ORDER BY c.relname)
+      INTO found
+      FROM pg_class c
+     WHERE c.oid = ANY (tenant_tables)
+       AND (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) <> 1;
+    IF found IS NOT NULL THEN
+        problems := problems || format(
+            'a tenant table must have exactly one policy, tenant_isolation, but does not: %s',
+            array_to_string(found, ', '));
+    END IF;
+
+    SELECT array_agg(c.relname::text ORDER BY c.relname)
+      INTO found
+      FROM pg_class c
+     WHERE c.oid = ANY (tenant_tables)
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_policy p
+            WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'
+              AND p.polpermissive AND p.polcmd = '*'
+              AND p.polroles = ARRAY['mms_app'::regrole::oid]
+              AND pg_get_expr(p.polqual, p.polrelid) = '(tenant_id = app_tenant_id())'
+              AND pg_get_expr(p.polwithcheck, p.polrelid) = '(tenant_id = app_tenant_id())');
+    IF found IS NOT NULL THEN
+        problems := problems || format(
+            'the tenant_isolation policy differs from the template on: %s',
+            array_to_string(found, ', '));
+    END IF;
+
+    -- tenant_id is uuid NOT NULL DEFAULT app_tenant_id() on every one
+    SELECT array_agg(c.relname::text ORDER BY c.relname)
+      INTO found
+      FROM pg_class c
+     WHERE c.oid = ANY (tenant_tables)
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_attribute a
+             JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND a.attnotnull
+              AND NOT a.attisdropped AND a.atttypid = 'uuid'::regtype
+              AND pg_get_expr(d.adbin, d.adrelid) = 'app_tenant_id()');
+    IF found IS NOT NULL THEN
+        problems := problems || format(
+            'tenant_id is not uuid NOT NULL DEFAULT app_tenant_id() on: %s',
+            array_to_string(found, ', '));
+    END IF;
+
+    -- No default privileges in the schema, for any role: a table created later (the platform
+    -- tables of M2) must not reach the runtime role without an explicit grant
+    SELECT array_agg(DISTINCT r.rolname::text)
+      INTO found
+      FROM pg_default_acl d
+      JOIN pg_roles r ON r.oid = d.defaclrole
+     WHERE d.defaclnamespace = 'public'::regnamespace;
+    IF found IS NOT NULL THEN
+        problems := problems || format(
+            'default privileges are still set in schema public by: %s',
+            array_to_string(found, ', '));
+    END IF;
+
+    -- A global table never references a tenant table: that would leak a tenant's rows
+    -- into a table every tenant reads
+    SELECT array_agg(format('%s.%s', f.conrelid::regclass, f.conname)
+                     ORDER BY f.conrelid::regclass::text, f.conname)
+      INTO found
+      FROM pg_constraint f
+     WHERE f.contype = 'f'
+       AND f.conrelid IN (SELECT c.oid FROM pg_class c
+                           WHERE c.relnamespace = 'public'::regnamespace
+                             AND c.relname = ANY (global_tables))
+       AND f.confrelid = ANY (tenant_tables);
+    IF found IS NOT NULL THEN
+        problems := problems || format(
+            'global tables reference tenant tables: %s', array_to_string(found, ', '));
     END IF;
 
     -- No foreign key of the schema is left NOT VALID
