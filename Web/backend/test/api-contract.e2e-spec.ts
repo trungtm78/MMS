@@ -27,6 +27,7 @@ import { businessDate, shiftIsoDate } from '../src/common/time/business-date';
 import { configureHttpApp } from '../src/app.setup';
 import { withClient } from './support/db';
 import {
+  asFixtureTenant,
   assertAppliedTenancyMode,
   backendTenancyEnv,
   prepareDatabaseForTenancy,
@@ -430,9 +431,9 @@ describe('API contract (e2e)', () => {
         );
         return rows[0].id;
       });
-      const saved = await app
-        .get(ChatService)
-        .saveMessage(adminId, conv.id, 'Tập trung 19h');
+      const saved = await asFixtureTenant(() =>
+        app.get(ChatService).saveMessage(adminId, conv.id, 'Tập trung 19h'),
+      );
       expect(saved).toEqual(
         expect.objectContaining({
           senderName: 'admin',
