@@ -29,6 +29,25 @@ describe('revocationEnds', () => {
     expect(revocationEnds(account(3, false), claims)).toBe(true);
   });
 
+  it('does not end a session of another tenant than the announcement names', () => {
+    const T1 = 'a1000000-0000-4000-8000-000000000001';
+    const T2 = 'b2000000-0000-4000-8000-000000000002';
+    const event = {
+      kind: 'account' as const,
+      userId: USER,
+      version: 9,
+      active: false,
+      tenantId: T1,
+    };
+
+    expect(revocationEnds(event, { sub: USER, ver: 1, tid: T2 })).toBe(false);
+    expect(revocationEnds(event, { sub: USER, ver: 1, tid: T1 })).toBe(true);
+    expect(
+      revocationEnds(event, { sub: USER, ver: 1, tid: T1.toUpperCase() }),
+    ).toBe(true);
+    expect(revocationEnds(event, { sub: USER, ver: 1 })).toBe(true);
+  });
+
   it("never ends another user's token", () => {
     expect(
       revocationEnds(

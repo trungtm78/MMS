@@ -20,6 +20,8 @@ import {
 const CONV_ID = '0b6f3c1e-3a53-4f4f-9d1a-6c1c2f7f1a01';
 const TID_A = '11111111-1111-4111-8111-111111111111';
 const TID_B = '22222222-2222-4222-8222-222222222222';
+// An id with letters, so its upper-case form differs from the lower-case one
+const TID_C = 'abcdef12-3333-4333-8333-333333333333';
 
 const chatService = {
   isMember: jest.fn(),
@@ -309,6 +311,70 @@ describe('NotificationsGateway', () => {
       expect(client.disconnect).not.toHaveBeenCalled();
     });
 
+    it('disconnects a socket whose token names no valid tenant under enforced mode', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      const client = connected({
+        sub: 'u1',
+        typ: 'access',
+        role: 'dqtv',
+        tid: 'not-a-uuid',
+      });
+
+      gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('disconnects a socket whose token names no tenant at all under enforced mode', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      const client = connected({ sub: 'u1', typ: 'access', role: 'dqtv' });
+
+      gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    // TenantContext keeps tenant ids in lower case, and every emitter names its rooms from
+    // it: a token with the same id in upper case must join the same rooms
+    it('joins the lower-case rooms of a token whose tenant id is in upper case', () => {
+      process.env.TENANCY_MODE = 'enforced';
+      const client = connected({
+        sub: 'u1',
+        typ: 'access',
+        role: 'police_area',
+        unitScope: 'KV1',
+        tid: TID_C.toUpperCase(),
+      });
+
+      gateway.handleConnection(client);
+
+      expect(client.join.mock.calls.map(([room]) => String(room))).toEqual([
+        rooms.tenant(TID_C),
+        rooms.user(TID_C, 'u1'),
+        rooms.unit(TID_C, 'KV1'),
+        rooms.gpsUnit(TID_C, 'KV1'),
+      ]);
+    });
+
+    it('emits nothing, and says so, before the server exists', () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      try {
+        gateway.server = undefined as unknown as Server;
+
+        expect(() => gateway.emitToTenant('x', {})).not.toThrow();
+        expect(() => gateway.emitToGpsAudience('KV1', [], {})).not.toThrow();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('before the socket server'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it('disconnects a socket that reached it without authentication', () => {
       const client = connected();
 
@@ -512,8 +578,8 @@ describe('NotificationsGateway', () => {
     });
 
     describe('revocation', () => {
-      // The announcement names no tenant, so the user's sockets are found among all the
-      // sockets of the replica, whatever tenant they belong to
+      // An announcement without a tenant (a trigger older than 039): the user's sockets are
+      // found among all the sockets of the replica, whatever tenant they belong to
       it('closes only the sockets of the session that ended, among all the sockets of the replica', async () => {
         const ended = live();
         const sameUserOtherSession = live({ sid: OTHER_SID });
@@ -528,8 +594,8 @@ describe('NotificationsGateway', () => {
         notTold(otherUser);
       });
 
-      // The announcement names a user, not a tenant: the user's sockets are found whatever
-      // tenant they were opened under
+      // Without a tenant in the announcement, the user's sockets are found whatever tenant
+      // they were opened under
       it('closes the sockets of the session that ended under enforced tenancy', async () => {
         process.env.TENANCY_MODE = 'enforced';
         const ended = live({ tid: TID_A });
@@ -545,6 +611,66 @@ describe('NotificationsGateway', () => {
 
         toldBeforeDisconnect(ended, 'session_revoked');
         notTold(otherTenant);
+      });
+
+      // The announcement names the tenant (migration 039): only that user's room of that
+      // tenant is looked at, never every socket of the replica
+      describe.each([
+        ['legacy', undefined],
+        ['enforced', TID_A],
+      ])('in %s mode', (mode, roomTenant) => {
+        beforeEach(() => {
+          if (mode === 'enforced') process.env.TENANCY_MODE = 'enforced';
+        });
+
+        it('looks only at the user room of the tenant the announcement names', async () => {
+          const inRoom = live({ tid: TID_A });
+          const elsewhere = live({ sid: OTHER_SID, tid: TID_A });
+          const roomOf = jest.fn(() => ({
+            fetchSockets: () => Promise.resolve([inRoom]),
+          }));
+          gateway.server = {
+            to,
+            local: {
+              fetchSockets: () => Promise.resolve([inRoom, elsewhere]),
+              in: roomOf,
+            },
+          } as unknown as Server;
+
+          subscriber.revoked({
+            kind: 'account',
+            userId: USER,
+            version: 99,
+            active: false,
+            tenantId: TID_A,
+          });
+          await flush();
+
+          expect(roomOf).toHaveBeenCalledWith(rooms.user(roomTenant, USER));
+          toldBeforeDisconnect(inRoom, 'session_revoked');
+          notTold(elsewhere);
+        });
+      });
+
+      it('names the user room in lower case whatever case the announcement had', async () => {
+        process.env.TENANCY_MODE = 'enforced';
+        const roomOf = jest.fn(() => ({
+          fetchSockets: () => Promise.resolve([]),
+        }));
+        gateway.server = {
+          to,
+          local: { fetchSockets: () => Promise.resolve([]), in: roomOf },
+        } as unknown as Server;
+
+        subscriber.revoked({
+          kind: 'session',
+          userId: USER,
+          sessionId: SID,
+          tenantId: TID_C.toUpperCase(),
+        });
+        await flush();
+
+        expect(roomOf).toHaveBeenCalledWith(rooms.user(TID_C, USER));
       });
 
       it('closes the sockets of tokens issued before the account changed', async () => {
@@ -857,6 +983,34 @@ describe('NotificationsGateway', () => {
 
       expect(warn).not.toHaveBeenCalled();
       warn.mockRestore();
+    });
+
+    // gps:update reaches ward staff, staff of the member's unit and the member's CA
+    // officers of the tenant that emits, never the unit room the member's teammates share
+    it('emitToGpsAudience names the GPS rooms and CA officers of the tenant it runs under', () => {
+      inTenant(TID_A, () =>
+        gateway.emitToGpsAudience('KV1', ['ca-1', 'ca-2'], { id: 'm1' }),
+      );
+
+      const expected = [
+        rooms.gpsWard(TID_A),
+        rooms.gpsUnit(TID_A, 'KV1'),
+        rooms.user(TID_A, 'ca-1'),
+        rooms.user(TID_A, 'ca-2'),
+      ];
+      expect(to).toHaveBeenCalledWith(expected);
+      expect(emit).toHaveBeenCalledWith('gps:update', { id: 'm1' });
+      expect(expected).not.toContain(rooms.unit(TID_A, 'KV1'));
+    });
+
+    it('emitToGpsAudience addresses the legacy namespace outside any tenant scope', () => {
+      gateway.emitToGpsAudience('KV1', ['ca-1'], { id: 'm1' });
+
+      expect(to).toHaveBeenCalledWith([
+        rooms.gpsWard(undefined),
+        rooms.gpsUnit(undefined, 'KV1'),
+        rooms.user(undefined, 'ca-1'),
+      ]);
     });
 
     // The system-wide emit is gone: nothing can reach the sockets of every tenant by name
@@ -1274,6 +1428,18 @@ describe('NotificationsGateway', () => {
         rooms.conversation(TID_A, CONV_ID),
       );
       expect(client.join).toHaveBeenCalledTimes(1);
+    });
+
+    it('joins the lower-case room of a socket whose token names its tenant in upper case', async () => {
+      sessionScopes();
+      chatService.isMember.mockResolvedValueOnce(true);
+      const client = socket('u1', TID_C.toUpperCase());
+
+      await gateway.handleChatJoin(client, CONV_ID);
+
+      expect(client.join).toHaveBeenCalledWith(
+        rooms.conversation(TID_C, CONV_ID),
+      );
     });
 
     it('leaves the room of its own tenant', async () => {

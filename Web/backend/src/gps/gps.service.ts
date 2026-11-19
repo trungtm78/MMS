@@ -9,16 +9,8 @@ import {
   type MemberReach,
   type MemberScopeActor,
 } from '../common/access/member-scope';
-import { TenantContext } from '../database/tenancy/tenant-context';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
-import { rooms } from '../notifications/rooms';
-import {
-  GPS_OFFLINE_AFTER_MINUTES,
-  GPS_STAFF_ROLE_SET,
-  GPS_UPDATE_EVENT,
-  gpsUnitRoom,
-  gpsWardRoom,
-} from './gps-rooms';
+import { GPS_OFFLINE_AFTER_MINUTES, GPS_STAFF_ROLE_SET } from './gps-rooms';
 
 export interface GpsPointDto {
   lat: number;
@@ -119,16 +111,7 @@ export class GpsService {
     );
     if (!row) return;
     const caOfficers = await this.assignments.getCaOfficerIds(userId);
-    const tid = TenantContext.current()?.tenantId;
-    this.gateway.emitToRooms(
-      [
-        gpsWardRoom(tid),
-        gpsUnitRoom(tid, row.unitCode),
-        ...caOfficers.map((id) => rooms.user(tid, id)),
-      ],
-      GPS_UPDATE_EVENT,
-      row,
-    );
+    this.gateway.emitToGpsAudience(row.unitCode, caOfficers, row);
   }
 
   async getLive(actor: MemberScopeActor): Promise<GpsLiveDto[]> {

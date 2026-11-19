@@ -18,7 +18,13 @@ export class WsTenantScopeInterceptor implements NestInterceptor {
     const client = context.switchToWs().getClient<Socket>();
     const tenantId =
       (client.data as { user?: { tid?: string } }).user?.tid ?? '';
-    // runAs validates the id, so a socket without a tenant never reaches the handler
-    return TenantContext.runAs({ tenantId }, () => next.handle());
+    // The handler's work may start only when the Observable is subscribed, which Nest may do
+    // outside this call: subscribe inside the scope. runAs validates the id, so a socket
+    // without a tenant never reaches the handler.
+    return new Observable((subscriber) =>
+      TenantContext.runAs({ tenantId }, () =>
+        next.handle().subscribe(subscriber),
+      ),
+    );
   }
 }

@@ -4,14 +4,7 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { memberReachSql } from '../common/access/member-scope';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
-import { rooms } from '../notifications/rooms';
-import { TenantContext } from '../database/tenancy/tenant-context';
-import {
-  GPS_OFFLINE_AFTER_MINUTES,
-  GPS_UPDATE_EVENT,
-  gpsUnitRoom,
-  gpsWardRoom,
-} from './gps-rooms';
+import { GPS_OFFLINE_AFTER_MINUTES } from './gps-rooms';
 import { GpsService } from './gps.service';
 
 const mockQuery = jest.fn();
@@ -20,9 +13,7 @@ const mockAssignments = {
   getAssignedDqtvIds: jest.fn(),
   getCaOfficerIds: jest.fn(),
 };
-const mockGateway = { emitToRooms: jest.fn() };
-
-const TID = '11111111-1111-4111-8111-111111111111';
+const mockGateway = { emitToGpsAudience: jest.fn() };
 
 const callsOf = () => mockQuery.mock.calls as [string, unknown[]][];
 const sqlOf = (call: number) => callsOf()[call][0];
@@ -70,7 +61,7 @@ describe('GpsService', () => {
     mockQuery.mockReset();
     mockAssignments.getAssignedDqtvIds.mockReset();
     mockAssignments.getCaOfficerIds.mockReset();
-    mockGateway.emitToRooms.mockReset();
+    mockGateway.emitToGpsAudience.mockReset();
     mockAssignments.getCaOfficerIds.mockResolvedValue([]);
   });
 
@@ -91,7 +82,7 @@ describe('GpsService', () => {
       ).rejects.toThrow(new NotFoundException('militia_profile_not_found'));
       expect(mockQuery).toHaveBeenCalledTimes(1);
       expect(sqlOf(0)).toMatch(/FROM militia_profiles WHERE user_id = \$1/);
-      expect(mockGateway.emitToRooms).not.toHaveBeenCalled();
+      expect(mockGateway.emitToGpsAudience).not.toHaveBeenCalled();
     });
 
     it('stores the point and the latest position of the profile in one statement', async () => {
@@ -134,8 +125,9 @@ describe('GpsService', () => {
       expect(paramsOf(1)[4]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     });
 
-    // Members of a unit share unit:<code> rooms, so a position only goes to staff rooms
-    it('publishes the new position to the staff who may see the member, never to their unit room', async () => {
+    // Members of a unit share unit:<code> rooms, so the gateway sends a position only to
+    // staff rooms; it names the rooms, in the tenant that emits
+    it('publishes the new position to the gateway with the unit and the CA officers of the member', async () => {
       const row = liveRow();
       recorded(row);
       mockAssignments.getCaOfficerIds.mockResolvedValueOnce(['ca-1', 'ca-2']);
@@ -145,42 +137,10 @@ describe('GpsService', () => {
       expect(sqlOf(2)).toMatch(/WHERE gl\.militia_id = \$1/);
       expect(paramsOf(2)).toEqual(['militia-1', GPS_OFFLINE_AFTER_MINUTES]);
       expect(mockAssignments.getCaOfficerIds).toHaveBeenCalledWith('user-1');
-      expect(mockGateway.emitToRooms).toHaveBeenCalledWith(
-        [
-          gpsWardRoom(undefined),
-          gpsUnitRoom(undefined, 'KV1'),
-          rooms.user(undefined, 'ca-1'),
-          rooms.user(undefined, 'ca-2'),
-        ],
-        GPS_UPDATE_EVENT,
+      expect(mockGateway.emitToGpsAudience).toHaveBeenCalledWith(
+        'KV1',
+        ['ca-1', 'ca-2'],
         row,
-      );
-      const [published] = mockGateway.emitToRooms.mock.calls[0] as [string[]];
-      expect(published).not.toContain(rooms.unit(undefined, 'KV1'));
-    });
-
-    // Unit codes repeat across tenants: every room of the update is the tenant's own
-    it('publishes only to the rooms of the tenant the position was recorded under', async () => {
-      const row = liveRow();
-      recorded(row);
-      mockAssignments.getCaOfficerIds.mockResolvedValueOnce(['ca-1']);
-
-      await TenantContext.runAs({ tenantId: TID }, () =>
-        service.recordLocation('user-1', { lat: 10.762, lng: 106.66 }),
-      );
-
-      expect(mockGateway.emitToRooms).toHaveBeenCalledWith(
-        [
-          rooms.gpsWard(TID),
-          rooms.gpsUnit(TID, 'KV1'),
-          rooms.user(TID, 'ca-1'),
-        ],
-        GPS_UPDATE_EVENT,
-        row,
-      );
-      const [published] = mockGateway.emitToRooms.mock.calls[0] as [string[]];
-      expect(published.every((room) => room.startsWith(`t:${TID}:`))).toBe(
-        true,
       );
     });
   });

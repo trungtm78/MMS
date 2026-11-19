@@ -4,9 +4,17 @@ import type { AuthRevocation } from '../auth/auth-revocation-feed';
 /** True when `event` ends the session the token's claims name. */
 export function revocationEnds(
   event: AuthRevocation,
-  claims: AccessClaims,
+  claims: AccessClaims & { tid?: string },
 ): boolean {
   if (claims.sub !== event.userId) return false;
+  // A user id belongs to one tenant; a claim naming another tenant is not this session
+  if (
+    event.tenantId !== undefined &&
+    claims.tid !== undefined &&
+    claims.tid.toLowerCase() !== event.tenantId
+  ) {
+    return false;
+  }
   if (event.kind === 'session') return claims.sid === event.sessionId;
   return !event.active || claims.ver !== event.version;
 }
@@ -40,7 +48,7 @@ export class RecentRevocations {
   }
 
   /** True when a remembered revocation ends the session the claims name. */
-  ends(claims: AccessClaims): boolean {
+  ends(claims: AccessClaims & { tid?: string }): boolean {
     const since = this.now() - this.ttlMs;
     const sessionEnded = claims.sid ? this.sessions.get(claims.sid) : undefined;
     if (sessionEnded !== undefined && sessionEnded >= since) return true;

@@ -846,6 +846,37 @@ describe('tenant slice (e2e)', () => {
       expect(gotB).toEqual([{ for: 'B' }]);
     });
 
+    it("closes the socket of a revoked session in its own tenant, and leaves the other tenant's alone", async () => {
+      const signedA = await signIn('phu-dinh', a.adminUsername);
+      const signedB = await signIn('tenant-b', b.adminUsername);
+      tokens.revokedA = signedA.tokens.accessToken;
+      tokens.revokedB = signedB.tokens.accessToken;
+      try {
+        const [socketA, socketB] = await Promise.all([
+          open('revokedA'),
+          open('revokedB'),
+        ]);
+        const told = new Promise((resolve) =>
+          socketA.once('session_expired', resolve),
+        );
+
+        // Signing out ends every session of the user, in tenant A only
+        await api()
+          .post(url('/auth/logout'))
+          .set({ Authorization: `Bearer ${signedA.tokens.accessToken}` })
+          .expect(204);
+
+        await expect(told).resolves.toEqual({ reason: 'session_revoked' });
+        await drained(socketB);
+        expect(socketB.connected).toBe(true);
+      } finally {
+        // The sign-out ended the sessions of tenant A's admin that the other tests hold
+        tokens.a = (
+          await signIn('phu-dinh', a.adminUsername)
+        ).tokens.accessToken;
+      }
+    });
+
     // This is the session check that precedes a handler, which scopes itself through
     // inTenant: it passes even without WsTenantScopeInterceptor, so it does NOT prove the
     // interceptor. The proof that handlers run under the tenant of the socket is the

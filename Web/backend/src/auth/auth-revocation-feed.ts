@@ -25,8 +25,14 @@ export const AUTH_REVOCATION_CHANNEL = 'mms_auth_revocation';
  *   every token once the account is not active, no longer work
  */
 export type AuthRevocation =
-  | { kind: 'session'; userId: string; sessionId: string }
-  | { kind: 'account'; userId: string; version: number; active: boolean };
+  | { kind: 'session'; userId: string; sessionId: string; tenantId?: string }
+  | {
+      kind: 'account';
+      userId: string;
+      version: number;
+      active: boolean;
+      tenantId?: string;
+    };
 
 export interface AuthRevocationSubscriber {
   revoked(event: AuthRevocation): void;
@@ -67,14 +73,21 @@ export function parseAuthRevocation(payload: string): AuthRevocation | null {
     return null;
   }
   if (typeof value !== 'object' || value === null) return null;
-  const { kind, userId, sessionId, version, active } = value as Record<
-    string,
-    unknown
-  >;
+  const { kind, userId, sessionId, version, active, tenantId } =
+    value as Record<string, unknown>;
   if (typeof userId !== 'string' || !isUUID(userId)) return null;
+  // Named since migration 039; absent from an older trigger
+  if (
+    tenantId !== undefined &&
+    (typeof tenantId !== 'string' || !isUUID(tenantId))
+  ) {
+    return null;
+  }
+  const tenant =
+    typeof tenantId === 'string' ? { tenantId: tenantId.toLowerCase() } : {};
   if (kind === 'session') {
     return typeof sessionId === 'string' && isUUID(sessionId)
-      ? { kind, userId, sessionId }
+      ? { kind, userId, sessionId, ...tenant }
       : null;
   }
   if (kind === 'account') {
@@ -84,7 +97,7 @@ export function parseAuthRevocation(payload: string): AuthRevocation | null {
         ? Number(version)
         : NaN;
     return Number.isSafeInteger(parsed) && typeof active === 'boolean'
-      ? { kind, userId, version: parsed, active }
+      ? { kind, userId, version: parsed, active, ...tenant }
       : null;
   }
   return null;

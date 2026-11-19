@@ -29,7 +29,12 @@ import {
 } from '../auth/auth-revocation-feed';
 import { TenantContext } from '../database/tenancy/tenant-context';
 import { isTenancyEnforced } from '../database/tenancy/tenancy-mode';
-import { gpsRoomOf } from '../gps/gps-rooms';
+import {
+  GPS_UPDATE_EVENT,
+  gpsRoomOf,
+  gpsUnitRoom,
+  gpsWardRoom,
+} from '../gps/gps-rooms';
 import { RecentRevocations, revocationEnds } from './recent-revocations';
 import { rooms } from './rooms';
 import { WsTenantScopeInterceptor } from './ws-tenant-scope.interceptor';
@@ -68,8 +73,10 @@ const userOf = (client: { data: unknown }): SocketUser | undefined =>
 
 // The tenant whose rooms a socket lives in. The legacy mode has one fixed namespace
 // whatever a token claims, so emitters (which have no claim to read) and sockets agree.
+// TenantContext keeps tenant ids in lower case and the emitters name rooms from it: a
+// claim in upper case is the same tenant and must land in the same rooms.
 const roomTenantOf = (user: { tid?: string }): string | undefined =>
-  isTenancyEnforced() ? user.tid : undefined;
+  isTenancyEnforced() ? user.tid?.toLowerCase() : undefined;
 
 /** A local socket, or one another replica holds (fetchSockets): what closing it needs. */
 interface ClosableSocket {
@@ -228,6 +235,12 @@ export class NotificationsGateway
       client.disconnect(true);
       return;
     }
+    // The handshake refuses such a token already; a socket must never sit in the shared
+    // t:none (or t:legacy) namespace by way of a token naming no valid tenant
+    if (isTenancyEnforced() && !isUUID(user.tid)) {
+      client.disconnect(true);
+      return;
+    }
     // Its handshake may have read the session just before a revocation committed
     if (this.recentRevocations.ends(user)) {
       this.endSession(client, 'session_revoked');
@@ -279,13 +292,17 @@ export class NotificationsGateway
   }
 
   // The sockets of this replica whose session the announced change ended. The announcement
-  // names no tenant, so the user's sockets are picked out of all the replica's sockets.
+  // names the tenant (migration 039), so only that user's room of that tenant is looked at;
+  // one without a tenant (a trigger older than 039) is matched against every local socket.
   private async closeRevoked(event: AuthRevocation): Promise<void> {
     this.recentRevocations.record(event);
-    const sockets = (await this.server.local.fetchSockets()).filter(
-      (client) => userOf(client)?.sub === event.userId,
-    );
-    for (const client of sockets) {
+    const candidates =
+      event.tenantId === undefined
+        ? await this.server.local.fetchSockets()
+        : await this.server.local
+            .in(rooms.user(roomTenantOf({ tid: event.tenantId }), event.userId))
+            .fetchSockets();
+    for (const client of candidates) {
       const user = userOf(client);
       if (user && revocationEnds(event, user)) {
         this.endSession(client, 'session_revoked');
@@ -324,10 +341,27 @@ export class NotificationsGateway
     if (failures.length > 0) throw new Error(failures.join('; '));
   }
 
+  // Jobs and requests can emit before the gateway is initialised (tests, start-up): nothing
+  // is delivered then, and the log says so instead of an error on undefined. Every emitter
+  // goes through here, so nothing is ever sent server-wide.
+  private deliverTo(
+    targets: string | string[],
+    event: string,
+    data: unknown,
+  ): void {
+    if (!this.server) {
+      this.logger.warn(
+        `Event ${event} emitted before the socket server started; not delivered`,
+      );
+      return;
+    }
+    if (Array.isArray(targets) && targets.length === 0) return;
+    this.server.to(targets).emit(event, data);
+  }
+
   // One emit over several rooms: a socket in more than one of them receives it once
   emitToRooms(targets: string[], event: string, data: unknown) {
-    if (targets.length === 0) return;
-    this.server.to(targets).emit(event, data);
+    this.deliverTo(targets, event, data);
   }
 
   // The emitters below address the tenant of the scope they run in (the request or job
@@ -335,17 +369,37 @@ export class NotificationsGateway
 
   // Broadcast to all clients in a unit
   emitToUnit(unitCode: string, event: string, data: unknown) {
-    this.server.to(rooms.unit(this.currentTid(), unitCode)).emit(event, data);
+    this.deliverTo(rooms.unit(this.currentTid(), unitCode), event, data);
   }
 
   // Send to specific user
   emitToUser(userId: string, event: string, data: unknown) {
-    this.server.to(rooms.user(this.currentTid(), userId)).emit(event, data);
+    this.deliverTo(rooms.user(this.currentTid(), userId), event, data);
   }
 
   // To every socket of the current tenant (replaces the old system-wide broadcast)
   emitToTenant(event: string, data: unknown) {
-    this.server.to(rooms.tenant(this.currentTid())).emit(event, data);
+    this.deliverTo(rooms.tenant(this.currentTid()), event, data);
+  }
+
+  // gps:update reaches ward-wide staff, staff of the member's unit and the CA officers the
+  // member is assigned to, in the tenant that emits it (never the unit room, which the
+  // member's teammates share)
+  emitToGpsAudience(
+    unitCode: string,
+    caOfficerIds: string[],
+    data: unknown,
+  ): void {
+    const tid = this.currentTid();
+    this.deliverTo(
+      [
+        gpsWardRoom(tid),
+        gpsUnitRoom(tid, unitCode),
+        ...caOfficerIds.map((id) => rooms.user(tid, id)),
+      ],
+      GPS_UPDATE_EVENT,
+      data,
+    );
   }
 
   // Broadcast to everyone who joined a conversation room
@@ -360,7 +414,7 @@ export class NotificationsGateway
     event: string,
     data: unknown,
   ) {
-    this.server.to(rooms.conversation(tid, conversationId)).emit(event, data);
+    this.deliverTo(rooms.conversation(tid, conversationId), event, data);
   }
 
   // ── Chat handlers (P2-11) ────────────────────────────────────────────────

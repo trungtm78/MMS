@@ -5,10 +5,12 @@ import {
   AuthRevocationFeed,
   type AuthRevocation,
   type ListenerConnection,
+  parseAuthRevocation,
 } from './auth-revocation-feed';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const SID = '5d0c7a3e-9f1b-4c2d-8e6f-1a2b3c4d5e6f';
+const T = 'a1000000-0000-4000-8000-000000000001';
 
 // A pg.Client reduced to what the feed uses; `fail` makes the next connect reject
 class FakeConnection extends EventEmitter implements ListenerConnection {
@@ -244,5 +246,61 @@ describe('AuthRevocationFeed', () => {
 
     expect(other).toEqual([]);
     expect(revoked).toHaveLength(1);
+  });
+});
+
+describe('parseAuthRevocation', () => {
+  it('carries the tenant an announcement names, lower-cased', () => {
+    expect(
+      parseAuthRevocation(
+        JSON.stringify({
+          kind: 'session',
+          userId: USER,
+          sessionId: SID,
+          tenantId: T.toUpperCase(),
+        }),
+      ),
+    ).toEqual({ kind: 'session', userId: USER, sessionId: SID, tenantId: T });
+  });
+
+  it('carries the tenant of an account announcement', () => {
+    expect(
+      parseAuthRevocation(
+        JSON.stringify({
+          kind: 'account',
+          userId: USER,
+          version: '4',
+          active: true,
+          tenantId: T,
+        }),
+      ),
+    ).toEqual({
+      kind: 'account',
+      userId: USER,
+      version: 4,
+      active: true,
+      tenantId: T,
+    });
+  });
+
+  it('refuses an announcement whose tenant is not a uuid', () => {
+    expect(
+      parseAuthRevocation(
+        JSON.stringify({
+          kind: 'session',
+          userId: USER,
+          sessionId: SID,
+          tenantId: 'x',
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('still reads an announcement that names no tenant (a trigger older than 039)', () => {
+    expect(
+      parseAuthRevocation(
+        JSON.stringify({ kind: 'session', userId: USER, sessionId: SID }),
+      ),
+    ).toEqual({ kind: 'session', userId: USER, sessionId: SID });
   });
 });

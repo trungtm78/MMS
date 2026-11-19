@@ -32,4 +32,24 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name='emit'][callee.object.type='MemberExpression'][callee.object.property.name='server']",
+          message:
+            'A server-wide emit reaches every tenant: emit to a tenant room (NotificationsGateway.emitToTenant / emitToRooms).',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='emit'][callee.object.type='Identifier'][callee.object.name='server']",
+          message:
+            'A server-wide emit reaches every tenant: emit to a tenant room (NotificationsGateway.emitToTenant / emitToRooms).',
+        },
+      ],
+    },
+  },
 );
