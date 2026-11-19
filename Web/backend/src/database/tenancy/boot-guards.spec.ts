@@ -4,6 +4,7 @@ import {
   assertNoLegacyTenantDefault,
   assertRuntimeRoleEnforcesRls,
 } from './boot-guards';
+import { FIRST_TENANT_ID } from './first-tenant';
 import { TenancyConfigError } from './tenancy-mode';
 
 // What a plain checkout sees after RESET: the effective default of a session, wherever it
@@ -39,7 +40,7 @@ describe('assertNoLegacyTenantDefault', () => {
   it('refuses a database default and says how to remove it', async () => {
     const query = jest.fn().mockResolvedValue([
       {
-        setting: 'app.tenant_id=a1000000-0000-4000-8000-000000000001',
+        setting: `app.tenant_id=${FIRST_TENANT_ID}`,
       },
     ]);
     await expect(assertNoLegacyTenantDefault(source(query))).rejects.toThrow(
@@ -65,9 +66,11 @@ describe('assertNoLegacyTenantDefault', () => {
   });
   it('refuses a default that no catalog row shows, such as postgresql.conf or a connection option', async () => {
     const query = jest.fn().mockResolvedValue([]);
-    runner = fakeRunner('a1000000-0000-4000-8000-000000000001');
+    runner = fakeRunner(FIRST_TENANT_ID);
     await expect(assertNoLegacyTenantDefault(source(query))).rejects.toThrow(
-      /legacy_tenant_default_present.*a1000000-0000-4000-8000-000000000001.*RESET app\.tenant_id/,
+      new RegExp(
+        `legacy_tenant_default_present.*${FIRST_TENANT_ID}.*RESET app\\.tenant_id`,
+      ),
     );
     await expect(
       assertNoLegacyTenantDefault(source(query)),
@@ -90,7 +93,7 @@ describe('assertNoLegacyTenantDefault', () => {
 
   it('puts the client back even when the default is refused or the check fails', async () => {
     const query = jest.fn().mockResolvedValue([]);
-    runner = fakeRunner('a1000000-0000-4000-8000-000000000001');
+    runner = fakeRunner(FIRST_TENANT_ID);
     await expect(assertNoLegacyTenantDefault(source(query))).rejects.toThrow(
       /legacy_tenant_default_present/,
     );
@@ -145,11 +148,9 @@ describe('assertRuntimeRoleEnforcesRls', () => {
   });
 });
 
-const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
-
 describe('assertLegacyTenantDefaultPresent', () => {
   it('accepts a database whose sessions default to the first tenant', async () => {
-    const query = jest.fn().mockResolvedValue([{ tenant: FIRST_TENANT }]);
+    const query = jest.fn().mockResolvedValue([{ tenant: FIRST_TENANT_ID }]);
     await expect(
       assertLegacyTenantDefaultPresent({ query }),
     ).resolves.toBeUndefined();
@@ -165,7 +166,9 @@ describe('assertLegacyTenantDefaultPresent', () => {
     async (_name, tenant) => {
       const query = jest.fn().mockResolvedValue([{ tenant }]);
       await expect(assertLegacyTenantDefaultPresent({ query })).rejects.toThrow(
-        /legacy_tenant_default_missing.*ALTER DATABASE <db> SET app\.tenant_id = 'a1000000-0000-4000-8000-000000000001'.*pg_dump --create/,
+        new RegExp(
+          `legacy_tenant_default_missing.*ALTER DATABASE <db> SET app\\.tenant_id = '${FIRST_TENANT_ID}'.*pg_dump --create`,
+        ),
       );
     },
   );
@@ -185,7 +188,7 @@ describe('assertLegacyTenantDefaultPresent', () => {
   });
 
   it('reads what a plain session sees, not a catalog', async () => {
-    const query = jest.fn().mockResolvedValue([{ tenant: FIRST_TENANT }]);
+    const query = jest.fn().mockResolvedValue([{ tenant: FIRST_TENANT_ID }]);
     await assertLegacyTenantDefaultPresent({ query });
     const sql = String((query.mock.calls[0] as unknown[])[0]);
     expect(sql).toMatch(/current_setting\('app\.tenant_id', true\)/);

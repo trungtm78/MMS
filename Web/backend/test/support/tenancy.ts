@@ -4,8 +4,9 @@ import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { migrateDatabase } from '../../src/database/migrations/migrate';
+import { FIRST_TENANT_ID } from '../../src/database/tenancy/first-tenant';
 
-export const TENANT_1 = 'a1000000-0000-4000-8000-000000000001';
+export const TENANT_1 = FIRST_TENANT_ID;
 export const SLICE_TABLES = [
   'users',
   'units',

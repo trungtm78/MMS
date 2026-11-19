@@ -15,6 +15,7 @@ import {
   migrateDatabase,
   MIGRATION_LOCK_KEY,
 } from '../src/database/migrations/migrate';
+import { FIRST_TENANT_ID } from '../src/database/tenancy/first-tenant';
 import { withClient } from './support/db';
 import { eventually } from './support/eventually';
 
@@ -1294,7 +1295,7 @@ describe('schema guards (e2e)', () => {
 // Migration 035: every way a session ends or an account changes is announced, once the
 // change commits, for the realtime gateway (AuthRevocationFeed)
 describe('auth revocation notifications (e2e)', () => {
-  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  const FIRST_TENANT = FIRST_TENANT_ID;
   let url: string;
   let listener: Client;
   let userId: string;
@@ -1817,7 +1818,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS ${long} ON online_t (id);`,
 });
 
 describe('online tenant preparation (038)', () => {
-  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  const FIRST_TENANT = FIRST_TENANT_ID;
   const SEEDED = [
     'reward_decisions',
     'weapons',
@@ -1992,7 +1993,7 @@ describe('online tenant preparation (038)', () => {
 });
 
 describe('tenant isolation cutover (039)', () => {
-  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  const FIRST_TENANT = FIRST_TENANT_ID;
   let url: string;
 
   beforeAll(async () => {
@@ -2282,7 +2283,7 @@ describe('038 interrupted in the middle of the file', () => {
 });
 
 describe('039 precondition: only the first tenant owns data', () => {
-  const FIRST_TENANT = 'a1000000-0000-4000-8000-000000000001';
+  const FIRST_TENANT = FIRST_TENANT_ID;
 
   /** A database at 037, as the old version leaves it. */
   async function at037(): Promise<string> {

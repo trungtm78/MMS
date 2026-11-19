@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SeederService } from './seeder.service';
 import { DataSource } from 'typeorm';
+import { FIRST_TENANT_ID } from './tenancy/first-tenant';
 import { TenantContext } from './tenancy/tenant-context';
 
 const mockQuery = jest.fn();
@@ -118,8 +119,6 @@ describe('SeederService', () => {
   // The demo accounts belong to the first tenant; Row-Level Security rejects an insert
   // that carries no tenant scope once tenancy is enforced
   describe('tenancy scope', () => {
-    const FIRST_TENANT_ID = 'a1000000-0000-4000-8000-000000000001';
-
     const scopesSeenByQueries = async (): Promise<
       Array<string | undefined>
     > => {

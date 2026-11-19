@@ -78,3 +78,43 @@ describe('TenantContext', () => {
     expect(scopeKey({ tenantId: A })).not.toBe(scopeKey({ tenantId: B }));
   });
 });
+
+describe('TenantContext ids', () => {
+  it('keeps tenant ids lower-cased, so another case of the same id is the same scope', () => {
+    const upper = A.toUpperCase();
+    expect(
+      TenantContext.runAs({ tenantId: upper }, () =>
+        TenantContext.requireTenantId(),
+      ),
+    ).toBe(A);
+    TenantContext.start(() => {
+      TenantContext.adopt({ tenantId: upper });
+      expect(
+        thrownBy(() => TenantContext.adopt({ tenantId: A })),
+      ).toBeUndefined();
+      expect(scopeKey(TenantContext.current())).toBe(`tenant:${A}`);
+    });
+    expect(scopeKey({ tenantId: upper })).toBe(`tenant:${A}`);
+  });
+
+  it('leaves the scope as it was when adopt is refused', () => {
+    TenantContext.start(() => {
+      TenantContext.adopt({ tenantId: A });
+      expect(
+        thrownBy(() => TenantContext.adopt({ tenantId: B })),
+      ).toMatchObject({
+        code: 'scope_already_set',
+      });
+      expect(TenantContext.current()).toEqual({ tenantId: A });
+    });
+  });
+
+  it('names a tenant id that is not a uuid by its code', () => {
+    expect(
+      thrownBy(() => TenantContext.runAs({ tenantId: 'x' }, () => 1)),
+    ).toMatchObject({
+      name: 'TenantScopeError',
+      code: 'invalid_tenant_id',
+    });
+  });
+});

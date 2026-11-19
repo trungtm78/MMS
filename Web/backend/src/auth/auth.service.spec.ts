@@ -10,6 +10,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { FIRST_TENANT_ID } from '../database/tenancy/first-tenant';
 import { createHash } from 'crypto';
 import { AuthService } from './auth.service';
 import { AuthStateService } from './auth-state.service';
@@ -703,7 +704,7 @@ describe('AuthService', () => {
   // Multi-tenant (TENANCY_MODE=enforced): the tenant code picks the tenant, the tenant is
   // adopted into the request scope and named by the `tid` claim of both tokens
   describe('tenant at sign-in', () => {
-    const TID = 'a1000000-0000-4000-8000-000000000001';
+    const TID = FIRST_TENANT_ID;
     const LOOKUP = 'SELECT id, status FROM auth_tenant_by_code($1)';
     const previousMode = process.env.TENANCY_MODE;
 

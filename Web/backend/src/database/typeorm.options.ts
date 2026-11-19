@@ -11,7 +11,10 @@ import {
   assertNoLegacyTenantDefault,
   assertRuntimeRoleEnforcesRls,
 } from './tenancy/boot-guards';
-import { TenancyConfigError, isTenancyEnforced } from './tenancy/tenancy-mode';
+import {
+  TenancyConfigError,
+  freezeTenancySettings,
+} from './tenancy/tenancy-mode';
 
 // Root TypeORM connection. The schema is owned by the SQL migrations, never synchronized.
 // Entities are registered by the feature modules that use them (TypeOrmModule.forFeature),
@@ -48,13 +51,16 @@ const logger = new Logger('TenantAwareDataSource');
 // every session the first tenant, and the role is not locked out by the policies. A database
 // restored without its ALTER DATABASE settings, or a plain owner role, would otherwise fail
 // writes (or show empty tables) instead of refusing to start.
-// isTenancyEnforced() is also the boot-time call that makes a bad TENANCY_MODE value fail
-// startup.
+// freezeTenancySettings() is also the boot-time call that makes a bad TENANCY_MODE value
+// fail startup.
 export async function tenantAwareDataSource(
   options?: DataSourceOptions,
 ): Promise<DataSource> {
+  // Read once, here: a bad TENANCY_MODE fails before any connection, and the running
+  // application keeps the mode it started in
+  const settings = freezeTenancySettings();
+  const enforced = settings.mode === 'enforced';
   const dataSource = new DataSource(options as DataSourceOptions);
-  const enforced = isTenancyEnforced();
   if (enforced) bindTenantToConnections(dataSource);
   await dataSource.initialize();
   try {

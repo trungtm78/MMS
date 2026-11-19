@@ -28,18 +28,21 @@ interface Store {
 
 const storage = new AsyncLocalStorage<Store>();
 
-const assertScope = (scope: TenantScope): void => {
+// Tenant ids are compared as strings everywhere (scopeKey, room names, tid claims); a UUID
+// in upper case is the same tenant, so it is stored in lower case
+const normalised = (scope: TenantScope): TenantScope => {
   if (!isUUID(scope.tenantId)) {
     throw new TenantScopeError(
       'invalid_tenant_id',
       'A tenant scope needs a UUID tenant id',
     );
   }
+  return { tenantId: scope.tenantId.toLowerCase() };
 };
 
 /** Comparable identity of a scope; `none` is the absence of one. */
 export const scopeKey = (scope: TenantScope | undefined): string =>
-  scope ? `tenant:${scope.tenantId}` : 'none';
+  scope ? `tenant:${scope.tenantId.toLowerCase()}` : 'none';
 
 export const TenantContext = {
   /** Starts a store with no scope yet (one per HTTP request); `adopt` fills it in. */
@@ -49,8 +52,7 @@ export const TenantContext = {
 
   /** Runs `fn` under `scope`: a socket event, a background job, a sign-in. */
   runAs<T>(scope: TenantScope, fn: () => T): T {
-    assertScope(scope);
-    return storage.run({ scope }, fn);
+    return storage.run({ scope: normalised(scope) }, fn);
   },
 
   /**
@@ -58,7 +60,7 @@ export const TenantContext = {
    * request (later guards, interceptors, handlers) sees it, because the store is shared.
    */
   adopt(scope: TenantScope): void {
-    assertScope(scope);
+    const next = normalised(scope);
     const store = storage.getStore();
     if (!store) {
       throw new TenantScopeError(
@@ -66,13 +68,13 @@ export const TenantContext = {
         'No tenant scope store: the request did not pass TenantScopeMiddleware',
       );
     }
-    if (store.scope && store.scope.tenantId !== scope.tenantId) {
+    if (store.scope && store.scope.tenantId !== next.tenantId) {
       throw new TenantScopeError(
         'scope_already_set',
         'The request already runs under another tenant',
       );
     }
-    store.scope = scope;
+    store.scope = next;
   },
 
   current(): TenantScope | undefined {

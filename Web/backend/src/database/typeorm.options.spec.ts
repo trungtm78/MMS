@@ -171,16 +171,19 @@ describe('tenantAwareDataSource', () => {
 
     it('reports the guard error even when closing the data source fails too', async () => {
       const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
-      const refusal = new TenancyConfigError('refused');
-      jest.mocked(assertRuntimeRoleEnforcesRls).mockRejectedValue(refusal);
-      fake.destroy.mockRejectedValue(new Error('already closed'));
+      try {
+        const refusal = new TenancyConfigError('refused');
+        jest.mocked(assertRuntimeRoleEnforcesRls).mockRejectedValue(refusal);
+        fake.destroy.mockRejectedValue(new Error('already closed'));
 
-      await expect(tenantAwareDataSource(options)).rejects.toBe(refusal);
+        await expect(tenantAwareDataSource(options)).rejects.toBe(refusal);
 
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('already closed'),
-      );
-      warn.mockRestore();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('already closed'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('leaves a failed connection alone: initialize cleans up after itself', async () => {

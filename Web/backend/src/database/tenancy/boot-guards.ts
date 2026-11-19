@@ -1,4 +1,5 @@
 import type { DataSource } from 'typeorm';
+import { FIRST_TENANT_ID } from './first-tenant';
 import { TenancyConfigError } from './tenancy-mode';
 
 // Enforced mode is only as safe as the database it runs against. These checks run once at
@@ -86,8 +87,7 @@ export async function assertRuntimeRoleEnforcesRls(
 // The first tenant owns every row that existed before multi-tenancy. In legacy mode the
 // application never writes a tenant to its connections, so the database default below is
 // the only thing that gives its sessions a tenant at all.
-const FIRST_TENANT_ID = 'a1000000-0000-4000-8000-000000000001';
-
+//
 // Legacy mode silently depends on a database-level setting (migration 037:
 // ALTER DATABASE ... SET app.tenant_id). pg_dump without --create does not carry it, so a
 // restored database loses it and every write to a tenant table then fails on the NOT NULL
