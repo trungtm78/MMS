@@ -16,3 +16,6 @@ Object.assign(process.env, {
   DB_PASSWORD: APP_PASSWORD,
   UPLOAD_DIR: E2E_UPLOAD_DIR,
 });
+
+// The tenancy suites test the strict sign-in: a blank tenant code is a 400
+delete process.env.LEGACY_DEFAULT_TENANT_CODE;

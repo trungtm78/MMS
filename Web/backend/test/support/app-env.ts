@@ -1,3 +1,5 @@
+import { backendTenancyEnv } from './e2e-tenancy';
+
 // Environment of an e2e suite that boots AppModule on its own, freshly created database.
 // Import this module before AppModule: the backend reads its configuration while AppModule
 // is loaded. Jest gives every test file its own module registry, so each suite gets its own
@@ -36,3 +38,6 @@ Object.assign(process.env, {
   THROTTLE_LOGIN_LIMIT: '100000',
   THROTTLE_MFA_LIMIT: '100000',
 });
+
+// E2E_TENANCY=enforced: the backend runs as mms_app in enforced mode (support/e2e-tenancy.ts)
+Object.assign(process.env, backendTenancyEnv());

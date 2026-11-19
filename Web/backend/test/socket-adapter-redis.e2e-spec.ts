@@ -14,6 +14,7 @@ import {
 } from 'socket.io-client';
 import { createSocketIoAdapter } from '../src/common/realtime/socket-io-adapter';
 import { rooms } from '../src/notifications/rooms';
+import { eventually } from './support/eventually';
 
 jest.setTimeout(60_000);
 
@@ -54,21 +55,6 @@ async function startInstance(): Promise<Instance> {
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   const { port } = http.address() as AddressInfo;
   return { http, io, adapter, url: `http://127.0.0.1:${port}` };
-}
-
-/** Polls a condition that settles asynchronously, failing after the timeout. */
-async function eventually(
-  check: () => Promise<boolean>,
-  description: string,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await check())) {
-    if (Date.now() > deadline) {
-      throw new Error(`${description} did not happen within ${timeoutMs} ms`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
 }
 
 /** Opens a short-lived connection to Redis for the checks the suite makes itself. */

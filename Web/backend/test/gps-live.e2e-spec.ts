@@ -29,6 +29,7 @@ import { migrateDatabase } from '../src/database/migrations/migrate';
 import { configureHttpApp } from '../src/app.setup';
 import { GPS_OFFLINE_AFTER_MINUTES } from '../src/gps/gps-rooms';
 import { withClient } from './support/db';
+import { prepareDatabaseForTenancy } from './support/e2e-tenancy';
 
 jest.setTimeout(180_000);
 
@@ -134,6 +135,7 @@ describe('Live GPS (e2e)', () => {
       connectionString: E2E_DB_URL,
       directory: path.join(__dirname, '..', 'migrations'),
     });
+    await prepareDatabaseForTenancy(E2E_DB_NAME);
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],

@@ -18,6 +18,10 @@ import { migrateDatabase } from '../src/database/migrations/migrate';
 import { businessDate, shiftIsoDate } from '../src/common/time/business-date';
 import { configureHttpApp } from '../src/app.setup';
 import { withClient } from './support/db';
+import {
+  backendTenancyEnv,
+  prepareDatabaseForTenancy,
+} from './support/e2e-tenancy';
 
 jest.setTimeout(180_000);
 
@@ -112,6 +116,7 @@ describe('Features T18 (e2e)', () => {
       connectionString: targetUrl,
       directory: MIGRATIONS_DIR,
     });
+    await prepareDatabaseForTenancy(dbName);
 
     // Configuration is read when AppModule is loaded, so set it before requiring it
     const target = new URL(targetUrl);
@@ -129,6 +134,7 @@ describe('Features T18 (e2e)', () => {
       // The suite signs in far more often than a person could from one address
       THROTTLE_LOGIN_LIMIT: '100000',
       THROTTLE_MFA_LIMIT: '100000',
+      ...backendTenancyEnv(),
     });
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { AppModule } =

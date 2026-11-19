@@ -19,6 +19,10 @@ import { migrateDatabase } from '../src/database/migrations/migrate';
 import { configureHttpApp } from '../src/app.setup';
 import { FilesService } from '../src/files/files.service';
 import { withClient } from './support/db';
+import {
+  backendTenancyEnv,
+  prepareDatabaseForTenancy,
+} from './support/e2e-tenancy';
 
 jest.setTimeout(240_000);
 
@@ -155,6 +159,7 @@ describe('Client gaps T20 (e2e)', () => {
       connectionString: targetUrl,
       directory: MIGRATIONS_DIR,
     });
+    await prepareDatabaseForTenancy(dbName);
 
     // Configuration is read when AppModule is loaded, so set it before requiring it
     const target = new URL(targetUrl);
@@ -172,6 +177,7 @@ describe('Client gaps T20 (e2e)', () => {
       THROTTLE_LOGIN_LIMIT: '100000',
       THROTTLE_MFA_LIMIT: '100000',
       UPLOAD_DIR: uploadDir,
+      ...backendTenancyEnv(),
     });
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { AppModule } =

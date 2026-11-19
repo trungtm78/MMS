@@ -22,6 +22,10 @@ import {
   supportedGroupings,
 } from '../src/reports/custom-report.definitions';
 import { withClient } from './support/db';
+import {
+  backendTenancyEnv,
+  prepareDatabaseForTenancy,
+} from './support/e2e-tenancy';
 
 jest.setTimeout(180_000);
 
@@ -161,6 +165,7 @@ describe('Frontend routes T23 (e2e)', () => {
       connectionString: targetUrl,
       directory: MIGRATIONS_DIR,
     });
+    await prepareDatabaseForTenancy(dbName);
 
     // Configuration is read when AppModule is loaded, so set it before requiring it
     const target = new URL(targetUrl);
@@ -178,6 +183,7 @@ describe('Frontend routes T23 (e2e)', () => {
       // The suite signs in far more often than a person could from one address
       THROTTLE_LOGIN_LIMIT: '100000',
       THROTTLE_MFA_LIMIT: '100000',
+      ...backendTenancyEnv(),
     });
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { AppModule } =

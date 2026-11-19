@@ -3,6 +3,7 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "globalSetup": "<rootDir>/support/utc-timezone.global-setup.ts",
+  "globalTeardown": "<rootDir>/support/e2e-roles.global-teardown.ts",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest",

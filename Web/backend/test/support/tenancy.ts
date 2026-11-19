@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { migrateDatabase } from '../../src/database/migrations/migrate';
 import { FIRST_TENANT_ID } from '../../src/database/tenancy/first-tenant';
 
@@ -19,8 +19,10 @@ export const SLICE_TABLES = [
   'audit_logs',
 ] as const;
 
-export const APP_PASSWORD = 'mms_app_e2e';
-export const PLATFORM_PASSWORD = 'mms_platform_e2e';
+// One password per Jest process (the suites run one file per process): never a password
+// committed to the repository, and the global teardown sets NOLOGIN afterwards
+export const APP_PASSWORD = randomBytes(18).toString('base64url');
+export const PLATFORM_PASSWORD = randomBytes(18).toString('base64url');
 
 const adminUrl = (): string => {
   const url = process.env.MIGRATION_TEST_ADMIN_URL;
@@ -55,14 +57,20 @@ export async function withClient<T>(
   }
 }
 
-// ALTER ROLE races when two workers set the same cluster-wide role
-async function alterRole(client: Client, role: string, password: string) {
-  for (let attempt = 0; ; attempt++) {
+// Two Jest processes altering the same cluster-wide role can meet "tuple concurrently
+// updated" (XX000): retry that one; anything else is a real failure
+export async function alterRole(
+  client: Client,
+  role: string,
+  password: string,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
     try {
       await client.query(`ALTER ROLE ${role} LOGIN PASSWORD '${password}'`);
       return;
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if ((error as { code?: string }).code !== 'XX000' || attempt >= 5)
+        throw error;
     }
   }
 }
@@ -111,7 +119,14 @@ export async function createTenantDatabase(
     });
   } catch (error) {
     // A half-built database would otherwise outlive the failed suite
-    await dropDatabase().catch(() => undefined);
+    try {
+      await dropDatabase();
+    } catch (dropError) {
+      throw new AggregateError(
+        [error, dropError],
+        `Creating ${name} failed, and dropping the half-built database failed too`,
+      );
+    }
     throw error;
   }
   const appUrl = urlFor(base, name, 'mms_app', APP_PASSWORD);

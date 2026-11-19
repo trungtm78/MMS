@@ -390,7 +390,11 @@ describe('tenantAwareDataSource (e2e)', () => {
       /runtime_role_bypasses_rls/,
     );
     await eventually(
-      async () => (await connectionsOf(db, 'mms')) === 0,
+      async () =>
+        (await connectionsOf(
+          db,
+          new URL(process.env.MIGRATION_TEST_ADMIN_URL ?? '').username,
+        )) === 0,
       'the refused data source closing its connections',
     );
   });
